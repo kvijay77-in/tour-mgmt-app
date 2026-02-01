@@ -4,7 +4,7 @@
 These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED.
 - /docs/Requirements.md must be read and understood before any development work is taken up.
 - /docs/SolutionDesign.md must be referred to for design principles and architecture.
-- Follow the project folder structure as described in /docs/ProjectFolderStructure.md for placing files and organizing code. Any changes to the structure must be flagged for review and once approved should be updated in that document.
+- Follow the project folder structure as described in /docs/project-structure.md for placing files and organizing code. Any changes to the structure must be flagged for review and once approved should be updated in that document.
 - Always refer to /docs/Requirements.md for any clarifications on features, functions, and requirements.
 - If any inputs during our interaction contradict the requirement, flag it and ask for clarifications.
 - Understand the overall project requirements, features, and constraints as described in /docs/Requirements.md.
