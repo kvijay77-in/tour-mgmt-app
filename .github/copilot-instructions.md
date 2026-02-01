@@ -3,6 +3,7 @@
 ## Primary Instructions
 These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED.
 - /docs/Requirements.md must be read and understood before any development work is taken up.
+- /docs/SolutionDesign.md must be referred to for design principles and architecture.
 - Always refer to /docs/Requirements.md for any clarifications on features, functions, and requirements.
 - If any inputs during our interaction contradict the requirement, flag it and ask for clarifications.
 - Understand the overall project requirements, features, and constraints as described in /docs/Requirements.md.
@@ -26,7 +27,7 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 
 ### Design Considerations
 - The mobile app should be built using React Native with Expo managed workflow for ease of development and deployment.
-- The web application should be built using React.js and AWS Amplify to maintain consistency with the mobile app.
+- The web application should be built using react-native-web to achieve common codebase and UI components with the mobile app.
 - The backend should not rely entirely on AWS Amplify services for API and storage since they have limitations. Use AWS AppSync and DynamoDB directly where necessary.
 - Use AWS Cognito via AWS Amplify for user authentication and management. 
 - Create API using AWS AppSync with GraphQL for efficient data querying and manipulation independent of the client platform.
@@ -47,7 +48,6 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Ensure compatibility with Expo managed workflow.
 - Ensure compatibility with both iOS and Android platforms. If not possible, flag it and suggest alternatives.
 - Keep the number of external dependencies to a minimum to reduce bundle size and potential security vulnerabilities.
-- For web application, use React.js along with AWS Amplify to maintain consistency with the mobile app.
 
 > Web version is a simplified version of the mobile app with limited features. Basically dashboard and reports (if any included as requirement) viewing.
 
@@ -85,3 +85,12 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Mobile App must have ability to work in offline mode for certain functions.  
 - When working offline commit inserts/updates to local offline database first and then sync it to main database in DynamoDB tables when online.
 - Not all features are available in offline mode.
+
+# Do's and Don'ts
+Some specific or explicit instructions that must be followed. Same will be updated here if not covered above.  
+
+## Do's
+
+## Don'ts
+- Do not install Expo CLI globally as this is deprecated. Use npx/npm exec to run Expo CLI commands.
+
