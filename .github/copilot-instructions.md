@@ -15,6 +15,7 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Stick to design and instructions.
 - Always ask for clarifications if the requirements are ambiguous or incomplete.
 - Always prioritize security, performance, and maintainability in code suggestions.
+- Always provide brief explanation on any commnand that you are running or suggesting to run.
 
 ## Technology Stack and design considerations
 - Platform: Mobile (iOS and Android) and Web
