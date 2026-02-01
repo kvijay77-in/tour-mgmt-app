@@ -4,7 +4,7 @@
 These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED.
 - /docs/Requirements.md must be read and understood before any development work is taken up.
 - Always refer to /docs/Requirements.md for any clarifications on features, functions, and requirements.
-- If any inputs during our interaction contradict the requirement, flg it and ask for clarifications.
+- If any inputs during our interaction contradict the requirement, flag it and ask for clarifications.
 - Understand the overall project requirements, features, and constraints as described in /docs/Requirements.md.
 - Ensure all code suggestions and implementations strictly adhere to the requirements specified in /docs/Requirements.md. 
 - Always follow what was asked, do not suggest or code extra features or changes unless explicitly requested.
@@ -20,10 +20,23 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Frameworks/Libraries: React Native, Expo CLI, AWS Amplify
 - Backend Services: AWS Amplify (Authentication, API, Storage)
 - Storage: AWS DynamoDB, AWS S3, SQLite (for offline support)  
-  > DynamoDB tables are created and managed separately from this project. This is to ensure data persistence and cross application access. 
-  - Authentication: AWS Cognito via AWS Amplify
-  - API: AWS AppSync (GraphQL)
-  - AWS Lambda for serverless functions
+- Authentication: AWS Cognito via AWS Amplify
+- API: AWS AppSync (GraphQL)
+- AWS Lambda for serverless functions  
+
+### Design Considerations
+- The mobile app should be built using React Native with Expo managed workflow for ease of development and deployment.
+- The web application should be built using React.js and AWS Amplify to maintain consistency with the mobile app.
+- The backend should not rely entirely on AWS Amplify services for API and storage since they have limitations. Use AWS AppSync and DynamoDB directly where necessary.
+- Use AWS Cognito via AWS Amplify for user authentication and management. 
+- Create API using AWS AppSync with GraphQL for efficient data querying and manipulation independent of the client platform.
+- For reusable business logic, use AWS Lambda functions.
+- Ensure the application is responsive and works well on various screen sizes and orientations for mobile devices.
+- Implement offline support for the mobile app using SQLite for local data storage and synchronization with DynamoDB when online.
+- Details of resources created externally will be provided as needed. If not provided, ask for details.
+- Some resources like DynamoDB tables are created and managed externally and not part of this project. This is to persist data even if the Amplify App deployment is deleted and make data available for multiple applications.
+
+> AWS Amplify resources are created automatically and will be deleted if the Amplify App is deleted. Hence careful consideration is needed when using AWS Amplify created resources. Always consider creating certain resources like DynamoDB tables, API, etc. externally and connect to them from Amplify App.
 
 ## Library and Package Usage
 - Use only well-known and widely accepted libraries and packages.
@@ -36,7 +49,7 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Keep the number of external dependencies to a minimum to reduce bundle size and potential security vulnerabilities.
 - For web application, use React.js along with AWS Amplify to maintain consistency with the mobile app.
 
-> Web version is a simplified version of the mobile app with limited features. Basically dashboard and reports viewing.
+> Web version is a simplified version of the mobile app with limited features. Basically dashboard and reports (if any included as requirement) viewing.
 
 ## Coding Standards and Best Practices
 - Strictly follow security best practices for mobile and web applications.

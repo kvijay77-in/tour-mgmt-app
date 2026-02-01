@@ -23,7 +23,7 @@ Each Rider registered for the tour will be assigned a unique Rider ID which must
 QR Code will be generated for each Rider that will embed Rider ID and other information as required and provided to the respective Rider before the tour commences.
 
 # Dashboard
-This is the Home Screen for the app. A sample mock up for visualization purpose is available [here](./Images/dashboard_sample.png).
+This is the Home Screen for the app. A sample mock up for visualization purpose is available [here](./Images/Dashboard_sample.png).
 
 Dashboard should list all riders similar to that in the mock up in a grid format. Source for the dashboard should be from a Cloud based database table. Each icon should have the Rider ID as the label and should have various color based representation to indicate the last stage at which the Rider has checked in. Color code Stage legend should be displayed for easy understanding.
 
