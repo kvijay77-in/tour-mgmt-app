@@ -29,11 +29,23 @@ Dashboard should list all riders similar to that in the mock up in a grid format
 
 By default Dashboard should give the full picture of the Ride with latest Rider check in status and sorted by Rider ID in lexicographical order. There should be filter and sort options available.  
 
+## Stage Count
+
+This is part of the Header section in the Dashboard. Logic for count:
+- Start: Now counts all riders who have checked in at Start or beyond (includes PS1, PS2, Finish, and QR riders who started)
+- PS1: Counts riders who reached PS1 or beyond (includes PS2, Finish, and QR riders who reached PS1)
+- PS2: Counts riders who reached PS2 or beyond (includes Finish and QR riders who reached PS2)
+- Finish: Counts only riders who completed
+- QR: Total QR riders (counted separately, but also included in their respective stage counts based on where they reached before quitting)
+- NR: Excluded from stage counts as they never started
+
 ## Historical View
 Dashboard should always display the respective calendar day's ride by default. There should be an option to view previous days or historical ride. When viewing historical ride, it must be alway in read-only mode i.e. check in feature must be disabled. Historical view should be available for all dates from the start of the tour with dates listed based on the ride dates available in the database as a list. A calender view instead of list can be considered if that provides a good user experience.
 
-## Filter  
-Filter should be implemented by stage using left and right swipe gestures. When filter is activated, the checked in status should be displayed relative to the stage i.e. checked in or not. A easy 'reset filter' option should be activated when in filter mode to get back to default or unfiltered view.  
+## Stage View
+When App is launched and Dashboard is displayed it give a complete view of the riders' progress. A Stage-wise view is also required for someone to see what's the stage's status. Each stage should have a button that can toggle Stage View on and off. When stage view is on, it should display check in status relative to the stage i.e. show all riders and Rider icon color should have respective Stage color for checked in riders and a different color for not checked in riders. When stage view is off (toggle), view should go back to default complete view.
+
+Rider icon with Not Riding and Quit Riding status should appear with respective fix color.
 
 ## Sort  
 Sort should made available as a toggle option - sorted and unsort (which is actually sorted by Rider ID). Sorting when activated should group and order riders by stage. When sorting is activated within filtered view, show not checked in first and then checked in. When sorting is activated it should always have sub-sorting on Rider ID.  
@@ -79,6 +91,13 @@ If Rider decides at a pit stop, pit stop crew user should register the Rider as 
 If a Rider decides to Quit Riding in between any stage, QR Code scanning is not possible as there is no user around to do it. In this scenario usually Rider inform/post in the WhatsApp Group Chat monitored by Tour Director or user with Super User role and one of them can perform a manual check in using the Rider ID, remotely.
 
 Once a Rider is registered as 'Quit Riding' any further check in should not be allowed for that Rider.  
+
+## Check In for Stage View  
+When a Rider checks in at multiple stages implies that the Rider has checked in all stages till the last checked in stage. This is important in Stage View.
+
+Say a Rider latest checked in stage is PS1 and this implies that the Rider has checked in at Start and PS1. So in the Dashboard default view, PS1 color should be assigned to corresponding Rider ID icon. But in Stage views it slightly varies. Same Rider in Start stage view, should have Start color and in PS1 Stage view as PS1 stage color.
+
+Another example and in this let's take a Rider has finished the ride i.e. the latest check-in is at Finish stage. So in Stage Views, Start, PS1 and PS2 the Rider ID icon color should be that of the respective stages. For clarity, in default view it should be Finish stage color.
 
 # Role based app Access  
 App access should be access controlled based on role. Each feature or function in the app must have a specific label or name to it. These labels can be combined in different combinations to create roles. Only user assigned with a valid role should have access to the corresponding feature/function.  

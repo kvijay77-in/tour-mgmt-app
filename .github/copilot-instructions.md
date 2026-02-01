@@ -15,13 +15,14 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Stick to design and instructions.
 - Always ask for clarifications if the requirements are ambiguous or incomplete.
 - Always prioritize security, performance, and maintainability in code suggestions.
-- Always provide brief explanation on any commnand that you are running or suggesting to run.
+- Always provide brief explanation on any command that you are running or suggesting to run.
 
 ## Technology Stack and design considerations
 - Platform: Mobile (iOS and Android) and Web
 - Programming Languages: Node.js, JavaScript, TypeScript
 - Frameworks/Libraries: React Native, Expo CLI, AWS Amplify
 - Backend Services: AWS Amplify (Authentication, API, Storage)
+- AWS Amplify Gen 2
 - Storage: AWS DynamoDB, AWS S3, SQLite (for offline support)  
 - Authentication: AWS Cognito via AWS Amplify
 - API: AWS AppSync (GraphQL)
@@ -60,6 +61,7 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Follow standard coding conventions for JavaScript and TypeScript.
 - Use environment variables for sensitive information and configuration settings.
 - No hardcoding of any credentials, URLs, or configuration values directly in the codebase.
+- Styling should not be inline. Use StyleSheet or styled-components for React Native styling.
 - Ensure proper error handling and logging throughout the application.
 - Use ESLint and Prettier for code formatting and linting.
 - Always run linting to ensure code quality before compilation and deployment.

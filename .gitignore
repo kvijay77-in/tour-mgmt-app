@@ -41,13 +41,12 @@ yarn-error.*
 /ios
 /android
 
-# AWS Amplify
-amplify/
-.amplifyrc
-awsconfiguration.json
-amplifyconfiguration.json
-amplify-build-config.json
-amplify-gradle-config.json
-
 # VSCode
 .vscode/
+
+# AWS Amplify Gen 2
+.amplify/
+amplify_outputs*
+amplifyconfiguration*
+
+/Temp
