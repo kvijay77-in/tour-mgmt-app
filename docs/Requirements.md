@@ -99,6 +99,8 @@ Say a Rider latest checked in stage is PS1 and this implies that the Rider has c
 
 Another example and in this let's take a Rider has finished the ride i.e. the latest check-in is at Finish stage. So in Stage Views, Start, PS1 and PS2 the Rider ID icon color should be that of the respective stages. For clarity, in default view it should be Finish stage color.
 
+For Rider who quit and checked in as QR, in Stage View, Stage check-in should take precedence if already checked in in that stage before quitting. In default view, QR check in status should be used. For Stage Views after QR check in, Rider status should show QR and not 'not checked in yet' to indicate to the pit crew that the rider will not be checking in further and no need to track.
+
 # Role based app Access  
 App access should be access controlled based on role. Each feature or function in the app must have a specific label or name to it. These labels can be combined in different combinations to create roles. Only user assigned with a valid role should have access to the corresponding feature/function.  
 

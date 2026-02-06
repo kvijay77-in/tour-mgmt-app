@@ -247,6 +247,23 @@ export const getMockLastCheckIn = (riderId: string, rideId: string): CheckIn | u
 };
 
 /**
+ * Get last successful check-in (CHECKED_IN status) for a rider in a ride
+ * This is used for determining the last stage a rider actually reached
+ */
+export const getMockLastSuccessfulCheckIn = (riderId: string, rideId: string): CheckIn | undefined => {
+  const checkIns = getMockRiderCheckIns(riderId, rideId)
+    .filter(ci => ci.status === CheckInStatus.CHECKED_IN);
+  if (checkIns.length === 0) return undefined;
+  
+  // Sort by stage number and return last
+  return checkIns.sort((a, b) => {
+    const stageA = MOCK_STAGES.find((s) => s.stageId === a.stageId);
+    const stageB = MOCK_STAGES.find((s) => s.stageId === b.stageId);
+    return (stageB?.stageNumber || 0) - (stageA?.stageNumber || 0);
+  })[0];
+};
+
+/**
  * Get rider status for dashboard
  */
 export const getMockRiderStatus = (riderId: string): RiderStatus | undefined => {
@@ -264,10 +281,16 @@ export const getMockRiderStatus = (riderId: string): RiderStatus | undefined => 
   if (lastCheckIn) {
     if (lastCheckIn.status === CheckInStatus.NOT_RIDING || lastCheckIn.status === CheckInStatus.QUIT_RIDING) {
       overallStatus = lastCheckIn.status;
+      // For QR and NR riders, use the last successful check-in stage (where they actually reached)
+      // not the stage where they quit/marked as not riding
+      const lastSuccessfulCheckIn = getMockLastSuccessfulCheckIn(riderId, ride.rideId);
+      if (lastSuccessfulCheckIn) {
+        lastStage = MOCK_STAGES.find((s) => s.stageId === lastSuccessfulCheckIn.stageId);
+      }
     } else {
       overallStatus = CheckInStatus.CHECKED_IN;
+      lastStage = MOCK_STAGES.find((s) => s.stageId === lastCheckIn.stageId);
     }
-    lastStage = MOCK_STAGES.find((s) => s.stageId === lastCheckIn.stageId);
   }
   
   return {

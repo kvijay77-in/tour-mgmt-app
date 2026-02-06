@@ -2,7 +2,7 @@
  * Dashboard Screen - Main screen showing rider status
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,14 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { getMockDashboardData, getMockCurrentRide } from '../../services/api/mockData';
 import { RiderStatus, CheckInStatus } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
+import { SortIcon } from '../../components/common/SortIcon';
 
 const { width } = Dimensions.get('window');
 const GRID_COLUMNS = 6;
@@ -24,14 +27,123 @@ export default function DashboardScreen() {
   const ride = getMockCurrentRide();
   const allRiderStatuses = getMockDashboardData();
   const [stageViewId, setStageViewId] = useState<string | undefined>(undefined);
+  const [isSorted, setIsSorted] = useState<boolean>(false);
+
+  // FAB draggable position
+  const pan = useRef(new Animated.ValueXY({ x: width - 76, y: width - 76 })).current;
+  const [isDragging, setIsDragging] = useState(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        pan.setOffset({
+          // @ts-ignore - accessing private _value property
+          x: pan.x._value,
+          // @ts-ignore - accessing private _value property
+          y: pan.y._value,
+        });
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: (_, gesture) => {
+        setIsDragging(true);
+        Animated.event([null, { dx: pan.x, dy: pan.y }], {
+          useNativeDriver: false,
+        })(_, gesture);
+      },
+      onPanResponderRelease: () => {
+        pan.flattenOffset();
+        setTimeout(() => setIsDragging(false), 100);
+      },
+    })
+  ).current;
 
   // Toggle stage view - clicking again deactivates
   const toggleStageView = (stageId: string) => {
     setStageViewId(stageViewId === stageId ? undefined : stageId);
   };
 
-  // Stage view doesn't filter - it just changes color display
-  const filteredRiders = allRiderStatuses;
+  // Toggle sort
+  const toggleSort = () => {
+    setIsSorted(!isSorted);
+  };
+
+  // Sort riders based on requirements
+  const sortRiders = (riders: RiderStatus[]): RiderStatus[] => {
+    if (!isSorted) {
+      // Unsorted mode: sort by Rider ID lexicographically
+      return [...riders].sort((a, b) => 
+        a.rider.riderId.localeCompare(b.rider.riderId)
+      );
+    }
+
+    // Sorted mode
+    return [...riders].sort((a, b) => {
+      if (stageViewId) {
+        // Stage View sorting
+        const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
+        if (!selectedStage) return 0;
+        
+        const aIsNR = a.overallStatus === CheckInStatus.NOT_RIDING;
+        const bIsNR = b.overallStatus === CheckInStatus.NOT_RIDING;
+        const aIsQR = a.overallStatus === CheckInStatus.QUIT_RIDING;
+        const bIsQR = b.overallStatus === CheckInStatus.QUIT_RIDING;
+        const aCheckedInAtStage = a.lastStage && a.lastStage.stageNumber >= selectedStage.stageNumber;
+        const bCheckedInAtStage = b.lastStage && b.lastStage.stageNumber >= selectedStage.stageNumber;
+        
+        // Order: not checked in → QR (all QR) → checked in → NR
+        // All sub-sorted by Rider ID
+        
+        // NR always last
+        if (aIsNR && !bIsNR) return 1;
+        if (!aIsNR && bIsNR) return -1;
+        if (aIsNR && bIsNR) {
+          return a.rider.riderId.localeCompare(b.rider.riderId);
+        }
+        
+        // Checked in at this stage (excluding QR) - comes after QR
+        if (aCheckedInAtStage && !aIsQR && (!bCheckedInAtStage || bIsQR) && !bIsNR) return 1;
+        if (bCheckedInAtStage && !bIsQR && (!aCheckedInAtStage || aIsQR) && !aIsNR) return -1;
+        if (aCheckedInAtStage && !aIsQR && bCheckedInAtStage && !bIsQR) {
+          return a.rider.riderId.localeCompare(b.rider.riderId);
+        }
+        
+        // All QR riders - comes after not checked in
+        if (aIsQR && !bIsQR && !bCheckedInAtStage && !bIsNR) return 1;
+        if (bIsQR && !aIsQR && !aCheckedInAtStage && !aIsNR) return -1;
+        if (aIsQR && bIsQR) {
+          return a.rider.riderId.localeCompare(b.rider.riderId);
+        }
+        
+        // Not checked in (and not QR, not NR) - first group
+        // Same group: sub-sort by Rider ID
+        return a.rider.riderId.localeCompare(b.rider.riderId);
+      } else {
+        // Default View sorting
+        // Assign group order: not checked in → QR → stages → NR
+        const getGroupOrder = (rs: RiderStatus): number => {
+          if (rs.overallStatus === CheckInStatus.NOT_RIDING) return 1000; // NR last
+          if (rs.overallStatus === CheckInStatus.QUIT_RIDING) return 100; // QR second (after not checked in)
+          if (rs.overallStatus === CheckInStatus.NOT_CHECKED_IN) return 0; // Not checked in first
+          return 200 + (rs.lastStage?.stageNumber || 0); // Regular riders by stage (after QR)
+        };
+        
+        const aGroup = getGroupOrder(a);
+        const bGroup = getGroupOrder(b);
+        
+        if (aGroup !== bGroup) {
+          return aGroup - bGroup;
+        }
+        
+        // Same group: sub-sort by Rider ID
+        return a.rider.riderId.localeCompare(b.rider.riderId);
+      }
+    });
+  };
+
+  // Apply sorting
+  const filteredRiders = sortRiders(allRiderStatuses);
 
   // Calculate per-stage counts
   // Each stage count includes riders at that stage AND all subsequent stages
@@ -68,15 +180,12 @@ export default function DashboardScreen() {
 
   // Get color for rider based on status and stage view
   const getRiderColor = (riderStatus: RiderStatus): string => {
-    // Special statuses always use their colors
+    // NR always uses gray color in all views
     if (riderStatus.overallStatus === CheckInStatus.NOT_RIDING) {
       return COLORS.gray[400]; // Grey for Not Riding
     }
-    if (riderStatus.overallStatus === CheckInStatus.QUIT_RIDING) {
-      return CHECK_IN_STATUS_COLORS[CheckInStatus.QUIT_RIDING];
-    }
 
-    // Stage view active - show selected stage color if rider has reached it, white otherwise
+    // Stage view active
     if (stageViewId) {
       const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
       
@@ -86,14 +195,24 @@ export default function DashboardScreen() {
       }
       
       // Check if rider has reached or passed the selected stage
-      // (since checking in at a later stage implies checking in at all previous stages)
       if (selectedStage && riderStatus.lastStage.stageNumber >= selectedStage.stageNumber) {
         // Rider has reached this stage - show the selected stage's color
         return getStageColor(selectedStage.stageNumber, ride.stages.length);
       }
       
-      // Rider hasn't reached this stage yet - show white
+      // Rider hasn't reached this stage yet
+      // If QR rider who quit before this stage, show QR color
+      // Otherwise show white (not checked in at this stage yet)
+      if (riderStatus.overallStatus === CheckInStatus.QUIT_RIDING) {
+        return CHECK_IN_STATUS_COLORS[CheckInStatus.QUIT_RIDING];
+      }
+      
       return STAGE_VIEW_COLORS.notCheckedInAtStage;
+    }
+
+    // Default/Overall view - QR riders show their special color
+    if (riderStatus.overallStatus === CheckInStatus.QUIT_RIDING) {
+      return CHECK_IN_STATUS_COLORS[CheckInStatus.QUIT_RIDING];
     }
 
     // Default view - show last stage color or white for not checked in
@@ -187,8 +306,18 @@ export default function DashboardScreen() {
         })}
       </ScrollView>
 
-      {/* Compact Footer with Stage View Toggle and QR Scan */}
+      {/* Footer with Sort and Stage View Toggles */}
       <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.sortButton, isSorted && styles.sortButtonActive]}
+          onPress={toggleSort}
+        >
+          <SortIcon 
+            size={24} 
+            color={isSorted ? COLORS.primary : COLORS.gray[500]} 
+          />
+        </TouchableOpacity>
+        
         <ScrollView 
           horizontal 
           style={styles.stageScroll}
@@ -207,11 +336,31 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
-        
-        <TouchableOpacity style={styles.qrButton}>
+      </View>
+
+      {/* Floating Action Button for QR Scanner - Draggable */}
+      <Animated.View
+        style={[
+          styles.fab,
+          {
+            transform: [{ translateX: pan.x }, { translateY: pan.y }],
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <TouchableOpacity
+          style={styles.fabButton}
+          disabled={isDragging}
+          onPress={() => {
+            if (!isDragging) {
+              // Handle QR scan action
+              // TODO: Navigate to QR scanner screen
+            }
+          }}
+        >
           <MaterialIcons name="qr-code-scanner" size={28} color={COLORS.white} />
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -301,6 +450,18 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     height: 60,
+    gap: 12,
+  },
+  sortButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.gray[100],
+  },
+  sortButtonActive: {
+    backgroundColor: COLORS.primary + '15', // 15% opacity
   },
   stageScroll: {
     flex: 1,
@@ -320,13 +481,22 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontWeight: 'bold',
   },
-  qrButton: {
+  fab: {
+    position: 'absolute',
+    width: 56,
+    height: 56,
+  },
+  fabButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#14B8A6',
-    width: 50,
-    height: 50,
-    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
 });
