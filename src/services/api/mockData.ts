@@ -27,10 +27,12 @@ const generateRiders = (count: number): Rider[] => {
     const riderNum = String(i).padStart(3, '0');
     const firstName = firstNames[(i - 1) % firstNames.length];
     const lastName = lastNames[Math.floor((i - 1) / 2) % lastNames.length];
+    const phone = `+1-555-${String(1000 + i).slice(1)}`; // Generate phone numbers
     riders.push({
       riderId: `R${riderNum}`,
       name: `${firstName} ${lastName}`,
       email: `${firstName.toLowerCase()}${i}@example.com`,
+      phone: phone,
       qrCodeData: `QR_R${riderNum}`,
     });
   }

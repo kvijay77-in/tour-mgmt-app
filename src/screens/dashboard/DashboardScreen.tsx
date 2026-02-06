@@ -12,7 +12,9 @@ import {
   Dimensions,
   Animated,
   PanResponder,
+  Modal,
 } from 'react-native';
+import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
 import { getMockDashboardData, getMockCurrentRide } from '../../services/api/mockData';
 import { RiderStatus, CheckInStatus } from '../../types/models';
@@ -28,6 +30,39 @@ export default function DashboardScreen() {
   const allRiderStatuses = getMockDashboardData();
   const [stageViewId, setStageViewId] = useState<string | undefined>(undefined);
   const [isSorted, setIsSorted] = useState<boolean>(false);
+  const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
+  const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
+  const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
+
+  // Pinch gesture for zoom
+  const baseScale = useRef(1);
+  const pinchScale = useRef(1);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      pinchScale.current = baseScale.current * event.scale;
+    })
+    .onEnd(() => {
+      const scale = pinchScale.current;
+      baseScale.current = scale;
+      
+      // Map scale to zoom levels
+      if (scale <= 0.8) {
+        setZoomLevel(1);
+        baseScale.current = 1;
+      } else if (scale <= 1.5) {
+        setZoomLevel(2);
+        baseScale.current = 1;
+      } else if (scale <= 2.5) {
+        setZoomLevel(3);
+        baseScale.current = 1;
+      } else {
+        setZoomLevel(4);
+        baseScale.current = 1;
+      }
+      
+      pinchScale.current = 1;
+    });
 
   // FAB draggable position
   const pan = useRef(new Animated.ValueXY({ x: width - 76, y: width - 76 })).current;
@@ -67,6 +102,14 @@ export default function DashboardScreen() {
   // Toggle sort
   const toggleSort = () => {
     setIsSorted(!isSorted);
+  };
+
+  // Handle rider icon tap
+  const handleRiderTap = (riderStatus: RiderStatus) => {
+    if (zoomLevel === 1 || zoomLevel === 2) {
+      setSelectedRider(riderStatus);
+      setIsRiderCardVisible(true);
+    }
   };
 
   // Sort riders based on requirements
@@ -233,14 +276,31 @@ export default function DashboardScreen() {
     return `PS${stageNumber - 1}`;
   };
 
-  // Style helpers for dynamic colors
+  // Style helpers for dynamic colors and sizes
   const getRiderIconStyle = (riderStatus: RiderStatus) => {
     const bgColor = getRiderColor(riderStatus);
     const isWhite = bgColor === COLORS.white;
     
+    // Calculate icon size based on zoom level
+    let iconSize = RIDER_ICON_SIZE;
+    let columns = GRID_COLUMNS;
+    
+    if (zoomLevel === 2) {
+      columns = 4;
+      iconSize = (width - 32) / columns - 6;
+    } else if (zoomLevel === 3) {
+      columns = 3;
+      iconSize = (width - 32) / columns - 6;
+    } else if (zoomLevel === 4) {
+      columns = 2;
+      iconSize = (width - 32) / columns - 6;
+    }
+    
     return [
       styles.riderIcon,
       {
+        width: iconSize,
+        height: iconSize,
         backgroundColor: bgColor,
         borderWidth: isWhite ? 2 : 0,
         borderColor: isWhite ? COLORS.gray[400] : 'transparent',
@@ -264,7 +324,7 @@ export default function DashboardScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <GestureHandlerRootView style={styles.container}>
       {/* Compact Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
@@ -289,22 +349,113 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Rider Grid - Maximum space */}
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.gridContainer}>
+      {/* Rider Grid - Maximum space with Pinch Zoom */}
+      <GestureDetector gesture={pinchGesture}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.gridContainer}>
         {filteredRiders.map((riderStatus) => {
           const isWhiteBg = getRiderColor(riderStatus) === COLORS.white;
           return (
             <TouchableOpacity
               key={riderStatus.rider.riderId}
               style={getRiderIconStyle(riderStatus)}
+              onPress={() => handleRiderTap(riderStatus)}
             >
-              <Text style={[styles.riderIdText, isWhiteBg && { color: COLORS.textPrimary }]}>
-                {riderStatus.rider.riderId}
-              </Text>
+              <View style={styles.riderIconContent}>
+                {/* Level 1: Rider ID only */}
+                {zoomLevel === 1 && (
+                  <Text style={[styles.riderIdText, isWhiteBg && { color: COLORS.textPrimary }]}>
+                    {riderStatus.rider.riderId}
+                  </Text>
+                )}
+                
+                {/* Level 2: Rider ID + Name */}
+                {zoomLevel === 2 && (
+                  <>
+                    <Text style={[styles.riderIdTextZoom, isWhiteBg && { color: COLORS.textPrimary }]}>
+                      {riderStatus.rider.riderId}
+                    </Text>
+                    <Text style={[styles.riderNameText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={2}>
+                      {riderStatus.rider.name}
+                    </Text>
+                  </>
+                )}
+                
+                {/* Level 3: Rider ID + Name + Contact */}
+                {zoomLevel === 3 && (
+                  <>
+                    <Text style={[styles.riderIdTextZoom, isWhiteBg && { color: COLORS.textPrimary }]}>
+                      {riderStatus.rider.riderId}
+                    </Text>
+                    <Text style={[styles.riderNameText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                      {riderStatus.rider.name}
+                    </Text>
+                    <Text style={[styles.riderContactText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                      {riderStatus.rider.phone || 'N/A'}
+                    </Text>
+                  </>
+                )}
+                
+                {/* Level 4: Rider ID + Name + Photo + Contact */}
+                {zoomLevel === 4 && (
+                  <>
+                    <MaterialIcons 
+                      name="account-circle" 
+                      size={40} 
+                      color={isWhiteBg ? COLORS.gray[400] : COLORS.white} 
+                    />
+                    <Text style={[styles.riderIdTextZoom, isWhiteBg && { color: COLORS.textPrimary }]}>
+                      {riderStatus.rider.riderId}
+                    </Text>
+                    <Text style={[styles.riderNameText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                      {riderStatus.rider.name}
+                    </Text>
+                    <Text style={[styles.riderContactText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                      {riderStatus.rider.phone || 'N/A'}
+                    </Text>
+                  </>
+                )}
+              </View>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+        </ScrollView>
+      </GestureDetector>
+
+      {/* Rider Card Modal for Level 1 & 2 */}
+      <Modal
+        visible={isRiderCardVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsRiderCardVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setIsRiderCardVisible(false)}
+        >
+          <View style={styles.riderCard}>
+            {selectedRider && (
+              <>
+                <MaterialIcons 
+                  name="account-circle" 
+                  size={80} 
+                  color={COLORS.gray[400]} 
+                  style={styles.riderCardIcon}
+                />
+                <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
+                <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
+                <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
+                <TouchableOpacity 
+                  style={styles.closeButton}
+                  onPress={() => setIsRiderCardVisible(false)}
+                >
+                  <Text style={styles.closeButtonText}>Close</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Footer with Sort and Stage View Toggles */}
       <View style={styles.footer}>
@@ -361,7 +512,7 @@ export default function DashboardScreen() {
           <MaterialIcons name="qr-code-scanner" size={28} color={COLORS.white} />
         </TouchableOpacity>
       </Animated.View>
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
@@ -436,10 +587,82 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
+  riderIconContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 4,
+  },
   riderIdText: {
     fontSize: 12,
     fontWeight: 'bold',
     color: COLORS.white,
+  },
+  riderIdTextZoom: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: COLORS.white,
+  },
+  riderNameText: {
+    fontSize: 9,
+    color: COLORS.white,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  riderContactText: {
+    fontSize: 8,
+    color: COLORS.white,
+    textAlign: 'center',
+    marginTop: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  riderCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 24,
+    width: width * 0.8,
+    maxWidth: 300,
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  riderCardIcon: {
+    marginBottom: 12,
+  },
+  riderCardId: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  riderCardName: {
+    fontSize: 16,
+    color: COLORS.textPrimary,
+    marginBottom: 4,
+  },
+  riderCardContact: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginBottom: 20,
+  },
+  closeButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  closeButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   footer: {
     backgroundColor: COLORS.white,

@@ -52,6 +52,17 @@ Sort should made available as a toggle option - sorted and unsort (which is actu
 
 Rider IDs with Not Riding and Quit Riding status should appear in the end when sorting is activated.
 
+## Zoom In & Out
+Dashboard should have a pinch and zoom feature for mobile app. Zoom should have 4 levels. For all levels grid format should be used.
+- Level 1: Rider ID only
+- Level 2: Rider ID and Name.
+- Level 3: Rider ID, Name and Contact no.
+- Level 4: Rider ID, Name, Photo and Contact no.
+
+Dashboard will use level 1 as default zoom level. 
+
+In Level 1 and 2, when an Rider icon is clicked, full Rider card pop-up should appear. Rider Card is complete detail of the Rider that is available and for time being card will have Rider ID, Name, Photo and Contact no. 
+
 # Check-In
 This is the key process to track riders in each ride. Tracking is done by registering the riders at every stage as they cycle along the planned route and reach the destination to finish the ride.
 
