@@ -163,6 +163,9 @@ Since 'Not Riding' status is records before the ride starts, this data should be
 
 Data model and fields to be determined as part of design and development stage.
 
+# Backend
+Data model and APIs for data access is provided by solution developed by the repo - [Backend](https://github.com/kvijay77-in/tour-data-api). Read through it's requirements and how it is implemented. Follow guidelines and recommendations in this repo for any data access implementation. Ensure data privacy and security is not compromised for any reason. 
+
 # Others
 Mobile device permission is only required for Camera to scan QR Code. 
 Check if local database requires storage permission??
