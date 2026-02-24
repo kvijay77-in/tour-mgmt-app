@@ -25,6 +25,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "AWS_REGION": "",
+      "AWS_USER_POOL_ID": "",
+      "AWS_USER_POOL_WEB_CLIENT_ID": "",
+      "AWS_APPSYNC_GRAPHQL_ENDPOINT": "",
+      "AWS_APPSYNC_REGION": "",
+      "AWS_APPSYNC_AUTHENTICATION_TYPE": "AMAZON_COGNITO_USER_POOLS"
     }
   }
 }

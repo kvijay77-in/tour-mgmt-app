@@ -2,7 +2,7 @@
  * Dashboard Screen - Main screen showing rider status
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,26 +13,67 @@ import {
   Animated,
   PanResponder,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
-import { getMockDashboardData, getMockCurrentRide } from '../../services/api/mockData';
-import { RiderStatus, CheckInStatus } from '../../types/models';
+import { RiderStatus, CheckInStatus, Ride } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
+import { getCurrentRide, getDashboardData } from '../../services/api/dataService';
+import { useOffline } from '../../hooks/useOffline';
+import { useSync } from '../../hooks/useSync';
+import { getMockCurrentRide, getMockDashboardData } from '../../services/api/mockData';
+import { startSync } from '../../services/sync/syncService';
 
 const { width } = Dimensions.get('window');
 const GRID_COLUMNS = 6;
 const RIDER_ICON_SIZE = (width - 32) / GRID_COLUMNS - 6;
 
 export default function DashboardScreen() {
-  const ride = getMockCurrentRide();
-  const allRiderStatuses = getMockDashboardData();
+  const [ride, setRide] = useState<Ride>(getMockCurrentRide());
+  const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>(getMockDashboardData());
+  const [isLoading, setIsLoading] = useState(false);
+
+  const { isOnline } = useOffline();
+  const { pendingCount, isSyncing, triggerSync } = useSync(ride.rideId);
+
   const [stageViewId, setStageViewId] = useState<string | undefined>(undefined);
   const [isSorted, setIsSorted] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
+
+  // Load dashboard data from data service (API or local DB)
+  const loadDashboardData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const currentRide = await getCurrentRide();
+      if (currentRide) {
+        setRide(currentRide);
+        const statuses = await getDashboardData(currentRide.rideId, currentRide);
+        setAllRiderStatuses(statuses);
+      }
+    } catch {
+      // Keep the mock/cached data already in state
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  // Re-load when coming back online; also trigger sync
+  useEffect(() => {
+    if (isOnline) {
+      startSync(ride.rideId);
+      loadDashboardData();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   // Pinch gesture for zoom
   const baseScale = useRef(1);
@@ -329,7 +370,25 @@ export default function DashboardScreen() {
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <Text style={styles.rideTitle}>{ride.name}</Text>
-          <Text style={styles.rideDate}>{ride.date}</Text>
+          <View style={styles.headerRight}>
+            {/* Offline / Sync indicator */}
+            {!isOnline && (
+              <View style={styles.offlineBadge}>
+                <MaterialIcons name="cloud-off" size={12} color={COLORS.white} />
+                <Text style={styles.offlineBadgeText}>Offline</Text>
+              </View>
+            )}
+            {isOnline && isSyncing && (
+              <ActivityIndicator size="small" color={COLORS.white} style={styles.syncIndicator} />
+            )}
+            {isOnline && !isSyncing && pendingCount > 0 && (
+              <TouchableOpacity style={styles.syncBadge} onPress={() => triggerSync()}>
+                <MaterialIcons name="sync" size={12} color={COLORS.white} />
+                <Text style={styles.syncBadgeText}>{pendingCount}</Text>
+              </TouchableOpacity>
+            )}
+            <Text style={styles.rideDate}>{ride.date}</Text>
+          </View>
         </View>
         <View style={styles.statsRow}>
           {ride.stages.map((stage) => (
@@ -349,7 +408,12 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      {/* Rider Grid - Maximum space with Pinch Zoom */}
+      {/* Loading overlay */}
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        </View>
+      )}
       <GestureDetector gesture={pinchGesture}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.gridContainer}>
         {filteredRiders.map((riderStatus) => {
@@ -542,6 +606,48 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.white,
     opacity: 0.9,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  offlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.danger,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 2,
+  },
+  offlineBadgeText: {
+    fontSize: 10,
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  syncBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.accent,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 2,
+  },
+  syncBadgeText: {
+    fontSize: 10,
+    color: COLORS.white,
+    fontWeight: 'bold',
+  },
+  syncIndicator: {
+    marginRight: 4,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 120,
+    right: 16,
+    zIndex: 10,
   },
   statsRow: {
     flexDirection: 'row',
