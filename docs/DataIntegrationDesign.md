@@ -8,7 +8,9 @@ This document provides the analysis and design for integrating the `tour-data-ap
 
 ### 1.1 Backend Overview
 
-The `tour-data-api` provides a REST API built with AWS SAM, Lambda, API Gateway HTTP API, and DynamoDB. Key characteristics:
+> **Terminology Note:** AWS API Gateway offers two products: **API Gateway HTTP API** (newer, cheaper, lower latency) and **API Gateway REST API** (older, more features, higher cost). The `tour-data-api` backend uses **API Gateway HTTP API**. Throughout this document, "RESTful" refers to the architectural style (resource-based URLs, standard HTTP methods, JSON responses), while "HTTP API" and "REST API" refer to the specific AWS API Gateway product types.
+
+The `tour-data-api` provides a RESTful API built with AWS SAM, Lambda, API Gateway HTTP API, and DynamoDB. Key characteristics:
 
 - **20 Lambda functions** covering tours, riders, rides, check-ins, and users
 - **JWT authentication** via AWS Cognito
@@ -18,7 +20,7 @@ The `tour-data-api` provides a REST API built with AWS SAM, Lambda, API Gateway 
 
 ### 1.2 Efficiency for Mobile App
 
-**Assessment: The REST API approach is efficient and suitable for this mobile app.**
+**Assessment: The RESTful API approach is efficient and suitable for this mobile app.**
 
 Reasons:
 
@@ -27,26 +29,26 @@ Reasons:
 | **Data Volume** | ✅ Low | ~100 riders, max 600 check-ins per ride. Total dashboard payload estimated at 50-80KB uncompressed |
 | **Network Calls** | ✅ Optimised | Dashboard endpoint returns all data in a single call (ride + riders + check-ins + summary), avoiding N+1 queries |
 | **Payload Size** | ✅ Acceptable | API returns only needed fields. No bloat from GraphQL type overhead or over-fetching |
-| **Latency** | ✅ Acceptable | Lambda cold starts are acceptable for 10-15 concurrent users. HTTP API is lower latency than REST API |
-| **Cost** | ✅ Minimal | HTTP API is 70% cheaper than REST API. Estimated <$10/month during tour |
-| **Offline Support** | ✅ Compatible | REST responses are simple JSON — easily cached in SQLite for offline use |
+| **Latency** | ✅ Acceptable | Lambda cold starts are acceptable for 10-15 concurrent users. API Gateway HTTP API has lower latency than API Gateway REST API |
+| **Cost** | ✅ Minimal | API Gateway HTTP API is 70% cheaper than API Gateway REST API. Estimated <$10/month during tour |
+| **Offline Support** | ✅ Compatible | API responses are simple JSON — easily cached in SQLite for offline use |
 | **Authentication** | ✅ Standard | JWT tokens from Cognito — standard flow, tokens can be refreshed by Amplify SDK |
 
-**Why REST over GraphQL for this use case:**
+**Why RESTful API over GraphQL for this use case:**
 
 1. **Dashboard is the primary view** — the backend already provides a composite dashboard endpoint that returns everything needed. GraphQL's selective querying advantage is minimal here since we need all the data anyway.
 2. **Low complexity queries** — most reads are "get all riders," "get all check-ins for ride," "get today's ride." These are simple and don't benefit from GraphQL's flexibility.
 3. **Write operations are simple** — check-in creation is a single POST with a fixed payload structure.
 4. **Amplify Data (AppSync)** would require redefining the data model in Amplify schema, which contradicts the design principle that DynamoDB tables are managed externally by `tour-data-api`.
 
-**Recommendation:** Use the `tour-data-api` REST API directly via `fetch`/HTTP client with JWT authentication from Amplify Auth. No need for AppSync/GraphQL — it would add complexity without benefit for this use case.
+**Recommendation:** Use the `tour-data-api` RESTful API directly via `fetch`/HTTP client with JWT authentication from Amplify Auth. No need for AppSync/GraphQL — it would add complexity without benefit for this use case.
 
 ### 1.3 Design Principle Compliance
 
 Per `docs/SolutionDesign.md`:
 > "Any direct access to AWS Resource access from Mobile App or Web client must not be permitted. Such access must always be through Amplify backend."
 
-**Interpretation:** The app must not access DynamoDB, S3, or other AWS resources directly. Access through the `tour-data-api` REST API (API Gateway → Lambda → DynamoDB) satisfies this requirement since the API acts as the intermediary. Amplify Auth will be used for Cognito authentication to obtain JWT tokens.
+**Interpretation:** The app must not access DynamoDB, S3, or other AWS resources directly. Access through the `tour-data-api` (API Gateway HTTP API → Lambda → DynamoDB) satisfies this requirement since the API acts as the intermediary. Amplify Auth will be used for Cognito authentication to obtain JWT tokens.
 
 ---
 
@@ -60,7 +62,7 @@ Mobile/Web App
 [Amplify Auth (Cognito)]     ← Authentication, token management
     ↓ (JWT token)
 [API Service Layer]           ← src/services/api/
-    ↓ (REST calls with Bearer token)
+    ↓ (HTTP calls with Bearer token)
 [tour-data-api]               ← API Gateway HTTP API → Lambda → DynamoDB
 ```
 
@@ -70,7 +72,7 @@ The services layer follows the project structure defined in `docs/project-struct
 
 ```
 src/services/
-├── api/                    # REST API client
+├── api/                    # API client (RESTful HTTP calls)
 │   ├── apiClient.ts        # Base HTTP client with auth, error handling, retry
 │   ├── tourApi.ts          # Tour endpoints
 │   ├── riderApi.ts         # Rider endpoints
