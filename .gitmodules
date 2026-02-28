@@ -1,4 +1,0 @@
-[submodule "tour-data-api"]
-	path = tour-data-api
-	url = https://github.com/kvijay77-in/tour-data-api.git
-	branch = main
