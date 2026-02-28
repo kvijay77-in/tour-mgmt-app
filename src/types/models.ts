@@ -325,7 +325,7 @@ export interface Ride {
  * - Both false → CHECKED_IN
  */
 export interface CheckIn {
-  /** Unique check-in identifier (format: <riderId>#<stageNumber>#<timestamp>) */
+  /** Unique check-in identifier (format: <riderId>#<stageNumber (3-digit padded)>#<ISO 8601 timestamp>) */
   checkInId: string;
   
   /** Rider ID */
@@ -504,6 +504,9 @@ export enum DashboardSortOption {
 /**
  * Derive CheckInStatus from a CheckIn record's boolean flags.
  * Backend stores isNotRiding/isQuitRiding flags; status is derived.
+ * 
+ * Note: Business rules prevent both isNotRiding and isQuitRiding from being true
+ * simultaneously. If both are somehow set, isNotRiding takes precedence.
  */
 export const deriveCheckInStatus = (checkIn: CheckIn): CheckInStatus => {
   if (checkIn.isNotRiding) return CheckInStatus.NOT_RIDING;
