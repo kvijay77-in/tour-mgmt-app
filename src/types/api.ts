@@ -1,54 +1,88 @@
 /**
- * API types for backend communication
+ * API types for tour-data-api backend communication.
+ * Aligned with tour-data-api REST endpoints.
+ * See docs/DataIntegrationDesign.md for API details.
  */
 
-import { Rider, Ride, CheckIn, User, Role, CheckInStatus } from './models';
+import {
+  CheckInStatus,
+  CheckInMethod,
+  RideStatus,
+  TourStatus,
+} from './models';
 
 // ============================================================================
 // REQUEST TYPES
 // ============================================================================
 
+/**
+ * Create check-in request body (POST /v1/tours/{tourId}/checkins)
+ */
 export interface CheckInRequest {
   riderId: string;
   rideId: string;
-  stageId: string;
-  status: CheckInStatus;
-  method: 'QR_SCAN' | 'MANUAL' | 'FALLBACK';
+  stageNumber: number;
+  method: CheckInMethod;
+  isNotRiding?: boolean;
+  isQuitRiding?: boolean;
   notes?: string;
-  location?: {
-    latitude: number;
-    longitude: number;
-  };
 }
 
+/**
+ * Create ride request body (POST /v1/tours/{tourId}/rides)
+ */
 export interface CreateRideRequest {
   date: string;
+  rideNo: number;
   name: string;
   startLocation: string;
   finishLocation: string;
   totalDistance: number;
+  flagOffTime: string;
   stages: Array<{
+    stageId: string;
     stageNumber: number;
     type: 'START' | 'PIT_STOP' | 'FINISH';
     name: string;
+    location?: string;
     distanceFromStart?: number;
     estimatedTimeFromStart?: number;
   }>;
-  notes?: string;
+  description?: string;
 }
 
+/**
+ * Update ride request body (PUT /v1/tours/{tourId}/rides/{rideId})
+ */
 export interface UpdateRideRequest extends Partial<CreateRideRequest> {
   rideId: string;
 }
 
+/**
+ * Close ride request (POST /v1/tours/{tourId}/rides/{rideId}/close)
+ */
 export interface CloseRideRequest {
   rideId: string;
+}
+
+/**
+ * Create tour request body (POST /v1/tours)
+ */
+export interface CreateTourRequest {
+  tourId: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  description?: string;
 }
 
 // ============================================================================
 // RESPONSE TYPES
 // ============================================================================
 
+/**
+ * Standard API response envelope from tour-data-api
+ */
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -59,6 +93,9 @@ export interface ApiResponse<T> {
   timestamp: string;
 }
 
+/**
+ * Paginated response (for list operations)
+ */
 export interface PaginatedResponse<T> {
   items: T[];
   nextToken?: string;
@@ -75,9 +112,8 @@ export interface GetRidersQuery {
 }
 
 export interface GetRidesQuery {
-  startDate?: string;
-  endDate?: string;
-  status?: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CLOSED';
+  date?: string;
+  status?: RideStatus;
   limit?: number;
   nextToken?: string;
 }
@@ -93,8 +129,10 @@ export interface GetCheckInsQuery {
 
 export interface GetDashboardDataQuery {
   rideId: string;
-  stageId?: string; // For filtered view
-  status?: CheckInStatus;
+}
+
+export interface GetToursQuery {
+  status?: TourStatus;
 }
 
 // ============================================================================
@@ -111,7 +149,7 @@ export interface SyncStatus {
 export interface SyncError {
   id: string;
   operation: 'CHECK_IN' | 'CREATE_RIDE' | 'UPDATE_RIDE';
-  data: any;
+  data: unknown;
   error: string;
   timestamp: string;
   retryCount: number;
