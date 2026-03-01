@@ -1,4 +1,40 @@
-# Introduction  
+# Requirements
+
+[← Back to README](../README.md)
+
+Detailed functional requirements, use cases, and feature specifications for the Check-In App.
+
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Rider Profile](#rider-profile)
+- [Dashboard](#dashboard)
+  - [Stage Count](#stage-count)
+  - [Historical View](#historical-view)
+  - [Stage View](#stage-view)
+  - [Sort](#sort)
+  - [Zoom In & Out](#zoom-in--out)
+- [Check-In](#check-in)
+  - [Start - Flag Off](#start---flag-off)
+  - [Pit Stops](#pit-stops)
+  - [Finish](#finish)
+  - [Not Riding (NR)](#not-riding-nr)
+  - [Quit Riding](#quit-riding)
+  - [Check In for Stage View](#check-in-for-stage-view)
+- [Role Based App Access](#role-based-app-access)
+  - [Administrator](#administrator)
+  - [Super User](#super-user)
+  - [Pit Stop Crew](#pit-stop-crew)
+  - [Hotel Staff](#hotel-staff)
+  - [Guest](#guest)
+- [Offline Capability](#offline-capability)
+- [Administrator Features](#administrator-features)
+- [Backend](#backend)
+- [Others](#others)
+
+---
+
+## Introduction  
 An application is required for the usage in non-competitive Cycling Tour to manage daily rides and track riders in each ride. This app will be used by Cycling Tour administrators, pit stop team and optionally by hotel front desk staff to check-in riders at various stages of the daily ride - Start - Flag Off, Pit Stop(s) and Finish.
 
 This app should provide 2 primary features:  
@@ -172,3 +208,16 @@ Data model and APIs for data access is provided by solution developed by the rep
 # Others
 Mobile device permission is only required for Camera to scan QR Code. 
 Check if local database requires storage permission??
+
+---
+
+## Related Documentation
+
+- [Solution Design](SolutionDesign.md) — Architecture and technical design
+- [Dashboard Feature](Dashboard-Feature.md) — Dashboard screen specification
+- [Data Integration Design](DataIntegrationDesign.md) — Backend integration and offline sync design
+- [tour-data-api Requirements](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/Requirements.md) — Backend data requirements
+
+---
+
+[← Back to README](../README.md)

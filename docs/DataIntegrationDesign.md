@@ -1,6 +1,20 @@
 # Data Backend Integration Design
 
+[← Back to README](../README.md)
+
 This document provides the analysis and design for integrating the `tour-data-api` backend with the Check-In App (poc-app) frontend. It must be reviewed and approved before any development work begins.
+
+## Table of Contents
+
+- [1. API Approach Analysis](#1-api-approach-analysis)
+- [2. Integration Architecture](#2-integration-architecture)
+- [3. Data Model Alignment](#3-data-model-alignment)
+- [4. Offline Support Design](#4-offline-support-design)
+- [5. Environment Configuration](#5-environment-configuration)
+- [6. Implementation Phases](#6-implementation-phases)
+- [7. Security Considerations](#7-security-considerations)
+- [8. Open Questions and Decisions](#8-open-questions-and-decisions)
+- [9. Suggested Backend Enhancements](#9-suggested-backend-enhancements-tour-data-api)
 
 ---
 
@@ -652,3 +666,17 @@ The following enhancements to the `tour-data-api` backend are needed to support 
 | Late-sync for closed rides (§9.2) | Eliminates manual resolution for offline check-ins after ride closure | **High** |
 | Duplicate check-in handling (§9.3) | Clean user experience for duplicate attempts | **Medium** |
 | ETag support for dashboard (§9.4) | Reduces data transfer during 5-second polling | **Medium** |
+
+---
+
+## Related Documentation
+
+- [Solution Design](SolutionDesign.md) — Architecture, design principles, component structure
+- [Requirements](Requirements.md) — Feature specifications and business rules
+- [Dashboard Feature](Dashboard-Feature.md) — Dashboard screen specification
+- [tour-data-api Solution Design](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/SolutionDesign.md) — Backend data model and API specifications
+- [tour-data-api Requirements](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/Requirements.md) — Backend data requirements
+
+---
+
+[← Back to README](../README.md)

@@ -1,5 +1,24 @@
 # Dashboard Feature
 
+[← Back to README](../README.md)
+
+Dashboard screen specification covering the grid display, stage views, sorting, zoom levels, color coding, and UI layout.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Key Features](#key-features)
+  - [Rider Grid Display](#1-rider-grid-display)
+  - [Stage Count Summary](#2-stage-count-summary)
+  - [Stage View](#3-stage-view)
+  - [Sorting](#4-sorting)
+  - [Color Coding](#5-color-coding)
+  - [Floating Action Button](#6-floating-action-button-fab)
+  - [UI Layout](#7-ui-layout)
+- [Technical Notes](#technical-notes)
+
+---
+
 ## Overview
 The Dashboard is the home screen displaying real-time rider tracking during daily rides. It shows all riders in a grid format with color-coded status indicators based on their last check-in stage.
 
@@ -77,7 +96,20 @@ Located in the header, displays cumulative counts:
 - Height: 60px, accommodates unlimited stages
 
 ## Technical Notes
-- Uses mock data service for development
+- Uses mock data service for development (to be replaced with live API — see [Data Integration Design](DataIntegrationDesign.md))
 - Implements React Native Animated API for FAB drag
 - Responsive grid adjusts to screen width
 - State management: React hooks (useState, useRef)
+- Dashboard reads from SQLite as single source of truth (see [Solution Design → Offline Architecture](SolutionDesign.md#offline-architecture))
+
+---
+
+## Related Documentation
+
+- [Requirements → Dashboard](Requirements.md#dashboard) — Functional requirements for Dashboard
+- [Data Integration Design → Dashboard Refresh Strategy](DataIntegrationDesign.md#44-dashboard-refresh-strategy) — Refresh intervals and polling design
+- [Solution Design → State Management](SolutionDesign.md#state-management) — Context and state architecture
+
+---
+
+[← Back to README](../README.md)

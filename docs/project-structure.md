@@ -1,5 +1,7 @@
 # Project Folder Structure
 
+[← Back to README](../README.md)
+
 Following structure will be used in the project and any addition/restructure should be updated here. But first changes should be approved before it be applied.
 
 ```
@@ -12,6 +14,11 @@ poc-app/
 ├── docs/
 │   ├── Requirements.md
 │   ├── SolutionDesign.md
+│   ├── Dashboard-Feature.md
+│   ├── DataIntegrationDesign.md
+│   ├── development-guide.md
+│   ├── docs-index.md
+│   ├── project-structure.md
 │   └── Images/
 │
 ├── src/
@@ -93,6 +100,32 @@ poc-app/
 
 **Key Structure Notes:**
 
+### Source Code (`src/`)
+- **`screens/`**: Page-level components organized by feature domain (dashboard, check-in, admin, auth). Each screen connects to context providers and services.
+- **`components/`**: Reusable UI components. `common/` for shared components, feature-specific folders for domain components.
+- **`services/`**: Business logic layer isolated from UI. Contains API client, SQLite database, and sync service.
+- **`context/`**: React Context providers for global state — authentication, active tour, offline mode, RBAC roles.
+- **`types/`**: TypeScript type definitions and interfaces for data models, API responses, and navigation.
+- **`constants/`**: Application-wide constants — color definitions, role definitions, stage definitions.
+- **`hooks/`**: Custom React hooks for reusable stateful logic (auth, offline mode, sync).
+- **`utils/`**: Pure utility functions — permissions checking, input validation, data formatting.
+- **`config/`**: Configuration files for Amplify and database setup.
+
+### Documentation (`docs/`)
+- **`Requirements.md`**: Detailed functional requirements, use cases, and feature specifications
+- **`SolutionDesign.md`**: Architecture, design principles, component structure, technical decisions
+- **`Dashboard-Feature.md`**: Dashboard screen specification — grid, stages, sorting, zoom, colors
+- **`DataIntegrationDesign.md`**: Backend API integration architecture, offline sync, conflict resolution
+- **`development-guide.md`**: Environment setup, running the app, testing, troubleshooting
+- **`docs-index.md`**: Complete documentation index with persona-based navigation
+- **`project-structure.md`**: This file — project folder organization
+
+### Infrastructure
+- **`amplify/`**: AWS Amplify Gen 2 backend configuration (authentication, data resources). Auto-generated structure managed by Amplify CLI.
+- **`App.tsx`**: Root application component — single entry point for Android, iOS, and Web.
+- **`app.json`**: Expo configuration (app name, splash screen, platform settings).
+
+### Additional Notes
 - **Single Entry Point**: `App.tsx` serves as the root component for Android, iOS, and Web
 - **Platform Agnostic**: All code in `/src` is shared across platforms
 - **Services Layer**: Business logic isolated in `/services` for reusability
@@ -100,3 +133,7 @@ poc-app/
 - **Type Safety**: TypeScript definitions in `/types` for type checking
 - **RBAC Support**: Context and utilities for role-based access control
 - **AWS Integration**: Amplify backend folder for cloud resources (auto-generated)
+
+---
+
+[← Back to README](../README.md)
