@@ -31,7 +31,14 @@ poc-app/
 │   │   └── AuthNavigator.tsx       # Authentication navigation
 │   │
 │   ├── services/                   # Business logic & API integration
-│   │   ├── api/                    # AWS AppSync/GraphQL API
+│   │   ├── api/                    # tour-data-api RESTful HTTP calls
+│   │   │   ├── apiClient.ts        # Base HTTP client with auth, retry, error handling
+│   │   │   ├── tourApi.ts          # Tour endpoints
+│   │   │   ├── riderApi.ts         # Rider endpoints
+│   │   │   ├── rideApi.ts          # Ride endpoints
+│   │   │   ├── checkInApi.ts       # Check-in endpoints
+│   │   │   ├── dashboardApi.ts     # Dashboard composite endpoint
+│   │   │   └── mockData.ts         # Mock data (retained for development/testing)
 │   │   ├── auth/                   # AWS Cognito authentication
 │   │   ├── database/               # SQLite for offline support
 │   │   ├── sync/                   # Data synchronization service
@@ -44,6 +51,7 @@ poc-app/
 │   │
 │   ├── context/                    # React Context providers
 │   │   ├── AuthContext.tsx         # Authentication context
+│   │   ├── TourContext.tsx         # Active tour context (resolves tourId at startup)
 │   │   ├── OfflineContext.tsx      # Offline mode context
 │   │   └── RoleContext.tsx         # RBAC role context
 │   │
