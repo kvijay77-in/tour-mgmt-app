@@ -325,7 +325,7 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
 **Optimisation strategies:**
 
 1. **Purge completed ride data:** After a ride is `CLOSED` and the tour moves on, retain only the current and most recent ride's check-in data locally. Older ride data can be fetched on-demand from the API when viewing historical rides.
-2. **SQLite VACUUM:** Run `VACUUM` periodically (e.g., on app startup or after purging data) to reclaim unused space.
+2. **SQLite VACUUM:** Run `VACUUM` periodically (e.g., during app idle time or after purging data) to reclaim unused space. Avoid running on startup to prevent user-facing delays.
 3. **Avoid storing large blobs:** Photos are not stored locally — only S3 keys are cached. Photo images are fetched/cached separately via the standard image caching mechanism (e.g., `expo-image` cache).
 4. **Index only necessary columns:** Primary keys and foreign keys (`riderId`, `rideId`, `stageNumber`) are indexed. No additional indexes unless query performance requires it.
 
@@ -353,7 +353,7 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
 
 1. **Detection:** Use React Native's `@react-native-community/netinfo` library to detect connectivity changes. This library is **event-driven** — it subscribes to OS-level network state change callbacks, not polling. Battery impact is negligible since no periodic network checks are required. Display offline indicator on Dashboard when connectivity is lost.
 
-   ```
+   ```typescript
    NetInfo.addEventListener(state => {
      // Fires only on actual connectivity changes (event-driven, not polled)
      // state.isConnected: boolean
@@ -376,7 +376,7 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
 
 4. **Coming Back Online:**
    - Detect connectivity restored (via NetInfo event)
-   - **Sync processor acquires a mutex lock** — only one sync process runs at a time. If a sync is already in progress, the new connectivity event is ignored. This prevents race conditions where multiple sync attempts could process the same pending operations concurrently.
+   - **Sync processor acquires a mutex lock** — only one sync process runs at a time. If a sync is already in progress, the new connectivity event is ignored. This prevents race conditions where multiple sync attempts could process the same pending operations concurrently. The mutex is implemented as a promise-based lock (e.g., a boolean flag guarded by `async`/`await` serialisation in the single-threaded JS runtime, or a lightweight library like `async-mutex`).
    - Process `pending_operations` queue **sequentially (FIFO, one at a time)**:
      - Set operation `syncStatus` to `SYNCING` before each API call
      - POST to API with the **original capture timestamp** from the pending operation
