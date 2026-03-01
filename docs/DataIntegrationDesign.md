@@ -331,27 +331,35 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
 
 ### 4.3 Data Flow
 
-#### Online Mode (Normal Operation)
+#### Design Principle: SQLite as Single Source of Truth
 
-1. **App Launch:**
-   - Fetch active tour → store in context and SQLite
-   - Fetch today's ride → cache in SQLite
-   - Fetch riders → cache in SQLite
-   - Fetch dashboard data (check-ins) → cache in SQLite
+The **Dashboard always reads from SQLite** — never directly from the API. Two independent background processes keep SQLite current:
 
-2. **Check-In:**
-   - Write to local SQLite immediately (isLocal = 1, syncStatus = PENDING)
-   - Simultaneously POST to backend API
-   - On success: update SQLite record (isLocal = 0, syncStatus = SYNCED)
-   - On failure: keep in pending queue for retry
+1. **Outbound sync (check-in → backend):** All check-ins are written to SQLite first, then an async process pushes them to the backend via `pending_operations`. This is the **same mechanism for both online and offline modes** — there is no separate "online check-in" path.
+2. **Inbound sync (backend → SQLite):** A background polling process fetches updated dashboard data from the API and writes it into SQLite. The Dashboard UI observes SQLite for changes.
 
-3. **Dashboard Refresh:**
-   - Fetch from API and update SQLite cache
-   - Dashboard reads from SQLite (consistent data source)
+This architecture ensures:
+- Dashboard is always responsive (reads are local, never blocked by network)
+- Check-in is always instant (write to SQLite, async push to backend)
+- Online/offline transitions are seamless — only the sync processes pause/resume
 
-#### Offline Mode (No Connectivity)
+```
+┌─────────────┐     write      ┌──────────┐     async push     ┌──────────────┐
+│  Check-In   │ ──────────────→│  SQLite  │ ──────────────────→│  Backend API │
+│  (UI)       │                │  (local) │                    │  (tour-data) │
+└─────────────┘                │          │←───────────────────│              │
+                               │          │   periodic pull    │              │
+┌─────────────┐     read       │          │                    └──────────────┘
+│  Dashboard  │ ←──────────────│          │
+│  (UI)       │                └──────────┘
+└─────────────┘
+```
 
-1. **Detection:** Use React Native's `@react-native-community/netinfo` library to detect connectivity changes. This library is **event-driven** — it subscribes to OS-level network state change callbacks, not polling. Battery impact is negligible since no periodic network checks are required. Display offline indicator on Dashboard when connectivity is lost.
+#### Offline Mode Control
+
+Per requirements, the app provides a **manual offline mode toggle** in addition to automatic connectivity detection:
+
+1. **Automatic detection:** `@react-native-community/netinfo` uses OS-level event-driven callbacks (not polling) to detect connectivity changes. Battery impact is negligible.
 
    ```typescript
    NetInfo.addEventListener(state => {
@@ -361,44 +369,81 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
    });
    ```
 
-   When the app needs to **verify** connectivity before a critical operation (e.g., starting sync), a single lightweight HEAD request to the API health endpoint can confirm reachability. This is a one-off check, not a recurring poll.
+2. **Manual toggle:** Users can explicitly switch to offline mode via a toggle in the Dashboard header. This is useful when connectivity is unstable or intermittent — the user gets control rather than relying on automatic detection which may flip back and forth.
 
-2. **Check-In (Offline):**
-   - Write to SQLite (isLocal = 1, syncStatus = PENDING)
-   - Add to `pending_operations` queue
-   - Dashboard shows locally recorded check-ins immediately
+3. **Effective mode:** The app is considered offline if **either** the manual toggle is ON **or** NetInfo reports no connectivity. Both sync processes (outbound and inbound) pause when offline.
 
-3. **Dashboard (Offline):**
-   - Read from SQLite cache
-   - For Pit Stop Crew: automatically switch to their assigned stage filter view
-   - Show "Not Riding" statuses that were synced before going offline
-   - Show "Quit Riding" statuses that were synced before going offline
+4. **Offline indicator:** The Dashboard header displays an offline indicator whenever the app is in offline mode (manual or automatic), clearly communicating the current state to the user.
 
-4. **Coming Back Online:**
-   - Detect connectivity restored (via NetInfo event)
-   - **Sync processor acquires a mutex lock** — only one sync process runs at a time. If a sync is already in progress, the new connectivity event is ignored. This prevents race conditions where multiple sync attempts could process the same pending operations concurrently. The mutex is implemented as a promise-based lock (e.g., a boolean flag guarded by `async`/`await` serialisation in the single-threaded JS runtime, or a lightweight library like `async-mutex`).
-   - Process `pending_operations` queue **sequentially (FIFO, one at a time)**:
-     - Set operation `syncStatus` to `SYNCING` before each API call
-     - POST to API with the **original capture timestamp** from the pending operation
-     - On success: mark as `SYNCED`, remove from queue
-     - On conflict (409): apply conflict resolution rules (see §4.5)
-     - On network error: mark as `PENDING` again, release mutex, wait for next connectivity event
-     - On other error: retry with exponential backoff (max 5 retries), then mark as `FAILED`
-   - **Race condition prevention:** The `syncStatus` column acts as an optimistic lock. Before processing, the sync service queries only `PENDING` operations and atomically updates them to `SYNCING`. If the app is restarted mid-sync, any `SYNCING` records are reset to `PENDING` on startup.
-   - After queue is fully processed: full dashboard refresh from API to reconcile local state with backend
+#### Standard Check-In Flow (Online and Offline)
+
+The check-in flow is **identical** regardless of connectivity:
+
+1. User performs check-in (QR scan or manual entry)
+2. Write check-in to `check_ins` table in SQLite (`isLocal = 1`, `syncStatus = PENDING`)
+3. Add corresponding entry to `pending_operations` queue
+4. Dashboard immediately reflects the new check-in (reads from SQLite)
+
+The **outbound sync process** runs independently:
+- When online: continuously processes `pending_operations` queue (FIFO, one at a time)
+- When offline: paused — operations accumulate in the queue
+- On transition to online: resumes processing from where it left off
+
+#### Outbound Sync Process (Check-In → Backend)
+
+The sync process runs as a background task, triggered by connectivity events and a periodic timer:
+
+1. **Sync processor acquires a mutex lock** — only one sync runs at a time. If already in progress, subsequent triggers are ignored. The mutex is a promise-based lock (boolean flag guarded by `async`/`await` in the single-threaded JS runtime, or `async-mutex` library).
+
+2. **Process `pending_operations` queue sequentially (FIFO):**
+   - Set operation `syncStatus` to `SYNCING` before each API call
+   - POST to API with the **original capture timestamp** from the pending operation
+   - On success: update `check_ins` record (`isLocal = 0`, `syncStatus = SYNCED`), remove from queue
+   - On conflict (409): apply conflict resolution rules (see §4.5)
+   - On network error: mark as `PENDING` again, release mutex, wait for next trigger
+   - On other error: retry with exponential backoff (max 5 retries), then mark as `FAILED`
+
+3. **Race condition prevention:** The `syncStatus` column acts as an optimistic lock. Before processing, the sync service queries only `PENDING` operations and atomically updates them to `SYNCING`. If the app is restarted mid-sync, any `SYNCING` records are reset to `PENDING` on startup.
+
+#### Inbound Sync Process (Backend → SQLite)
+
+A separate background process polls the backend API and writes updated data into SQLite:
+
+1. **Active ride, online:** Poll dashboard endpoint every 5 seconds (see §4.4)
+2. **No active ride:** No polling needed (see §4.4)
+3. **Offline or backgrounded:** Paused
+4. Write API response data into SQLite tables (`check_ins`, `riders`, `rides`)
+5. **Merge strategy:** Backend data is authoritative for non-local records. Local pending check-ins (`isLocal = 1`) are preserved and not overwritten by inbound data.
+
+#### App Launch
+
+1. Fetch active tour → store in context and SQLite
+2. Fetch today's ride → cache in SQLite
+3. Fetch riders → cache in SQLite
+4. Fetch dashboard data (check-ins) → cache in SQLite
+5. Resume outbound sync for any pending operations from previous session
+6. Start inbound sync polling
+
+#### Dashboard (Offline)
+
+When offline (manual toggle or auto-detected):
+- Dashboard reads from SQLite cache (same as online — single source of truth)
+- For Pit Stop Crew: automatically switch to their assigned stage context view
+- "Not Riding" and "Quit Riding" statuses synced before going offline are visible
+- Locally captured check-ins are visible immediately
 
 ### 4.4 Dashboard Refresh Strategy
 
-The refresh strategy must balance **live data visibility** (organising team needs real-time check-in status) with **battery and data usage optimisation** (pit stop crew at remote locations). An adaptive approach is used:
+Since the Dashboard reads exclusively from SQLite, "refresh" means the **inbound sync process** fetching updated data from the backend API and writing it into SQLite. The Dashboard UI observes SQLite for changes and re-renders accordingly.
 
 #### Adaptive Refresh Intervals
 
 | Context | Interval | Rationale |
 |---------|----------|-----------|
 | **Dashboard active, online, ride in progress** | **5 seconds** | Organising team at ride start/finish needs near-real-time visibility. 5-second interval keeps the dashboard live with minimal perceived delay. |
-| **Dashboard active, online, no active ride** | 60 seconds | Lower urgency — ride hasn't started or is completed. |
+| **Viewing historical ride (no active ride)** | **One-time pull** | No ongoing refresh needed. Data is fetched once when the user selects a historical ride to view. Historical data doesn't change. |
 | **App backgrounded** | **Paused** | No polling when the app is not visible. Resume on foreground. This is critical for battery conservation. |
-| **Offline** | **Paused** | No API calls. Dashboard reads from SQLite cache. |
+| **Offline** | **Paused** | No API calls. Dashboard reads from SQLite cache (which already has locally captured check-ins). |
 
 #### Battery and Data Usage Impact
 
@@ -408,22 +453,29 @@ The refresh strategy must balance **live data visibility** (organising team need
   - With ETags, actual data transfer during quiet periods drops to ~1 KB per request (headers only).
 - **Battery:** HTTP requests over an existing connection are lightweight. The primary battery drain is the radio staying active. Grouping requests (single dashboard call vs multiple endpoints) and pausing when backgrounded keeps battery impact low.
 
-> **Note:** If 5-second polling proves insufficient for the ride start scenario (where all organisers need truly instantaneous updates), a WebSocket-based push mechanism can be evaluated as a backend enhancement. However, the current API Gateway HTTP API does not support WebSocket — this would require either an API Gateway WebSocket API or a separate service. This is flagged as a **potential future enhancement** if 5-second polling is not acceptable.
+#### Live-Feed Considerations
+
+The SQLite-as-source architecture positions the app well for future live-feed enhancements:
+- The Dashboard already observes SQLite for changes, so any mechanism that updates SQLite (polling, WebSocket, push notification) will instantly reflect on the Dashboard.
+- A future WebSocket-based push mechanism would simply replace the polling inbound sync with a persistent connection that writes updates to SQLite as they arrive. The Dashboard UI code would not need to change.
+- See issue #7 for tracking live-feed enhancement if 5-second polling proves insufficient.
+
+> **Note:** The current API Gateway HTTP API does not support WebSocket. A WebSocket enhancement would require an API Gateway WebSocket API or a separate service. This is flagged as a **potential future enhancement** tracked in issue #7.
 
 #### Pre-Sync for Offline Readiness
 
 Per requirements, "Not Riding" and "Quit Riding" data captured before a pit stop stage should be available locally. This is handled by:
 
 1. **On app launch / when online:** Fetch and cache the complete dashboard data in SQLite
-2. **Adaptive refresh while online:** Dashboard polling (per above intervals) keeps the SQLite cache updated with the latest "Not Riding" and "Quit Riding" statuses
-3. **Before going to pit stop:** Pit stop crew should have the app open with a recent sync. The 5-second refresh ensures the cache is current when connectivity is lost
+2. **Inbound sync while online:** The 5-second polling keeps the SQLite cache updated with the latest "Not Riding" and "Quit Riding" statuses
+3. **Before going to pit stop:** Pit stop crew should have the app open with a recent sync. The 5-second refresh ensures the cache is current when connectivity is lost (or when the user manually switches to offline mode)
 4. **Manual refresh:** A pull-to-refresh gesture is available on the dashboard for on-demand data sync
 
 ### 4.5 Conflict Resolution
 
 #### Design Principle: Timestamp-Based Validity
 
-Offline check-ins are **captured at a point in time** and carry their original `timestamp`. A check-in that was valid when captured does not become invalid simply because it is synced later. The sync process sends the original capture timestamp, and conflict resolution must respect the **time sequence** of events.
+Offline check-ins are **captured at a point in time** and carry their original `timestamp`. A check-in that was valid when captured remains valid regardless of when it is synced. The backend **must** accept check-ins based on their capture timestamp, not the current rider status or ride status at sync time.
 
 #### Scenario: PS1 Offline, PS2 Online (Cross-Stage Sync)
 
@@ -431,45 +483,54 @@ Consider:
 1. Rider R1 checks in at PS1 (stage 1) — PS1 crew is **offline**. Check-in recorded locally with timestamp `T1`.
 2. Rider R1 continues to PS2 (stage 2) — PS2 crew is **online**. Check-in recorded and synced immediately at timestamp `T2 > T1`.
 3. At PS2, rider R1 decides to quit riding. Quit-riding recorded and synced at `T3 > T2`.
-4. Later, PS1 crew regains connectivity and syncs their pending operations.
+4. Later, PS1 crew regains connectivity (or switches off manual offline mode) and syncs their pending operations.
 
-**Resolution:** The PS1 check-in (stage 1, timestamp `T1`) is **valid** — it happened before the rider quit at PS2. The check-in payload sent to the backend includes the original `timestamp` (`T1`). The backend should accept this because:
+**Resolution:** The PS1 check-in (stage 1, timestamp `T1`) is **valid and must be accepted** by the backend. Rationale:
 - The `checkInId` format is `<riderId>#<stageNumber>#<timestamp>` — this is a **unique record** (stage 1 ≠ stage 2).
 - The check-in timestamp `T1` predates the quit-riding timestamp `T3`.
+- The rider was actively riding at `T1` — the check-in was legitimate when captured.
 
-**If the backend rejects** (409) because the rider's current status is `QUIT_RIDING`, the sync service marks this with a specific conflict type `TIMESTAMP_PRECEDES_QUIT` and presents it to the user with context: _"Check-in for R1 at Stage 1 was captured at T1, before the rider quit at T3. This may require manual resolution."_ The organising team can then decide whether to request backend reconciliation.
-
-> **Backend consideration:** It is recommended that the backend `tour-data-api` validates check-in requests by comparing the check-in `timestamp` against the quit/not-riding timestamp, not just the rider's current status. This would allow legitimate pre-quit check-ins to succeed without manual intervention. This should be raised as a change request with the backend team if not already supported.
+**Backend requirement:** The backend must validate check-in requests by comparing the check-in `timestamp` against the quit/not-riding timestamp, not just the rider's current status. If the check-in timestamp predates the quit, it must be accepted. See §9 for the specific backend enhancement needed.
 
 #### Scenario: Ride CLOSED with Valid Offline Check-Ins
 
-A ride may be closed by an administrator while pit stop crew at a remote location still have pending offline check-ins. These check-ins were captured **while the ride was active** and are valid data — they cannot be discarded.
+A ride may be closed by an administrator while pit stop crew at a remote location still have pending offline check-ins. These check-ins were captured **while the ride was active** and are valid data.
 
-**Resolution:**
-1. Each pending check-in carries its original capture `timestamp`.
-2. When syncing, if the backend returns 409 because the ride is `CLOSED`, the sync service checks whether the check-in `timestamp` is **before** the ride's `closedAt` time.
-3. If `check-in timestamp < ride closedAt`:
-   - Mark as conflict type `RIDE_CLOSED_BUT_VALID`.
-   - Show notification: _"Check-in for R1 at Stage X was captured at T1, before the ride was closed at T_close."_
-   - The organising team can request backend reconciliation (e.g., a dedicated admin endpoint to accept late-synced check-ins).
-4. If `check-in timestamp ≥ ride closedAt`:
-   - Mark as `FAILED` — this check-in genuinely occurred after ride closure.
+**Resolution:** Check-ins captured before `closedAt` are **valid and must be accepted** by the backend. The sync process sends the original capture `timestamp`, and the backend validates:
+- If `check-in timestamp < ride closedAt` → **accept** (valid late-synced check-in)
+- If `check-in timestamp ≥ ride closedAt` → **reject** (genuinely occurred after ride closure)
 
-> **Backend consideration:** A dedicated endpoint (e.g., `POST /v1/tours/{tourId}/checkins/late-sync`) or a flag on the existing check-in endpoint (`allowLateSyncBeforeClose: true`) would allow the frontend to submit check-ins captured before ride closure. This avoids manual intervention for a common offline scenario.
+**Backend requirement:** The check-in endpoint must compare the submitted `timestamp` against the ride's `closedAt` time, not just the current ride status. See §9 for the specific backend enhancement needed.
+
+#### Scenario: Duplicate Check-In
+
+A user may attempt to check in a rider who has already been checked in at the same stage — either because:
+- Another crew member already checked in the rider (e.g., at a busy pit stop)
+- The user accidentally scanned the same QR code twice
+- An offline check-in was captured locally, and the rider was also checked in by another crew member online
+
+**Resolution:** When the backend returns a 409 Conflict indicating a duplicate check-in (same rider + same stage already exists):
+1. Mark the pending operation as `SYNCED` (the check-in already exists — no data is lost)
+2. Display a non-blocking notification to the user: _"Rider [ID] already checked in at [Stage]. No further action required."_
+3. No retry, no manual intervention needed
+
+On the **frontend**, before queuing a check-in, the app should also check SQLite for an existing check-in for the same rider at the same stage and warn the user proactively (reducing unnecessary API calls).
 
 #### Conflict Resolution Summary
 
-| Scenario | Resolution | Retry? |
-|----------|-----------|--------|
-| Offline check-in syncs successfully | Normal — mark as `SYNCED` | No |
-| Duplicate check-in (409: same rider+stage+time) | Mark `FAILED`, notify user, discard | No |
-| Rider quit after check-in was captured (409) | Compare timestamps: if check-in `T` < quit `T`, mark `TIMESTAMP_PRECEDES_QUIT`, notify organiser for resolution | No (manual) |
-| Rider quit before check-in was captured (409) | Mark `FAILED`, notify user — check-in is genuinely invalid | No |
-| Ride CLOSED, check-in captured before closure (409) | Mark `RIDE_CLOSED_BUT_VALID`, notify organiser for late-sync resolution | No (manual) |
-| Ride CLOSED, check-in captured after closure (409) | Mark `FAILED`, notify user | No |
-| Network error (timeout, no connection) | Retry with exponential backoff (2s → 4s → 8s → 16s → 32s), max 5 retries | Yes |
-| Server error (500) | Retry with exponential backoff, max 3 retries | Yes |
-| Authentication error (401) | Refresh JWT token via Amplify Auth, retry once | Yes (once) |
+| Scenario | Resolution | Auto? |
+|----------|-----------|-------|
+| Offline check-in syncs successfully | Mark as `SYNCED` | ✅ Yes |
+| Duplicate check-in (409: same rider + stage) | Mark as `SYNCED` (already exists), notify user "already checked in" | ✅ Yes |
+| Rider quit after check-in was captured (409) | Backend accepts if check-in `T` < quit `T` (timestamp-based validation) | ✅ Yes |
+| Rider quit before check-in was captured (409) | Mark `FAILED`, notify user — check-in is genuinely invalid | ✅ Yes |
+| Ride CLOSED, check-in captured before closure (409) | Backend accepts if check-in `T` < `closedAt` (timestamp-based validation) | ✅ Yes |
+| Ride CLOSED, check-in captured after closure (409) | Mark `FAILED`, notify user | ✅ Yes |
+| Network error (timeout, no connection) | Retry with exponential backoff (2s → 4s → 8s → 16s → 32s), max 5 retries | ✅ Yes |
+| Server error (500) | Retry with exponential backoff, max 3 retries | ✅ Yes |
+| Authentication error (401) | Refresh JWT token via Amplify Auth, retry once | ✅ Yes |
+
+> **Note:** All conflict scenarios are designed to be resolved automatically — no manual intervention or reconciliation process is required. This depends on backend enhancements listed in §9.
 
 ---
 
@@ -542,27 +603,53 @@ These values are provided by the `tour-data-api` deployment. The Cognito User Po
 
 2. **Multi-stage pit stop crew offline:** When a pit stop crew user is assigned to multiple stages, the app will provide a **stage context selector** allowing the user to choose which stage is their active context for the dashboard. This avoids confusion since the pit stop crew's main objective is the currently active pit stop. The selector will be prominent in the dashboard header when the user has multiple stage assignments.
 
-### 8.2 Photo URL Resolution
+3. **Dashboard refresh interval:** 5-second polling during active rides is confirmed as acceptable. Live-feed enhancement (WebSocket) tracked in issue #7. The SQLite-as-source architecture ensures any future live-feed mechanism (WebSocket, push notifications) can be adopted without changing the Dashboard UI — only the inbound sync process needs updating.
 
-Backend stores S3 keys (`photoS3Key`) for rider photos. Two options for resolving these to accessible URLs:
+4. **Photo URL resolution:** Separated to issue #9 for independent handling. No blocker for current design — `photoS3Key` is stored in types and SQLite schema. URL resolution can be added later without schema changes.
 
-| Aspect | Pre-Signed URLs (API Endpoint) | CloudFront Distribution |
-|--------|-------------------------------|------------------------|
-| **How it works** | A dedicated API endpoint (e.g., `GET /v1/photos/{key}`) returns a pre-signed S3 URL valid for a limited time (e.g., 15 minutes) | A CloudFront distribution serves photos from the S3 bucket via CDN edge locations |
-| **Security** | ✅ Fine-grained: URLs are scoped to the requesting user's JWT session. Expired URLs cannot be reused | ⚠️ Requires signed URLs or signed cookies for access control. Without signing, photos are publicly accessible via the CDN |
-| **Performance** | ⚠️ Extra API call per photo (or batch endpoint). Pre-signed URLs require a Lambda invocation | ✅ Excellent: CDN caching means photos are served from the nearest edge location. No Lambda involved after first request |
-| **Mobile caching** | ⚠️ URL changes on each sign → image cache may not recognise the same photo. Requires custom cache key mapping | ✅ Stable URLs → standard image caching works out of the box (`expo-image` cache) |
-| **Offline support** | ⚠️ Pre-signed URLs expire — cached images with expired URLs need re-signing when back online | ✅ Cached images remain valid (URL doesn't change) |
-| **Cost** | Lambda invocation per URL generation (~$0.20 per 1M requests). Minimal for ~100 riders | CloudFront: ~$0.085/GB data transfer. For ~100 rider photos (~50 KB each = 5 MB total), cost is negligible. Monthly: <$1 |
-| **Setup complexity** | Low — add one Lambda function to existing API | Medium — requires CloudFront distribution creation, S3 bucket policy, and optionally CloudFront signed URL configuration |
-| **Recommendation** | Good for prototyping / if photos are sensitive | **Recommended** — better performance, simpler caching, stable URLs, negligible cost |
+---
 
-**Recommendation:** Use a **CloudFront distribution** with the S3 bucket as origin. For this use case (~100 rider photos, non-sensitive profile images), the performance, caching, and offline benefits outweigh the one-time setup effort. If access control is required beyond the tour participants, CloudFront signed URLs can be added later.
+## 9. Suggested Backend Enhancements (`tour-data-api`)
 
-> **Decision needed:** Confirm CloudFront approach, or specify if pre-signed URLs are preferred for security reasons.
+The following enhancements to the `tour-data-api` backend are needed to support the fully automatic conflict resolution described in §4.5. Without these changes, some offline sync scenarios would require manual intervention, which should be avoided.
 
-### 8.3 Dashboard Refresh: Live vs Efficient
+### 9.1 Timestamp-Based Check-In Validation
 
-**Decision:** Use adaptive polling with 5-second intervals during active rides (see §4.4 for full strategy). If 5-second latency is not acceptable for the ride start scenario, a WebSocket-based push mechanism can be evaluated as a backend enhancement.
+**Current gap:** The check-in endpoint likely validates against the rider's current status (e.g., rejects if rider is `QUIT_RIDING`) without considering when the check-in was captured.
 
-> **Decision needed:** Is 5-second polling acceptable for ride start? If not, a WebSocket enhancement to the backend should be scoped.
+**Enhancement needed:** The `POST /v1/tours/{tourId}/checkins` endpoint should compare the submitted check-in `timestamp` against:
+- The rider's quit-riding timestamp (if applicable)
+- The rider's not-riding timestamp (if applicable)
+
+**Rule:** If `check-in timestamp < quit/not-riding timestamp`, the check-in is valid and should be accepted regardless of the rider's current status.
+
+**Example:** Rider quits at PS2 (timestamp T3). A check-in captured at PS1 (timestamp T1, where T1 < T3) arrives later via offline sync. This check-in should be accepted.
+
+### 9.2 Late-Sync for Closed Rides
+
+**Current gap:** The check-in endpoint likely rejects all check-ins when the ride status is `CLOSED`.
+
+**Enhancement needed:** The check-in endpoint should compare the submitted check-in `timestamp` against the ride's `closedAt` time.
+
+**Rule:** If `check-in timestamp < ride closedAt`, the check-in is valid and should be accepted even though the ride is now closed. Only check-ins with `timestamp ≥ closedAt` should be rejected.
+
+**Implementation option:** Add a flag to the existing endpoint (e.g., `lateSync: true` in the request body) or create a dedicated endpoint (`POST /v1/tours/{tourId}/checkins/late-sync`).
+
+### 9.3 Duplicate Check-In Handling
+
+**Current gap:** Behaviour when a duplicate check-in (same rider + same stage) is submitted may not be clearly defined.
+
+**Enhancement needed:** The check-in endpoint should return a **409 Conflict** with a clear error code (e.g., `DUPLICATE_CHECKIN`) when a check-in for the same rider at the same stage already exists. The response should include the existing check-in data so the frontend can confirm the check-in is already recorded.
+
+### 9.4 ETag Support for Dashboard Endpoint
+
+**Enhancement needed:** The `GET /v1/tours/{tourId}/rides/{rideId}/dashboard` endpoint should support conditional requests via `ETag` / `If-None-Match` headers. When data hasn't changed, return `304 Not Modified` with no body. This significantly reduces data transfer during 5-second polling.
+
+### 9.5 Summary
+
+| Enhancement | Impact | Priority |
+|------------|--------|----------|
+| Timestamp-based check-in validation (§9.1) | Eliminates manual resolution for offline cross-stage sync | **High** |
+| Late-sync for closed rides (§9.2) | Eliminates manual resolution for offline check-ins after ride closure | **High** |
+| Duplicate check-in handling (§9.3) | Clean user experience for duplicate attempts | **Medium** |
+| ETag support for dashboard (§9.4) | Reduces data transfer during 5-second polling | **Medium** |
