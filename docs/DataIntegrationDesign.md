@@ -549,20 +549,22 @@ On the **frontend**, before queuing a check-in, the app should also check SQLite
 
 ## 5. Environment Configuration
 
-The `.env` file needs the following additions:
+The `.env` file needs the following variables. All must use the `EXPO_PUBLIC_` prefix — this is an Expo requirement for variables to be accessible at runtime.
 
 ```
 # Tour Data API
-TOUR_DATA_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/v1
+EXPO_PUBLIC_TOUR_DATA_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/v1
 
 # AWS Cognito (for JWT authentication)
-AWS_REGION=<region>
-AWS_USER_POOL_ID=<user-pool-id>
-AWS_USER_POOL_WEB_CLIENT_ID=<client-id>
-AWS_IDENTITY_POOL_ID=<identity-pool-id>
+EXPO_PUBLIC_AWS_REGION=<region>
+EXPO_PUBLIC_AWS_USER_POOL_ID=<user-pool-id>
+EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID=<client-id>
+EXPO_PUBLIC_AWS_IDENTITY_POOL_ID=<identity-pool-id>
 ```
 
 These values are provided by the `tour-data-api` deployment. The Cognito User Pool is shared between the backend and the frontend app.
+
+> **Note**: Variables prefixed with `EXPO_PUBLIC_` are embedded in the client bundle. This is acceptable for User Pool IDs and API URLs (not secrets). See [Development Guide → Environment Configuration](development-guide.md#environment-configuration) for full details.
 
 ---
 

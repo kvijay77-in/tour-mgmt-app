@@ -73,14 +73,16 @@ Update the `.env` file with your environment-specific values:
 
 ```
 # Tour Data API
-TOUR_DATA_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/v1
+EXPO_PUBLIC_TOUR_DATA_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/v1
 
 # AWS Cognito (for JWT authentication)
-AWS_REGION=<region>
-AWS_USER_POOL_ID=<user-pool-id>
-AWS_USER_POOL_WEB_CLIENT_ID=<client-id>
-AWS_IDENTITY_POOL_ID=<identity-pool-id>
+EXPO_PUBLIC_AWS_REGION=<region>
+EXPO_PUBLIC_AWS_USER_POOL_ID=<user-pool-id>
+EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID=<client-id>
+EXPO_PUBLIC_AWS_IDENTITY_POOL_ID=<identity-pool-id>
 ```
+
+> **Important**: All environment variables must use the `EXPO_PUBLIC_` prefix to be accessible in the app at runtime. This is an Expo requirement — variables without this prefix are not bundled into the app. See [Expo Environment Variables](https://docs.expo.dev/guides/environment-variables/) for details.
 
 These values come from the [tour-data-api](https://github.com/kvijay77-in/tour-data-api) deployment. See the tour-data-api [Deployment Guide](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/deployment-guide.md#after-deployment-getting-your-api-url) for how to retrieve API URLs and Cognito configuration.
 
@@ -113,6 +115,24 @@ The Expo CLI will display options:
 - Press `w` to open in web browser
 - Scan the QR code with Expo Go on a physical device
 
+### Tunnel Mode (Network Issues)
+
+If your local network blocks connections between your development machine and physical device (common with corporate/restricted WiFi, VPNs, or firewalls), use the `--tunnel` flag to route traffic through an `ngrok` tunnel instead of LAN:
+
+```bash
+# Start with tunnel mode
+npx expo start --tunnel
+```
+
+**When to use `--tunnel`:**
+- Device and computer are on the same WiFi but QR code scan fails or app can't connect
+- Corporate or guest WiFi networks that isolate clients
+- VPN is active on either the device or computer
+- Firewall blocks port 8081
+- Working from a remote/cloud development environment
+
+> **Note**: Tunnel mode requires `@expo/ngrok` to be installed. Expo will prompt you to install it on first use. Tunnel connections are slower than LAN — use LAN mode when your network allows it.
+
 ### Platform-Specific
 
 ```bash
@@ -131,6 +151,8 @@ npm run web
 # or
 npx expo start --web
 ```
+
+> **Tip**: The `--tunnel` flag can be combined with platform flags, e.g. `npx expo start --android --tunnel`.
 
 ### Development with Mock Data
 
@@ -199,17 +221,34 @@ All timestamps should be in UTC with the `Z` suffix.
 
 ### Required Environment Variables
 
+> **Note**: All variables must use the `EXPO_PUBLIC_` prefix. This is an Expo requirement — only variables with this prefix are embedded into the app bundle by Metro. Variables without the prefix are silently ignored and will be `undefined` at runtime.
+
 | Variable | Description | Source |
 |----------|-------------|--------|
-| `TOUR_DATA_API_BASE_URL` | Base URL for the tour-data-api | tour-data-api deployment output |
-| `AWS_REGION` | AWS region (e.g., `ap-south-1`) | Your AWS configuration |
-| `AWS_USER_POOL_ID` | Cognito User Pool ID | tour-data-api deployment output |
-| `AWS_USER_POOL_WEB_CLIENT_ID` | Cognito App Client ID | tour-data-api deployment output |
-| `AWS_IDENTITY_POOL_ID` | Cognito Identity Pool ID | tour-data-api deployment output (if applicable) |
+| `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` | Base URL for the tour-data-api | tour-data-api deployment output |
+| `EXPO_PUBLIC_AWS_REGION` | AWS region (e.g., `ap-south-1`) | Your AWS configuration |
+| `EXPO_PUBLIC_AWS_USER_POOL_ID` | Cognito User Pool ID | tour-data-api deployment output |
+| `EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID` | Cognito App Client ID | tour-data-api deployment output |
+| `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` | Cognito Identity Pool ID | tour-data-api deployment output (if applicable) |
 
 ### Amplify Configuration
 
 AWS Amplify is configured in `src/config/amplify.ts` (as per project structure). The configuration reads from environment variables — never hardcode values.
+
+```typescript
+// Example: src/config/amplify.ts
+Amplify.configure({
+  Auth: {
+    Cognito: {
+      userPoolId: process.env.EXPO_PUBLIC_AWS_USER_POOL_ID,
+      userPoolClientId: process.env.EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID,
+      identityPoolId: process.env.EXPO_PUBLIC_AWS_IDENTITY_POOL_ID,
+    },
+  },
+});
+```
+
+> **Security Note**: Variables prefixed with `EXPO_PUBLIC_` are embedded in the client bundle and visible to end users. This is acceptable for Cognito User Pool IDs and API URLs (they are not secrets — authentication still requires valid credentials). Never put actual secrets (passwords, API keys with write access) in `EXPO_PUBLIC_` variables.
 
 ---
 
@@ -297,9 +336,11 @@ npx expo start --ios
 ### Expo Go Connection Issues
 
 - Ensure your phone and computer are on the **same WiFi network**
-- Try `npx expo start --tunnel` for network issues
+- **Use `npx expo start --tunnel`** if LAN connection fails — this is the most common fix for network-related issues. See [Tunnel Mode](#tunnel-mode-network-issues) above for details.
 - Update Expo Go to the latest version on your device
 - Check firewall settings — Expo needs port 8081
+- If using a VPN, try disconnecting it or switch to tunnel mode
+- Corporate/guest networks often isolate devices — tunnel mode bypasses this
 
 ### Build or Dependency Issues
 

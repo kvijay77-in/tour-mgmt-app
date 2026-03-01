@@ -230,13 +230,15 @@ The app uses the **same Cognito User Pool** as the tour-data-api backend. Config
 Amplify.configure({
   Auth: {
     Cognito: {
-      userPoolId: process.env.AWS_USER_POOL_ID,
-      userPoolClientId: process.env.AWS_USER_POOL_WEB_CLIENT_ID,
-      identityPoolId: process.env.AWS_IDENTITY_POOL_ID,
+      userPoolId: process.env.EXPO_PUBLIC_AWS_USER_POOL_ID,
+      userPoolClientId: process.env.EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID,
+      identityPoolId: process.env.EXPO_PUBLIC_AWS_IDENTITY_POOL_ID,
     },
   },
 });
 ```
+
+> **Note**: All environment variables must use the `EXPO_PUBLIC_` prefix. This is an Expo requirement — Metro only bundles variables with this prefix. See [Development Guide → Environment Configuration](development-guide.md#environment-configuration) for details.
 
 ---
 

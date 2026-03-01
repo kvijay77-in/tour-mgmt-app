@@ -18,7 +18,7 @@ import { ApiResponse } from '../../types/api';
 // Configuration
 // ---------------------------------------------------------------------------
 
-const API_BASE_URL = process.env.TOUR_DATA_API_BASE_URL || '';
+const API_BASE_URL = process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL || '';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 3;
