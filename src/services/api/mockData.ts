@@ -10,7 +10,10 @@ import {
   Stage,
   StageType,
   CheckInStatus,
+  CheckInMethod,
+  RideStatus,
   RiderStatus,
+  deriveCheckInStatus,
 } from '../../types/models';
 
 // ============================================================================
@@ -92,7 +95,7 @@ export const MOCK_RIDE: Ride = {
   finishLocation: 'Coastal Resort',
   totalDistance: 75,
   stages: MOCK_STAGES,
-  status: 'IN_PROGRESS',
+  status: RideStatus.ACTIVE,
   startedAt: '2026-02-01T08:00:00Z',
 };
 
@@ -123,25 +126,29 @@ const generateCheckIns = (): CheckIn[] => {
         checkInId: `CI${String(checkInCounter++).padStart(3, '0')}`,
         riderId,
         rideId: 'RIDE001',
+        stageNumber: stageNum,
         stageId: `S${String(stageNum).padStart(3, '0')}`,
-        status: CheckInStatus.CHECKED_IN,
+        isNotRiding: false,
+        isQuitRiding: false,
         timestamp: `2026-02-01T${String(7 + stageNum).padStart(2, '0')}:${String((riderNum % 60)).padStart(2, '0')}:00Z`,
         checkedInBy: stageNum === 1 ? 'admin' : `crew${stageNum - 1}`,
-        method: 'QR_SCAN',
+        method: CheckInMethod.QR_SCAN,
       });
     }
     
-    // If quitting, add a QUIT_RIDING status at the next stage
+    // If quitting, add a QUIT_RIDING check-in at the next stage
     if (isQuitting && upToStage < 4) {
       checkIns.push({
         checkInId: `CI${String(checkInCounter++).padStart(3, '0')}`,
         riderId,
         rideId: 'RIDE001',
+        stageNumber: upToStage + 1,
         stageId: `S${String(upToStage + 1).padStart(3, '0')}`,
-        status: CheckInStatus.QUIT_RIDING,
+        isNotRiding: false,
+        isQuitRiding: true,
         timestamp: `2026-02-01T${String(8 + upToStage).padStart(2, '0')}:${String((riderNum % 60)).padStart(2, '0')}:00Z`,
         checkedInBy: `crew${upToStage}`,
-        method: 'MANUAL',
+        method: CheckInMethod.MANUAL,
       });
     }
   };
@@ -165,11 +172,13 @@ const generateCheckIns = (): CheckIn[] => {
       checkInId: `CI${String(checkInCounter++).padStart(3, '0')}`,
       riderId,
       rideId: 'RIDE001',
+      stageNumber: 1,
       stageId: 'S001',
-      status: CheckInStatus.NOT_RIDING,
+      isNotRiding: true,
+      isQuitRiding: false,
       timestamp: `2026-02-01T07:${String((riderNum % 60)).padStart(2, '0')}:00Z`,
       checkedInBy: 'admin',
-      method: 'MANUAL',
+      method: CheckInMethod.MANUAL,
     });
   });
   
@@ -254,7 +263,7 @@ export const getMockLastCheckIn = (riderId: string, rideId: string): CheckIn | u
  */
 export const getMockLastSuccessfulCheckIn = (riderId: string, rideId: string): CheckIn | undefined => {
   const checkIns = getMockRiderCheckIns(riderId, rideId)
-    .filter(ci => ci.status === CheckInStatus.CHECKED_IN);
+    .filter(ci => deriveCheckInStatus(ci) === CheckInStatus.CHECKED_IN);
   if (checkIns.length === 0) return undefined;
   
   // Sort by stage number and return last
@@ -276,13 +285,14 @@ export const getMockRiderStatus = (riderId: string): RiderStatus | undefined => 
   const checkIns = getMockRiderCheckIns(riderId, ride.rideId);
   const lastCheckIn = getMockLastCheckIn(riderId, ride.rideId);
   
-  // Determine overall status
+  // Determine overall status using derived status from boolean flags
   let overallStatus: CheckInStatus = CheckInStatus.NOT_CHECKED_IN;
   let lastStage: Stage | undefined = undefined;
   
   if (lastCheckIn) {
-    if (lastCheckIn.status === CheckInStatus.NOT_RIDING || lastCheckIn.status === CheckInStatus.QUIT_RIDING) {
-      overallStatus = lastCheckIn.status;
+    const derivedStatus = deriveCheckInStatus(lastCheckIn);
+    if (derivedStatus === CheckInStatus.NOT_RIDING || derivedStatus === CheckInStatus.QUIT_RIDING) {
+      overallStatus = derivedStatus;
       // For QR and NR riders, use the last successful check-in stage (where they actually reached)
       // not the stage where they quit/marked as not riding
       const lastSuccessfulCheckIn = getMockLastSuccessfulCheckIn(riderId, ride.rideId);

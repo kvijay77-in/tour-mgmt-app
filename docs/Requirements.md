@@ -7,6 +7,7 @@ This app should provide 2 primary features:
 
 Apart from these following Admin features should also be available.  
 1. Add/Modify Ride
+1. Close Pit Stop
 1. Close Ride
 
 Future additions:  
@@ -84,7 +85,7 @@ On each day of the tour, before the ride is Started/Flagged off all riders must 
 Tour Director will use the dashboard to view the check-in progress and only when all check-ins are completed she/he will give go ahead to start the ride.
 
 ## Pit Stops  
-Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop.
+Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop. Pit Stop Crew will have the control on to flag the assigned pit stop as 'Open' and 'Closed'. This will help to a tracking view for Pit Stops. In future this status can even be used for Rider App (not scope for this project) to let riders know Pit Stop as been opend and closed.
 
 No. of pit stops may vary as per the day's ride plan and distance. Dashboard should dynamically adapt to the corresponding ride and no. of pit stops automatically.
 
@@ -133,6 +134,8 @@ This role will have access to all features and functions except Add/Modify and C
 ## Pit Stop Crew
 This role will have access to all check in features including the 2 special cases. For clarity purpose manual check in feature will not be available for this role - Not Riding can be registered before the start of the ride and if Rider decides to Quit Riding at Pit Stop, this can be captured by scanning the QR Code.
 
+This role will have the ability to mark assigned pit stop as 'Opened' and 'Closed' to allow good control on Pit Stop status.
+
 There can be more than 1 pit stops hence this role assignment should include the pit stop (stage) no as well.  
 
 Fallback feature should be considered as part of standard check in and not as manual check in feature.
@@ -146,7 +149,7 @@ This should be flagged as a special role where Dashboard access should not be av
 This role is a read-only Dashboard role with all other features disabled or removed. Purpose of having this role is basically to allow users to view the ride progress or historical dashboard.
 
 # Offline Capability:
-Sometime pit stop can be in a very remote location where cellular reception may not be available or intermittent. App should be able to support offline mode. Offline mode indicator is required at Dashboard level.
+Sometime pit stop can be in a very remote location where cellular reception may not be available or intermittent. App should be able to support offline mode. User must have an option to turn on/off 'Offline mode' manually to give user better control when data connectivity is not stable or intermittent. Offline mode indicator is required at Dashboard level.
 
 All check in should be captured in mobile device local database/storage and asynchronously updated in the main cloud based database table. If network is not available the async update process should be put on hold until network is available.
 
