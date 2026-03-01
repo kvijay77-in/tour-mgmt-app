@@ -181,7 +181,10 @@ async function request<T>(
       }
 
       // Parse response body
-      const responseBody = await response.json().catch(() => null);
+      const responseBody = await response.json().catch((e: unknown) => {
+        console.warn('[ApiClient] Failed to parse response JSON:', e);
+        return null;
+      });
 
       // Success
       if (response.ok) {

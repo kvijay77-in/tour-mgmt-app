@@ -92,7 +92,8 @@ function mapRowToRide(row: Record<string, unknown>): Ride {
   let stages: Stage[] = [];
   try {
     stages = JSON.parse(row.stagesJson as string) as Stage[];
-  } catch {
+  } catch (e) {
+    console.warn('[RideStore] Failed to parse stages JSON:', e);
     stages = [];
   }
 

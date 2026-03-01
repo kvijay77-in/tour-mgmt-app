@@ -34,6 +34,7 @@ import { CheckInRequest } from '../../types/api';
 // ---------------------------------------------------------------------------
 
 const MAX_RETRIES = 5;
+const OUTBOUND_POLL_INTERVAL_MS = 3_000; // 3 seconds
 const INBOUND_POLL_INTERVAL_MS = 5_000; // 5 seconds during active ride
 
 // ---------------------------------------------------------------------------
@@ -257,26 +258,32 @@ let _inboundTimer: ReturnType<typeof setInterval> | null = null;
 export function startSync(tourId: string, rideId: string | null): void {
   stopSync();
 
-  // Outbound: Process pending operations every 3 seconds
+  // Outbound: Process pending operations
   _outboundTimer = setInterval(() => {
-    processOutboundSync(tourId).catch(() => {
-      // Silently handle — sync will retry on next interval
+    processOutboundSync(tourId).catch((err) => {
+      // Non-critical: sync will retry on next interval
+      console.warn('[Sync] Outbound sync error:', err);
     });
-  }, 3_000);
+  }, OUTBOUND_POLL_INTERVAL_MS);
 
   // Trigger immediate outbound sync
-  processOutboundSync(tourId).catch(() => {});
+  processOutboundSync(tourId).catch((err) => {
+    console.warn('[Sync] Initial outbound sync error:', err);
+  });
 
   // Inbound: Poll dashboard every 5 seconds (only if there's an active ride)
   if (rideId) {
     _inboundTimer = setInterval(() => {
-      performInboundSync(tourId, rideId).catch(() => {
-        // Silently handle — sync will retry on next interval
+      performInboundSync(tourId, rideId).catch((err) => {
+        // Non-critical: sync will retry on next interval
+        console.warn('[Sync] Inbound sync error:', err);
       });
     }, INBOUND_POLL_INTERVAL_MS);
 
     // Trigger immediate inbound sync
-    performInboundSync(tourId, rideId).catch(() => {});
+    performInboundSync(tourId, rideId).catch((err) => {
+      console.warn('[Sync] Initial inbound sync error:', err);
+    });
   }
 }
 

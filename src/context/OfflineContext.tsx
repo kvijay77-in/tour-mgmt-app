@@ -74,8 +74,9 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
           const offline = !(state.isConnected && state.isInternetReachable !== false);
           setAutoDetectedOffline(offline);
         });
-      } catch {
+      } catch (e) {
         // NetInfo not available (web or test environment) — assume online
+        console.warn('[OfflineContext] NetInfo not available, assuming online:', e);
         setAutoDetectedOffline(false);
       }
     }
