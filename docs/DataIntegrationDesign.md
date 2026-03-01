@@ -458,9 +458,8 @@ Since the Dashboard reads exclusively from SQLite, "refresh" means the **inbound
 The SQLite-as-source architecture positions the app well for future live-feed enhancements:
 - The Dashboard already observes SQLite for changes, so any mechanism that updates SQLite (polling, WebSocket, push notification) will instantly reflect on the Dashboard.
 - A future WebSocket-based push mechanism would simply replace the polling inbound sync with a persistent connection that writes updates to SQLite as they arrive. The Dashboard UI code would not need to change.
+- The current API Gateway HTTP API does not support WebSocket — this would require an API Gateway WebSocket API or a separate service.
 - See issue #7 for tracking live-feed enhancement if 5-second polling proves insufficient.
-
-> **Note:** The current API Gateway HTTP API does not support WebSocket. A WebSocket enhancement would require an API Gateway WebSocket API or a separate service. This is flagged as a **potential future enhancement** tracked in issue #7.
 
 #### Pre-Sync for Offline Readiness
 
@@ -475,7 +474,7 @@ Per requirements, "Not Riding" and "Quit Riding" data captured before a pit stop
 
 #### Design Principle: Timestamp-Based Validity
 
-Offline check-ins are **captured at a point in time** and carry their original `timestamp`. A check-in that was valid when captured remains valid regardless of when it is synced. The backend **must** accept check-ins based on their capture timestamp, not the current rider status or ride status at sync time.
+Offline check-ins are **captured at a point in time** and carry their original `timestamp`. A check-in that was valid when captured remains valid regardless of when it is synced. The backend should accept check-ins based on their capture timestamp, not the current rider status or ride status at sync time. This requires backend enhancements described in §9.
 
 #### Scenario: PS1 Offline, PS2 Online (Cross-Stage Sync)
 
@@ -490,17 +489,17 @@ Consider:
 - The check-in timestamp `T1` predates the quit-riding timestamp `T3`.
 - The rider was actively riding at `T1` — the check-in was legitimate when captured.
 
-**Backend requirement:** The backend must validate check-in requests by comparing the check-in `timestamp` against the quit/not-riding timestamp, not just the rider's current status. If the check-in timestamp predates the quit, it must be accepted. See §9 for the specific backend enhancement needed.
+**Backend requirement:** This scenario requires the backend to validate check-in requests by comparing the check-in `timestamp` against the quit/not-riding timestamp, not just the rider's current status. If the check-in timestamp predates the quit, it should be accepted. See §9.1 for the specific enhancement request.
 
 #### Scenario: Ride CLOSED with Valid Offline Check-Ins
 
 A ride may be closed by an administrator while pit stop crew at a remote location still have pending offline check-ins. These check-ins were captured **while the ride was active** and are valid data.
 
-**Resolution:** Check-ins captured before `closedAt` are **valid and must be accepted** by the backend. The sync process sends the original capture `timestamp`, and the backend validates:
+**Resolution:** Check-ins captured before `closedAt` are valid and should be accepted by the backend (requires enhancement per §9.2). The sync process sends the original capture `timestamp`, and the backend validates:
 - If `check-in timestamp < ride closedAt` → **accept** (valid late-synced check-in)
 - If `check-in timestamp ≥ ride closedAt` → **reject** (genuinely occurred after ride closure)
 
-**Backend requirement:** The check-in endpoint must compare the submitted `timestamp` against the ride's `closedAt` time, not just the current ride status. See §9 for the specific backend enhancement needed.
+**Backend requirement:** This scenario requires the check-in endpoint to compare the submitted `timestamp` against the ride's `closedAt` time, not just the current ride status. See §9.2 for the specific enhancement request.
 
 #### Scenario: Duplicate Check-In
 
@@ -530,7 +529,7 @@ On the **frontend**, before queuing a check-in, the app should also check SQLite
 | Server error (500) | Retry with exponential backoff, max 3 retries | ✅ Yes |
 | Authentication error (401) | Refresh JWT token via Amplify Auth, retry once | ✅ Yes |
 
-> **Note:** All conflict scenarios are designed to be resolved automatically — no manual intervention or reconciliation process is required. This depends on backend enhancements listed in §9.
+> **Note:** All conflict scenarios are designed to be resolved automatically — no manual intervention or reconciliation process is required. However, the timestamp-based scenarios (rider quit, ride closed) depend on backend enhancements listed in §9. Until those enhancements are implemented, the sync service will flag these as `FAILED` with descriptive error messages for the organising team to review.
 
 ---
 
@@ -639,7 +638,7 @@ The following enhancements to the `tour-data-api` backend are needed to support 
 
 **Current gap:** Behaviour when a duplicate check-in (same rider + same stage) is submitted may not be clearly defined.
 
-**Enhancement needed:** The check-in endpoint should return a **409 Conflict** with a clear error code (e.g., `DUPLICATE_CHECKIN`) when a check-in for the same rider at the same stage already exists. The response should include the existing check-in data so the frontend can confirm the check-in is already recorded.
+**Enhancement needed:** The check-in endpoint should return a **409 Conflict** with a clear error code (e.g., `DUPLICATE_CHECKIN`) when a check-in for the same rider at the same stage already exists. A confirmation that the duplicate exists is sufficient — no need to return the full existing check-in data in the error response.
 
 ### 9.4 ETag Support for Dashboard Endpoint
 
