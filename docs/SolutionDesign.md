@@ -385,11 +385,47 @@ Stage colors are defined in `src/constants/colors.ts` and used consistently acro
 
 ---
 
+## Multi-Tenancy (Single App, Multiple Organizers)
+
+### Context
+
+The app is intended to be usable by different tour organizers, each operating on their own dedicated AWS subscription (separate Cognito User Pool, separate `tour-data-api` deployment). The goal is to publish a **single app binary** to the Play Store / App Store that can be configured at runtime to point to any organizer's AWS backend — without requiring a new app build per organizer.
+
+### Current State
+
+AWS configuration (`userPoolId`, `userPoolClientId`, `apiBaseUrl`, etc.) is currently provided via `EXPO_PUBLIC_` environment variables that are **baked into the bundle at build time**. This requires a separate build per organizer and does not support a single-binary distribution model.
+
+### Planned Approach
+
+The approved direction (pending final decision — see [Multi-Tenancy Feasibility Study](MultiTenancy-Feasibility.md)) is **runtime configuration via a Bootstrap Service**:
+
+1. The app ships with only a stable bootstrap service URL as a build-time constant.
+2. On first launch, an **Organization Setup screen** prompts the user to enter their organizer's unique code.
+3. The app fetches the org-specific AWS config from the bootstrap service.
+4. Config is stored securely via `expo-secure-store` and used to call `Amplify.configure()` at runtime.
+5. All subsequent launches use the stored config without requiring a network call to the bootstrap service.
+
+This preserves full AWS account isolation per organizer while eliminating the need for per-organizer builds.
+
+### Design Impact
+
+| Component | Change Required |
+|-----------|----------------|
+| `src/config/amplify.ts` | Refactor to accept runtime config values instead of `EXPO_PUBLIC_` env vars |
+| `src/screens/auth/` | Add `OrgSetupScreen` shown on first launch when no config is stored |
+| App startup sequence | Load config from `expo-secure-store` before calling `Amplify.configure()` |
+| Bootstrap service | New lightweight service (static S3/Lambda) — separate from `tour-data-api` |
+
+> For full analysis, options comparison, security considerations, and implementation effort estimate, see [Multi-Tenancy Feasibility Study](MultiTenancy-Feasibility.md).
+
+---
+
 ## Related Documentation
 
 - [Requirements](Requirements.md) — Detailed feature specifications and business rules
 - [Dashboard Feature](Dashboard-Feature.md) — Dashboard screen specification
 - [Data Integration Design](DataIntegrationDesign.md) — Backend integration and offline architecture
+- [Multi-Tenancy Feasibility](MultiTenancy-Feasibility.md) — Single-app multi-organizer architecture study
 - [Project Structure](project-structure.md) — Folder organization
 
 ---

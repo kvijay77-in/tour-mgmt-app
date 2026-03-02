@@ -13,6 +13,7 @@ This page provides a guide to all project documentation.
 | [Solution Design](SolutionDesign.md) | Architecture, design principles, component structure, technical decisions |
 | [Dashboard Feature](Dashboard-Feature.md) | Dashboard screen specification — grid display, stages, sorting, zoom levels, color coding |
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
+| [Multi-Tenancy Feasibility](MultiTenancy-Feasibility.md) | Feasibility study for single-app multi-organizer architecture (runtime configuration) |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 
 ## Quick Navigation
@@ -49,6 +50,7 @@ This page provides a guide to all project documentation.
 - **State management**: [Solution Design → State Management](SolutionDesign.md#state-management)
 - **Authentication flow**: [Solution Design → Authentication](SolutionDesign.md#authentication)
 - **Project structure**: [Project Structure](project-structure.md)
+- **Multi-organizer / multi-tenancy**: [Multi-Tenancy Feasibility](MultiTenancy-Feasibility.md)
 
 ## External Resources
 
