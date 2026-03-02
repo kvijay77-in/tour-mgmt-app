@@ -7,6 +7,8 @@ This document analyses the feasibility of distributing a **single app package** 
 This is a **feasibility study only**. No implementation changes are included in this document.
 
 > **Updated constraint (March 2026):** Self-service sign-up will be removed from the app. Users access the app by invitation only — the tour organizer's team sends each user an email invite. This change is reflected throughout the analysis below, particularly in how the org code is delivered to users and in the authentication flow design.
+>
+> **Revised recommendation (March 2026):** Based on further review, **Option 3 (Setup Deep Link / QR Code in invite email) is now the recommended approach** — it requires no publisher-maintained central service and integrates naturally with invite-only onboarding. The previous Option 2 (Bootstrap Service) is retained as a viable alternative for organizers who need to be able to update their AWS config centrally without re-issuing invite links.
 
 ---
 
@@ -22,8 +24,10 @@ This is a **feasibility study only**. No implementation changes are included in 
 - [Comparison Matrix](#comparison-matrix)
 - [Recommendation](#recommendation)
 - [Technical Design: Recommended Approach](#technical-design-recommended-approach)
-  - [Bootstrap Configuration Service](#bootstrap-configuration-service)
+  - [Invite Email Setup Link](#invite-email-setup-link)
+  - [QR Code — Obfuscation Analysis](#qr-code--obfuscation-analysis)
   - [App First-Launch Flow](#app-first-launch-flow)
+  - [Reinstall and New-Device Scenario](#reinstall-and-new-device-scenario)
   - [Dynamic Amplify Configuration](#dynamic-amplify-configuration)
   - [Security Considerations](#security-considerations)
 - [Implementation Effort Estimate](#implementation-effort-estimate)
@@ -136,36 +140,71 @@ The app ships with **only a single, stable bootstrap URL** baked in. All organiz
 - Config values returned by the bootstrap service must not include actual secrets (User Pool IDs and API URLs are not secrets — see Security Considerations below)
 - Deep link variant requires Universal Link (iOS) / App Link (Android) configuration in `app.json` and the organizer's domain
 
-**Verdict:** ✅ **Feasible and recommended.** Meets all requirements. Technical complexity is low.
+**Verdict:** ✅ **Feasible — viable alternative to Option 3.** Preferred when the organizer expects to change their AWS configuration after initial rollout (e.g., Cognito pool migration) without needing to re-issue invite links. Adds publisher infrastructure overhead that Option 3 avoids.
 
 ---
 
 ### Option 3: Configuration via Setup QR Code / Deep Link
 
-The organizer distributes a **setup QR code** (or a deep link URL) that encodes all AWS config values. The user scans/opens it once and the app extracts and stores the config.
+The organizer distributes a **setup deep link** (embedded in the invite email) or a **QR code** that encodes all AWS config values directly. The user taps/scans it once; the app extracts, validates and stores the config locally.
 
 **How it works:**
 
-1. App publisher provides a tool to generate a setup QR code (or a setup deep link) from the organizer's config values.
-2. Organizer includes the QR code / deep link in the **email invite** sent to each user, alongside the temporary password.
-3. On first launch, the app presents a **Scan Setup Code** screen.
-4. User scans the QR code (or taps the deep link in the email on their phone); the app reads config values, validates and stores them via `expo-secure-store`.
+1. App publisher provides a one-time tool (a simple script or web form) to generate a setup deep link / QR code from the organizer's AWS config values.
+2. Organizer includes the setup deep link (and/or QR code) in the **email invite** sent to each user, alongside the temporary Cognito password.
+3. On first launch, the app checks for an incoming deep link **or** presents a **Scan Setup Code** screen.
+4. User taps the deep link from their email on the device (or scans the QR code); the app decodes the config payload, validates it and stores it via `expo-secure-store`.
 5. `Amplify.configure()` is called with the stored values.
+6. All subsequent app launches skip setup and use the stored config.
 
-> **Note:** With invite-only onboarding, the QR code is no longer a separate distribution problem — it is already in the same invite email the user must read to get their password. This significantly reduces the friction concern that applied when sign-up was self-service.
+> **With invite-only onboarding, the setup link is not a separate distribution problem** — it is already in the same email the user must read to get their temporary password. Users receive exactly one email that contains everything needed to get started.
 
 **Pros:**
-- No central bootstrap service needed
-- Each organizer's setup is completely independent
-- Works offline (no network call needed during setup)
-- Invite-only model means the QR code / link is delivered in the invite email — users receive it through a trusted channel they already need to open
+- **No central publisher-maintained service** — once the app is published, the publisher has no ongoing infrastructure to operate or pay for
+- **Each organizer is fully independent** — the organizer generates their own setup link/QR and distributes it; the publisher does not need to be involved at all after app publication
+- **Works on first install without any network call** — config is read from the deep link payload before any login attempt
+- Config stored in `expo-secure-store` (Android Keystore / iOS Keychain) — OS-level encryption at rest
+- Invite-only model means the setup link is delivered through a trusted, controlled channel
 
 **Cons:**
-- Config values are encoded in a QR code — anyone who photographs it can see them (User Pool IDs / API URLs are not secret, but exposure is higher than Option 2)
-- Organizer must regenerate and redistribute QR codes / deep links if config changes (e.g., after Cognito migration); this means resending invites to all affected users
-- Deep links require additional Universal Link / App Link configuration in `app.json` and on the server
+- Config values are visible in the deep link URL / QR code (see Obfuscation Analysis below)
+- If AWS config changes (e.g., Cognito pool migration), the organizer must regenerate the setup link and re-send invites to all affected users — existing installed users are unaffected (they already have config stored)
+- Deep link variant requires Universal Link (iOS) / App Link (Android) configuration in `app.json` and the hosting domain
 
-**Verdict:** ⚠️ Feasible. The invite-only model removes the original friction concern (QR code must be available at install time), but the config-change redistribution problem remains. Best used as a **complement to Option 2** — the invite email deep link triggers the bootstrap lookup rather than encoding raw config values, combining the seamless UX of Option 3 with the centrally updatable config of Option 2.
+**Verdict:** ✅ **Feasible and recommended** for this use case. With invite-only onboarding, the distribution and friction concerns that applied to Option 3 when sign-up was open are fully resolved. The absence of any publisher-maintained service makes this the most operationally lightweight option.
+
+#### QR Code / Deep Link — Obfuscation Analysis
+
+> *"Are there any kind of obfuscation possible for the exposed values in QR code?"*
+
+**What values are exposed:** The setup payload contains `userPoolId`, `userPoolClientId`, `identityPoolId`, `apiBaseUrl`, and `awsRegion`.
+
+**Are these values secret?** No — they are **resource identifiers, not credentials**:
+- Cognito User Pool IDs identify a pool but do not grant access to it
+- Authentication still requires a valid username and password (which are never stored in the QR code or app bundle)
+- With `allowAdminCreateUserOnly: true` on the Cognito User Pool, an attacker who reads the QR code cannot create an account — they can only attempt to log in with credentials they do not have
+
+**Obfuscation options and their actual value:**
+
+| Technique | How it works | Actual security gain |
+|-----------|-------------|---------------------|
+| Base64 encoding | Encode the JSON payload as Base64 in the URL/QR | None — Base64 is reversible in one step; provides no security |
+| Symmetric encryption with app-embedded key | Encrypt payload; decrypt key is baked into the app bundle | Very low — the decryption key is in the Expo JS bundle and can be extracted with basic tooling |
+| HMAC signature (integrity, not secrecy) | Sign the payload so the app can verify it was issued by the publisher | Protects against tampered QR codes (e.g., a malicious substitute); does not hide values |
+
+**Conclusion on obfuscation:** Obfuscation of the config values in the QR code / deep link provides no meaningful security improvement, because the values themselves are not secrets. The correct security control is at the **Cognito layer** (`allowAdminCreateUserOnly: true`), not at the config-visibility layer. That said, adding an **HMAC signature** to the payload is worthwhile for a different reason — it ensures the app only accepts setup links genuinely issued by the publisher, preventing a malicious QR code from pointing the app at a fraudulent AWS environment.
+
+**Recommended payload format (with signature):**
+
+```
+https://setup.checkin-app.example.com/setup
+  ?payload=BASE64(JSON_CONFIG)
+  &sig=HMAC_SHA256(BASE64(JSON_CONFIG), PUBLISHER_SECRET)
+```
+
+- `payload`: Base64-encoded JSON config (for URL safety, not security)
+- `sig`: HMAC-SHA256 signature computed with a publisher-held secret — the app verifies this before accepting the config
+- The HMAC verification key is baked into the app bundle (acceptable since HMAC only needs the key to verify, not to create new valid signatures at scale)
 
 ---
 
@@ -195,37 +234,49 @@ Each tour organizer receives a custom build of the app with their AWS config bak
 
 ## Comparison Matrix
 
-| Criterion | Option 1 (Shared AWS) | Option 2 (Bootstrap Service) | Option 3 (Setup QR) | Option 4 (Dedicated Build) |
-|-----------|----------------------|------------------------------|---------------------|---------------------------|
+| Criterion | Option 1 (Shared AWS) | Option 2 (Bootstrap Service) | Option 3 (Setup QR / Deep Link) | Option 4 (Dedicated Build) |
+|-----------|----------------------|------------------------------|---------------------------------|---------------------------|
 | Single app binary | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No |
 | Per-organizer AWS isolation | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes |
 | No build per organizer | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No |
-| Central service dependency | ❌ None | ⚠️ Bootstrap service | ❌ None | ❌ None |
-| Onboarding friction (invite-only) | Low | Very Low (org code or deep link in invite email) | Low (QR/link in invite email) | Low |
-| Security posture | Low isolation | ✅ High | ⚠️ Medium | ✅ High |
-| Organizer self-service | ❌ No | ✅ Yes | ✅ Yes | ❌ No |
-| Config change handling | N/A | ✅ Update bootstrap record; no user action needed | ❌ Regenerate and re-invite all users | N/A |
-| Implementation effort | Low | Medium | Medium | None (current) |
+| Publisher infrastructure after release | ❌ None | ⚠️ Bootstrap service required | ✅ None | ❌ None |
+| Onboarding friction (invite-only) | Low | Very Low (deep link in invite email) | Very Low (deep link/QR in invite email) | Low |
+| Security posture | Low isolation | ✅ High | ✅ High (values not secret; invite-only blocks unauthorized access) | ✅ High |
+| Organizer self-service | ❌ No | ✅ Yes | ✅ Yes (no publisher action needed) | ❌ No |
+| Config change handling | N/A | ✅ Update bootstrap record; no user action | ⚠️ Organizer regenerates setup link; existing installs unaffected | N/A |
+| Works without network on first setup | N/A | ❌ Network call to bootstrap required | ✅ Config in deep link payload | N/A |
+| Implementation effort | Low | Medium | Low–Medium | None (current) |
 
 ---
 
 ## Recommendation
 
-> **Recommended approach: Option 2 — Runtime Configuration via Bootstrap Service, enhanced with invite email deep link**
+> **Recommended approach: Option 3 — Setup Deep Link / QR Code in invite email**
+>
+> **Alternative: Option 2 — Runtime Bootstrap Service** (if future config-change flexibility without re-issuing invites is required)
 
-This is the only approach that simultaneously satisfies:
-1. A single app binary in the Play Store / App Store
-2. Full per-organizer AWS account isolation
-3. No new build required when onboarding a new organizer
+### Why Option 3 is now recommended
 
-The **invite-only model strengthens this recommendation** further:
-- The org code (or the bootstrap deep link) is delivered in the same email invite that carries the user's temporary Cognito password — a channel the user must open anyway
-- There is no "where do I find my org code?" problem: users have exactly one communication to read and one action to take
-- With the deep link variant, tapping the setup link from the invite email on their phone auto-configures the app — zero manual entry
+With invite-only onboarding, the two concerns that originally made Option 3 lower-ranked are resolved:
+
+| Concern (original) | Status with invite-only model |
+|--------------------|-------------------------------|
+| "User must have the QR code available at install time" | ✅ Resolved — the setup link is in the invite email the user must open to get their password |
+| "Higher friction than typing an org code" | ✅ Resolved — tapping a deep link in email is equal to or lower friction than typing a code |
+
+What remains is the **config-change redistribution** concern: if an organizer migrates their Cognito pool, they must regenerate the setup link and re-send it to users who need to reinstall. However:
+- AWS configuration changes of this kind are rare and planned
+- Only users who are *newly installing or reinstalling* the app need the updated link; existing installed users are unaffected (their config is stored in `expo-secure-store`)
+- The organizer already has the invite email infrastructure in place; re-sending to a subset of users is a low-effort operation
+
+Option 3 requires **no publisher infrastructure to build, host or maintain** after the app is published. This is the decisive advantage for this use case.
+
+**Option 2 remains a valid alternative** if the publisher anticipates needing to update organizer configs silently, without any user action. It can also be adopted later if Option 3's config-change limitation proves problematic in practice.
 
 The technical changes to the app are well-contained:
-- Replace build-time `EXPO_PUBLIC_` Amplify config with a runtime fetch + secure store
-- Add a one-time **Organization Setup screen** shown only on fresh installs (or handle via deep link automatically)
+- Replace build-time `EXPO_PUBLIC_` Amplify config with deep link / QR payload decode + secure store
+- Handle incoming deep link on app launch (Universal Link / App Link)
+- Add a fallback **Scan Setup Code** screen for users without the email link to hand
 - Remove the sign-up screen entirely — the app's auth flow is login, new-password challenge (on first login), and forgot-password only
 - `Amplify.configure()` already supports being called with runtime values — no Amplify API changes needed
 
@@ -238,7 +289,7 @@ Removing self-service sign-up has the following implications for the app:
 | Auth screens | Remove sign-up screen; keep login, new-password challenge, forgot-password |
 | Cognito User Pool | Set `allowAdminCreateUserOnly: true`; organizer creates users via AWS Console or API |
 | Invite email | Organizer team sends email with temporary password **and** org code (or setup deep link) |
-| App onboarding | User installs app → taps setup link from email (or enters org code manually) → logs in with temporary password → changes password |
+| App onboarding | User installs app → taps setup link from email (or scans QR code) → config stored automatically → logs in with temporary password → changes password |
 | RBAC | Role assignment is done by the Administrator after the user is created in Cognito. If a user logs in before a role is assigned, the app must handle this gracefully — either block access with an explanatory message ("Your account is awaiting role assignment. Please contact your administrator.") or treat the absence of a role as a read-only Guest role. This behaviour must be defined during Phase 4 implementation. |
 
 ### Dedicated App vs. Single App — Security Trade-off
@@ -251,7 +302,7 @@ A dedicated build (Option 4) adds **code-level isolation** (each binary carries 
 - A malicious actor can extract User Pool IDs from any Expo bundle with basic tooling regardless of which option is chosen
 - **With invite-only authentication**, there is no way for an uninvited person to create an account even if they know the User Pool ID — further neutralising the only remaining argument for code-level isolation
 
-The meaningful security isolation comes from the **AWS account boundary** (separate Cognito pools, separate DynamoDB, separate IAM policies), which is preserved in Option 2.
+The meaningful security isolation comes from the **AWS account boundary** (separate Cognito pools, separate DynamoDB, separate IAM policies), which is preserved in both Option 2 and Option 3.
 
 **Conclusion:** For this use case, a single app binary with runtime configuration provides equivalent security to a dedicated build, with substantially less operational overhead. The invite-only model removes the last viable argument for per-organizer builds on security grounds.
 
@@ -259,16 +310,23 @@ The meaningful security isolation comes from the **AWS account boundary** (separ
 
 ## Technical Design: Recommended Approach
 
-This section outlines the high-level technical design for Option 2, to be used as the basis for implementation when approved.
+This section outlines the high-level technical design for Option 3 (Setup Deep Link / QR Code), to be used as the basis for implementation when approved.
 
-### Bootstrap Configuration Service
+### Invite Email Setup Link
 
-A lightweight, read-only API that maps organization codes to their AWS configuration:
+The organizer uses a publisher-provided tool (a simple web form or CLI script — run once per organizer, not hosted permanently) to generate a **setup deep link** and/or **QR code** from their AWS config values.
+
+**Setup link format:**
 
 ```
-GET /config/{orgCode}
+https://setup.checkin-app.example.com/setup
+  ?payload=<BASE64_JSON_CONFIG>
+  &sig=<HMAC_SHA256_SIGNATURE>
+```
 
-Response 200:
+Where `BASE64_JSON_CONFIG` is the Base64-encoded form of:
+
+```json
 {
   "orgCode": "TOURFRANCE-2026",
   "orgName": "Tour de France 2026 (Non-Competitive)",
@@ -278,15 +336,34 @@ Response 200:
   "identityPoolId": "eu-west-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   "apiBaseUrl": "https://<api-id>.execute-api.eu-west-1.amazonaws.com/v1"
 }
-
-Response 404:
-{ "error": "Organization not found" }
 ```
 
-**Implementation options (simplest to most robust):**
-- **Static JSON on S3** with CloudFront CDN — no backend code, just a JSON file per org code; low cost, high availability
-- **Lambda + DynamoDB** — enables self-service organizer registration, config updates, and audit logging
-- **Existing tour-data-api extension** — add a public `/config/{orgCode}` endpoint to the existing backend
+**Concrete example of a generated setup link:**
+
+```
+https://setup.checkin-app.example.com/setup
+  ?payload=eyJvcmdDb2RlIjoiVE9VUkZSQU5DRS0yMDI2Iiwib3JnTmFtZSI6Ii4uLiJ9
+  &sig=a3f4b2c1d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1
+```
+
+- `payload` is the standard URL-safe Base64 of the JSON config string
+- `sig` is the hex-encoded HMAC-SHA256 of the `payload` string, computed with a publisher-held signing key
+
+The app verifies the HMAC signature when first processing a setup link. Config that has already been verified and stored in `expo-secure-store` does not need re-verification on subsequent launches — the OS-level encryption of the Keystore/Keychain protects it from tampering at rest.
+
+The same URL, encoded as a QR code, serves users who receive the email on a desktop and scan with their phone.
+
+The `setup.checkin-app.example.com` domain serves an **Apple App Site Association** / **Digital Asset Links** file to enable Universal Links (iOS) / App Links (Android). The domain does not need to serve a backend API — a static file on S3 + CloudFront is sufficient.
+
+### QR Code — Obfuscation Analysis
+
+See the full analysis in [Option 3 above](#option-3-configuration-via-setup-qr-code--deep-link). Summary:
+
+- Config values (User Pool IDs, API URLs) are **resource identifiers, not credentials** — they do not grant access on their own
+- Base64 encoding provides URL safety, not security
+- Encrypting with an app-embedded key provides only marginal security (key is extractable from the bundle)
+- The effective security control is `allowAdminCreateUserOnly: true` on each Cognito User Pool
+- **HMAC signature on the payload** is recommended — not to hide values, but to prevent forged setup links that could redirect the app to a malicious AWS environment
 
 ### App First-Launch Flow
 
@@ -298,40 +375,62 @@ App Start
     │
     ├─ Config found ──► [Call Amplify.configure(storedConfig)] ──► Login screen
     │
-    └─ No config ────► [Check for incoming deep link (from invite email)]
+    └─ No config ────► [Check for incoming deep link (setup link from invite email)]
                             │
                   ┌─────────┴──────────┐
                   │ Deep link present  │  No deep link
-                  │ (orgCode in URL)   │
+                  │ (payload + sig)    │
                   └─────────┬──────────┘
                             │                    │
-                            │           [Show OrgSetupScreen]
-                            │           [User enters Org Code manually]
+                     [Verify HMAC sig]   [Show OrgSetupScreen]
+                            │            [User scans QR code]
                             │                    │
                             └────────────────────┘
                                          │
-                                         ▼
-                                [GET /config/{orgCode}]
+                                  [Decode config payload]
                                          │
-                                    ┌────┴────┐
-                                    │ Success │
-                                    └────┬────┘
-                                         │
-                                [Store config in expo-secure-store]
+                                  [Validate & store in expo-secure-store]
                                          │
                                          ▼
-                                [Call Amplify.configure(fetchedConfig)]
+                                  [Call Amplify.configure(config)]
                                          │
                                          ▼
-                                [Login screen]
+                                  [Login screen]
                                          │
-                                [User enters credentials from invite email]
+                                  [User enters credentials from invite email]
                                          │
-                                [New-password challenge (first login only)]
+                                  [New-password challenge (first login only)]
                                          │
                                          ▼
-                                [Normal app flow]
+                                  [Normal app flow]
 ```
+
+### Reinstall and New-Device Scenario
+
+> *"Need to address the open point where a user uninstalls the App and installs again, or starts using a new mobile phone after registering on the old phone."*
+
+**How `expo-secure-store` behaves:**
+
+`expo-secure-store` uses Android Keystore / iOS Keychain. On both platforms:
+- Data stored in `expo-secure-store` is **deleted when the app is uninstalled** (Android and iOS both clear the Keystore/Keychain entry scoped to the app on uninstall)
+- Data does **not transfer to a new device** — it is device-bound by the OS security model
+
+This means after reinstall or on a new device, the user is presented with the setup screen again, as if it were a fresh install.
+
+**Impact and resolution per option:**
+
+| Scenario | Option 3 (Recommended) | Option 2 (Alternative) |
+|----------|------------------------|------------------------|
+| User reinstalls the app on the same phone | Setup screen shown; user taps the setup link from their original invite email — still valid | Setup screen shown; user enters org code again |
+| User switches to a new phone | Setup screen shown; user taps the setup link from invite email on new device | Setup screen shown; user enters org code on new device |
+| User deleted the invite email | User contacts their tour organizer to resend the invite / setup link | User contacts tour organizer to provide the org code |
+| Organizer AWS config has changed since original invite | **App cannot detect this automatically** — the stored config is used as-is. If config changes cause authentication failures (e.g., old User Pool ID no longer valid), the app will fail at login. The organizer must notify affected users and re-send the setup link. Newly installing users will receive the updated link. This is a known limitation of Option 3 vs. Option 2. | Org code still works; bootstrap service returns latest config automatically |
+
+**For Option 3, the key user expectation to set:** The invite email is the persistent record of the setup link. Users should be advised to keep the invite email accessible (or note the setup link separately) in case they need to reinstall. This is a standard pattern used by many apps that encode setup tokens in invite emails (e.g., authenticator apps with QR code backup sheets).
+
+**Organizer guidance to include in invite email:**
+
+> *"Save this email — you will need the setup link again if you reinstall the app or switch to a new device."*
 
 ### Dynamic Amplify Configuration
 
@@ -373,31 +472,32 @@ This is called once per app session after the config is loaded from `expo-secure
 
 | Concern | Mitigation |
 |---------|-----------|
-| Bootstrap service availability | Cache the last-known config in `expo-secure-store`; only initial setup requires bootstrap service |
-| Config tampering in transit | Bootstrap service uses HTTPS; pin certificate if required |
-| Org code brute-forcing | Use sufficiently long, non-guessable org codes (e.g., UUID or 16+ character codes); rate-limit the bootstrap endpoint |
+| Config values visible in QR code / deep link | Values are identifiers, not credentials; not secrets — see Obfuscation Analysis above |
+| Forged setup link redirecting app to malicious backend | HMAC-SHA256 signature on the payload; app rejects any link without a valid signature |
 | Config values in secure store | `expo-secure-store` uses Android Keystore / iOS Keychain — OS-level encryption |
-| User Pool ID exposure | User Pool IDs are not secrets; they identify the pool but authentication still requires valid credentials |
+| User Pool ID exposure | User Pool IDs identify the pool but authentication still requires valid Cognito credentials |
 | Organizer data isolation | Preserved — each organizer has their own Cognito pool and DynamoDB; the app merely discovers which pool to use at runtime |
 | Unauthorized account creation | **Eliminated by invite-only model** — Cognito User Pool is configured with `allowAdminCreateUserOnly: true`; knowing the User Pool ID is not sufficient to gain access |
+| Deep link hijacking by another app | Use HTTPS-based Universal Links (iOS) / App Links (Android) — requires domain ownership verification; custom URL schemes (`app://`) do not provide this protection |
 
 ---
 
 ## Implementation Effort Estimate
 
-> This is a rough estimate for planning purposes. Actual effort depends on bootstrap service choice.
+> This is a rough estimate for planning purposes.
 
 | Work Item | Effort |
 |-----------|--------|
-| Bootstrap service (static S3/CloudFront) | 1–2 days |
-| `OrgSetupScreen` (enter/receive org code, validate, store) | 1–2 days |
-| Deep link handler for invite email setup link | 0.5 days |
+| Publisher tool to generate setup deep link / QR code (one-time script) | 0.5 days |
+| Universal Link / App Link configuration (`apple-app-site-association`, `assetlinks.json`, `app.json`) | 0.5 days |
+| Deep link handler in app (decode payload, verify HMAC, store config) | 1 day |
+| Fallback `OrgSetupScreen` with QR code scanner | 1–1.5 days |
 | Refactor `src/config/amplify.ts` for runtime config | 0.5 days |
 | App startup flow (load config from store before auth) | 0.5 days |
 | `expo-secure-store` integration for config persistence | 0.5 days |
 | Remove sign-up screen; implement new-password challenge | 0.5 days |
 | Testing across organizer configs | 1 day |
-| **Total** | **~5.5–7.5 days** |
+| **Total** | **~6–7 days** |
 
 ---
 
@@ -405,11 +505,11 @@ This is called once per app session after the config is loaded from `expo-secure
 
 Before implementation can begin, the following decisions need to be made:
 
-1. **Confirm approach**: Proceed with Option 2 (Runtime Bootstrap Service) with invite email deep link?
-2. **Bootstrap service implementation**: Static S3/CloudFront vs. Lambda + DynamoDB? Who owns and hosts it?
-3. **Org code format**: UUID-based? Human-readable code (e.g., `TOUR-2026-AU`)?
-4. **Invite email delivery**: Will the invite email include (a) the org code as plain text, (b) a deep link that auto-configures the app, or (c) both? Who sends the invite — tour organizer manually or via an automated Cognito trigger?
-5. **Config change handling**: What happens when an organizer migrates their Cognito pool? Should the app re-prompt for org code, or should the bootstrap service silently update its record and the app refetch on next launch?
+1. **Confirm approach**: Proceed with Option 3 (Setup Deep Link / QR Code in invite email)?
+2. **Hosting domain for Universal/App Link files**: Which domain will host the `apple-app-site-association` and `assetlinks.json` files? (e.g., `setup.checkin-app.example.com` on S3 + CloudFront — minimal cost, no backend needed)
+3. **HMAC signing key**: How is the publisher's HMAC signing key managed and rotated? (Can be a static secret in the publisher's key management store for the initial release)
+4. **Invite email delivery**: Will the invite email include (a) a deep link only, (b) a QR code only, or (c) both? Who sends the invite — tour organizer manually, or via an automated Cognito post-confirmation trigger?
+5. **Reinstall guidance**: Should the invite email include an explicit instruction to keep the email for future reinstalls? Or should the organizer provide a "re-send setup link" self-service mechanism?
 
 ---
 
