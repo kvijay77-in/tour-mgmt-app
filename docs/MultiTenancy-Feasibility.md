@@ -6,6 +6,8 @@ This document analyses the feasibility of distributing a **single app package** 
 
 This is a **feasibility study only**. No implementation changes are included in this document.
 
+> **Updated constraint (March 2026):** Self-service sign-up will be removed from the app. Users access the app by invitation only — the tour organizer's team sends each user an email invite. This change is reflected throughout the analysis below, particularly in how the org code is delivered to users and in the authentication flow design.
+
 ---
 
 ## Table of Contents
@@ -58,6 +60,17 @@ These variables are **embedded into the JavaScript bundle by Metro** at build ti
 | No runtime config injection from Expo | Expo managed workflow does not support per-device environment overrides |
 | EAS Build / CI required per config set | Each organizer would need their own EAS environment profile and build job |
 
+### Authentication Model: Invite-Only
+
+The app uses an **invite-only** authentication model — there is no self-service sign-up screen. Users receive an email invitation from the tour organizing team, which includes a temporary password. On first login, the user is required to change their password via the Cognito new-password challenge flow.
+
+At the Cognito User Pool level, this is enforced by setting `allowAdminCreateUserOnly: true`. The app itself never presents a sign-up form.
+
+**Implications for multi-tenancy:**
+- The invite email is a natural and already-trusted channel for delivering the org code or setup link to the user
+- There is no risk of uninvited users self-registering and attempting to access the wrong organizer's system
+- The app's auth screens are simplified: login, change-temporary-password, and (optionally) forgot-password only
+
 ---
 
 ## Options Analysis
@@ -95,25 +108,33 @@ The app ships with **only a single, stable bootstrap URL** baked in. All organiz
 **How it works:**
 
 1. The published app contains only a `BOOTSTRAP_SERVICE_URL` constant (e.g., `https://config.checkin-app.example.com`).
-2. On first launch, the app presents an **Organization Setup screen** where the user enters a short **Organization Code** provided by their tour organizer (e.g., `TOURFRANCE-2026`).
-3. The app calls `GET /config/{orgCode}` on the bootstrap service.
-4. The bootstrap service returns the organizer's AWS configuration (Cognito pool IDs, API URL, region).
-5. The app stores this config securely via `expo-secure-store`.
-6. `Amplify.configure()` is called with the fetched values before any auth or API operation.
-7. All subsequent app launches skip the setup screen and use the stored config.
+2. The tour organizer's invite email to each user includes the **Organization Code** (e.g., `TOURFRANCE-2026`) alongside the temporary Cognito password.
+3. On first launch, the app presents an **Organization Setup screen** pre-prompted for the org code.
+4. The user types or pastes the org code from their invite email and taps **Continue**.
+5. The app calls `GET /config/{orgCode}` on the bootstrap service.
+6. The bootstrap service returns the organizer's AWS configuration (Cognito pool IDs, API URL, region).
+7. The app stores this config securely via `expo-secure-store`.
+8. `Amplify.configure()` is called with the fetched values before any auth or API operation.
+9. All subsequent app launches skip the setup screen and use the stored config.
+
+> **Enhanced variant (recommended):** The invite email includes a **deep link** that, when tapped on the device, opens the app and auto-populates the org code — eliminating manual entry entirely. Falls back to manual entry if the user opens the email on a desktop.
+>
+> For production, use **HTTPS-based Universal Links (iOS) / App Links (Android)** (e.g., `https://setup.checkin-app.example.com/setup?orgCode=TOURFRANCE-2026`) rather than custom URL schemes (e.g., `checkinapp://setup?orgCode=…`). HTTPS-based links require domain ownership verification and are resistant to link-hijacking by other apps; custom schemes have no such verification.
 
 **Pros:**
 - **Single app binary** in Play Store / App Store — one build serves all organizers
 - **Each organizer has full AWS isolation** — their own Cognito, their own API, their own DynamoDB
+- **Invite-only model integrates naturally** — the org code is delivered in the same invite email as the temporary password; users receive everything they need in one communication
+- **Deep link variant eliminates manual entry** — tapping the setup link from the invite email auto-configures the app
 - Organizer onboarding is self-service: they register their config in the bootstrap service
 - The bootstrap service itself can be very simple and inexpensive (a Lambda + DynamoDB or even a static JSON file on S3)
 - `Amplify.configure()` already supports dynamic (runtime) configuration — no Amplify API changes needed
 
 **Cons:**
 - Requires a **central bootstrap service** to be built and maintained by the app publisher
-- Adds a first-launch setup step (user must enter org code)
-- Bootstrap service is a dependency: if it is unavailable, new installs cannot complete setup (existing configured installs are unaffected)
+- Bootstrap service is a dependency: if it is unavailable, new installs cannot complete setup (existing configured installs are unaffected — config is cached in `expo-secure-store`)
 - Config values returned by the bootstrap service must not include actual secrets (User Pool IDs and API URLs are not secrets — see Security Considerations below)
+- Deep link variant requires Universal Link (iOS) / App Link (Android) configuration in `app.json` and the organizer's domain
 
 **Verdict:** ✅ **Feasible and recommended.** Meets all requirements. Technical complexity is low.
 
@@ -125,24 +146,26 @@ The organizer distributes a **setup QR code** (or a deep link URL) that encodes 
 
 **How it works:**
 
-1. App publisher provides a tool to generate a setup QR code from the organizer's config values.
-2. Organizer distributes the QR code to their users (printed, email, WhatsApp, etc.).
+1. App publisher provides a tool to generate a setup QR code (or a setup deep link) from the organizer's config values.
+2. Organizer includes the QR code / deep link in the **email invite** sent to each user, alongside the temporary password.
 3. On first launch, the app presents a **Scan Setup Code** screen.
-4. User scans the QR code; the app reads config values, validates and stores them via `expo-secure-store`.
+4. User scans the QR code (or taps the deep link in the email on their phone); the app reads config values, validates and stores them via `expo-secure-store`.
 5. `Amplify.configure()` is called with the stored values.
+
+> **Note:** With invite-only onboarding, the QR code is no longer a separate distribution problem — it is already in the same invite email the user must read to get their password. This significantly reduces the friction concern that applied when sign-up was self-service.
 
 **Pros:**
 - No central bootstrap service needed
 - Each organizer's setup is completely independent
 - Works offline (no network call needed during setup)
+- Invite-only model means the QR code / link is delivered in the invite email — users receive it through a trusted channel they already need to open
 
 **Cons:**
 - Config values are encoded in a QR code — anyone who photographs it can see them (User Pool IDs / API URLs are not secret, but exposure is higher than Option 2)
-- Organizer must regenerate and redistribute QR codes if config changes (e.g., after Cognito migration)
-- More friction for the end user: must have the QR code available at install time
+- Organizer must regenerate and redistribute QR codes / deep links if config changes (e.g., after Cognito migration); this means resending invites to all affected users
 - Deep links require additional Universal Link / App Link configuration in `app.json` and on the server
 
-**Verdict:** ⚠️ Feasible but with higher user friction and config distribution overhead. Could complement Option 2 (the QR code triggers the same bootstrap lookup rather than encoding raw values).
+**Verdict:** ⚠️ Feasible. The invite-only model removes the original friction concern (QR code must be available at install time), but the config-change redistribution problem remains. Best used as a **complement to Option 2** — the invite email deep link triggers the bootstrap lookup rather than encoding raw config values, combining the seamless UX of Option 3 with the centrally updatable config of Option 2.
 
 ---
 
@@ -178,26 +201,45 @@ Each tour organizer receives a custom build of the app with their AWS config bak
 | Per-organizer AWS isolation | ❌ No | ✅ Yes | ✅ Yes | ✅ Yes |
 | No build per organizer | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No |
 | Central service dependency | ❌ None | ⚠️ Bootstrap service | ❌ None | ❌ None |
-| Onboarding friction | Low | Low (enter code) | Medium (scan QR) | Low |
+| Onboarding friction (invite-only) | Low | Very Low (org code or deep link in invite email) | Low (QR/link in invite email) | Low |
 | Security posture | Low isolation | ✅ High | ⚠️ Medium | ✅ High |
 | Organizer self-service | ❌ No | ✅ Yes | ✅ Yes | ❌ No |
+| Config change handling | N/A | ✅ Update bootstrap record; no user action needed | ❌ Regenerate and re-invite all users | N/A |
 | Implementation effort | Low | Medium | Medium | None (current) |
 
 ---
 
 ## Recommendation
 
-> **Recommended approach: Option 2 — Runtime Configuration via Bootstrap Service**
+> **Recommended approach: Option 2 — Runtime Configuration via Bootstrap Service, enhanced with invite email deep link**
 
 This is the only approach that simultaneously satisfies:
 1. A single app binary in the Play Store / App Store
 2. Full per-organizer AWS account isolation
 3. No new build required when onboarding a new organizer
 
+The **invite-only model strengthens this recommendation** further:
+- The org code (or the bootstrap deep link) is delivered in the same email invite that carries the user's temporary Cognito password — a channel the user must open anyway
+- There is no "where do I find my org code?" problem: users have exactly one communication to read and one action to take
+- With the deep link variant, tapping the setup link from the invite email on their phone auto-configures the app — zero manual entry
+
 The technical changes to the app are well-contained:
 - Replace build-time `EXPO_PUBLIC_` Amplify config with a runtime fetch + secure store
-- Add a one-time **Organization Setup screen** shown only on fresh installs
+- Add a one-time **Organization Setup screen** shown only on fresh installs (or handle via deep link automatically)
+- Remove the sign-up screen entirely — the app's auth flow is login, new-password challenge (on first login), and forgot-password only
 - `Amplify.configure()` already supports being called with runtime values — no Amplify API changes needed
+
+### Invite-Only Authentication Impact
+
+Removing self-service sign-up has the following implications for the app:
+
+| Area | Change |
+|------|--------|
+| Auth screens | Remove sign-up screen; keep login, new-password challenge, forgot-password |
+| Cognito User Pool | Set `allowAdminCreateUserOnly: true`; organizer creates users via AWS Console or API |
+| Invite email | Organizer team sends email with temporary password **and** org code (or setup deep link) |
+| App onboarding | User installs app → taps setup link from email (or enters org code manually) → logs in with temporary password → changes password |
+| RBAC | Role assignment is done by the Administrator after the user is created in Cognito. If a user logs in before a role is assigned, the app must handle this gracefully — either block access with an explanatory message ("Your account is awaiting role assignment. Please contact your administrator.") or treat the absence of a role as a read-only Guest role. This behaviour must be defined during Phase 4 implementation. |
 
 ### Dedicated App vs. Single App — Security Trade-off
 
@@ -207,10 +249,11 @@ A dedicated build (Option 4) adds **code-level isolation** (each binary carries 
 - Cognito User Pool IDs and API base URLs are **not secrets** — they identify a resource but do not grant access to it
 - Authentication still requires valid Cognito credentials (username + password), which are not embedded in the app
 - A malicious actor can extract User Pool IDs from any Expo bundle with basic tooling regardless of which option is chosen
+- **With invite-only authentication**, there is no way for an uninvited person to create an account even if they know the User Pool ID — further neutralising the only remaining argument for code-level isolation
 
 The meaningful security isolation comes from the **AWS account boundary** (separate Cognito pools, separate DynamoDB, separate IAM policies), which is preserved in Option 2.
 
-**Conclusion:** For this use case, a single app binary with runtime configuration provides equivalent security to a dedicated build, with substantially less operational overhead.
+**Conclusion:** For this use case, a single app binary with runtime configuration provides equivalent security to a dedicated build, with substantially less operational overhead. The invite-only model removes the last viable argument for per-organizer builds on security grounds.
 
 ---
 
@@ -253,27 +296,41 @@ App Start
     ▼
 [Check expo-secure-store for stored org config]
     │
-    ├─ Config found ──► [Call Amplify.configure(storedConfig)] ──► Normal auth flow
+    ├─ Config found ──► [Call Amplify.configure(storedConfig)] ──► Login screen
     │
-    └─ No config ────► [Show OrgSetupScreen]
+    └─ No config ────► [Check for incoming deep link (from invite email)]
                             │
-                            ▼
-                       [User enters Org Code]
-                            │
-                            ▼
-                       [GET /config/{orgCode}]
-                            │
-                       ┌────┴────┐
-                       │ Success │
-                       └────┬────┘
-                            │
-                       [Store config in expo-secure-store]
-                            │
-                            ▼
-                       [Call Amplify.configure(fetchedConfig)]
-                            │
-                            ▼
-                       [Proceed to Login]
+                  ┌─────────┴──────────┐
+                  │ Deep link present  │  No deep link
+                  │ (orgCode in URL)   │
+                  └─────────┬──────────┘
+                            │                    │
+                            │           [Show OrgSetupScreen]
+                            │           [User enters Org Code manually]
+                            │                    │
+                            └────────────────────┘
+                                         │
+                                         ▼
+                                [GET /config/{orgCode}]
+                                         │
+                                    ┌────┴────┐
+                                    │ Success │
+                                    └────┬────┘
+                                         │
+                                [Store config in expo-secure-store]
+                                         │
+                                         ▼
+                                [Call Amplify.configure(fetchedConfig)]
+                                         │
+                                         ▼
+                                [Login screen]
+                                         │
+                                [User enters credentials from invite email]
+                                         │
+                                [New-password challenge (first login only)]
+                                         │
+                                         ▼
+                                [Normal app flow]
 ```
 
 ### Dynamic Amplify Configuration
@@ -322,6 +379,7 @@ This is called once per app session after the config is loaded from `expo-secure
 | Config values in secure store | `expo-secure-store` uses Android Keystore / iOS Keychain — OS-level encryption |
 | User Pool ID exposure | User Pool IDs are not secrets; they identify the pool but authentication still requires valid credentials |
 | Organizer data isolation | Preserved — each organizer has their own Cognito pool and DynamoDB; the app merely discovers which pool to use at runtime |
+| Unauthorized account creation | **Eliminated by invite-only model** — Cognito User Pool is configured with `allowAdminCreateUserOnly: true`; knowing the User Pool ID is not sufficient to gain access |
 
 ---
 
@@ -332,12 +390,14 @@ This is called once per app session after the config is loaded from `expo-secure
 | Work Item | Effort |
 |-----------|--------|
 | Bootstrap service (static S3/CloudFront) | 1–2 days |
-| `OrgSetupScreen` (enter org code, validate, store) | 1–2 days |
+| `OrgSetupScreen` (enter/receive org code, validate, store) | 1–2 days |
+| Deep link handler for invite email setup link | 0.5 days |
 | Refactor `src/config/amplify.ts` for runtime config | 0.5 days |
 | App startup flow (load config from store before auth) | 0.5 days |
 | `expo-secure-store` integration for config persistence | 0.5 days |
+| Remove sign-up screen; implement new-password challenge | 0.5 days |
 | Testing across organizer configs | 1 day |
-| **Total** | **~4.5–6.5 days** |
+| **Total** | **~5.5–7.5 days** |
 
 ---
 
@@ -345,11 +405,11 @@ This is called once per app session after the config is loaded from `expo-secure
 
 Before implementation can begin, the following decisions need to be made:
 
-1. **Confirm approach**: Proceed with Option 2 (Runtime Bootstrap Service)?
+1. **Confirm approach**: Proceed with Option 2 (Runtime Bootstrap Service) with invite email deep link?
 2. **Bootstrap service implementation**: Static S3/CloudFront vs. Lambda + DynamoDB? Who owns and hosts it?
 3. **Org code format**: UUID-based? Human-readable code (e.g., `TOUR-2026-AU`)?
-4. **Org self-service registration**: Can organizers register themselves, or does the publisher manage registrations?
-5. **Config change handling**: What happens when an organizer migrates their Cognito pool? Should the app re-prompt for org code, or silently fetch updated config?
+4. **Invite email delivery**: Will the invite email include (a) the org code as plain text, (b) a deep link that auto-configures the app, or (c) both? Who sends the invite — tour organizer manually or via an automated Cognito trigger?
+5. **Config change handling**: What happens when an organizer migrates their Cognito pool? Should the app re-prompt for org code, or should the bootstrap service silently update its record and the app refetch on next launch?
 
 ---
 
