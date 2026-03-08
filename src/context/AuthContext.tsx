@@ -89,14 +89,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
    *
    * Reads `cognito:groups` from the ID token payload. If the user belongs
    * to multiple groups, the first matching UserRole (by enum order) wins.
-   * Falls back to GUEST if no recognised group is found.
+   * Returns `null` if no recognised role group is found.
    *
    * Accepts an optional pre-fetched session to avoid a redundant
    * fetchAuthSession() call when the caller already has one.
    */
   const resolveUserRole = useCallback(async (
     existingSession?: Awaited<ReturnType<typeof fetchAuthSession>>,
-  ): Promise<UserRole> => {
+  ): Promise<UserRole | null> => {
     try {
       const session = existingSession ?? await fetchAuthSession();
       const payload = session.tokens?.idToken?.payload;
@@ -107,12 +107,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
         logger.info(TAG, `Resolved role from group: ${matchedRole}`);
         return matchedRole as UserRole;
       }
-      logger.warn(TAG, `No recognised UserRole group found (groups: ${JSON.stringify(groups)}) — defaulting to GUEST`);
-      return UserRole.GUEST;
+      logger.warn(TAG, `No recognised UserRole group found (groups: ${JSON.stringify(groups)})`);
+      return null;
     } catch (err) {
-      logger.warn(TAG, 'Failed to resolve user role from token — defaulting to GUEST', err);
-      return UserRole.GUEST;
+      logger.warn(TAG, 'Failed to resolve user role from token', err);
+      return null;
     }
+  }, []);
+
+  /** Sign out and show a "no role assigned" error. */
+  const handleNoRole = useCallback(async () => {
+    logger.warn(TAG, 'User has no role assigned — signing out');
+    await signOut().catch(() => {});
+    setUser(null);
+    setError('No role has been assigned to your account. Please contact your tour administrator.');
   }, []);
 
   // Wire the JWT token provider into apiClient so all API calls include auth
@@ -149,11 +157,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUser(null);
         } else {
           const userRole = await resolveUserRole(session);
-          setUser({
-            username: currentUser.username,
-            userId: currentUser.userId,
-            userRole,
-          });
+          if (!userRole) {
+            await handleNoRole();
+          } else {
+            setUser({
+              username: currentUser.username,
+              userId: currentUser.userId,
+              userRole,
+            });
+          }
         }
       } catch {
         // No valid session — clear any stale local state and require login
@@ -164,7 +176,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setIsLoading(false);
       }
     })();
-  }, [resolveUserRole]);
+  }, [resolveUserRole, handleNoRole]);
 
   const login = useCallback(async (username: string, password: string): Promise<'DONE' | 'NEW_PASSWORD_REQUIRED'> => {
     setIsAuthenticating(true);
@@ -184,6 +196,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.isSignedIn) {
         const currentUser = await getCurrentUser();
         const userRole = await resolveUserRole();
+        if (!userRole) {
+          await handleNoRole();
+          return 'DONE';
+        }
         setUser({
           username: currentUser.username,
           userId: currentUser.userId,
@@ -202,7 +218,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [resolveUserRole]);
+  }, [resolveUserRole, handleNoRole]);
 
   const completeNewPassword = useCallback(async (newPassword: string): Promise<void> => {
     setIsAuthenticating(true);
@@ -212,6 +228,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.isSignedIn) {
         const currentUser = await getCurrentUser();
         const userRole = await resolveUserRole();
+        if (!userRole) {
+          await handleNoRole();
+          return;
+        }
         setUser({
           username: currentUser.username,
           userId: currentUser.userId,
@@ -225,7 +245,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [resolveUserRole]);
+  }, [resolveUserRole, handleNoRole]);
 
   const logout = useCallback(async (): Promise<void> => {
     try {
