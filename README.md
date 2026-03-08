@@ -132,6 +132,16 @@ npx expo start --web
 
 > **Note**: Do not install Expo CLI globally — use `npx` to run Expo commands.
 
+### Mock Data Mode (No Backend Required)
+
+To explore the app without a backend or AWS account, enable mock data mode in your `.env` file:
+
+```
+EXPO_PUBLIC_USE_MOCK_DATA=true
+```
+
+This returns synthetic test data from the service layer — all screens work normally. Set to any other value or remove to use the real backend API. See the [Development Guide](docs/development-guide.md#development-with-mock-data) for details.
+
 ## 📁 Project Structure
 
 For detailed project organization and folder structure, see [docs/project-structure.md](docs/project-structure.md).

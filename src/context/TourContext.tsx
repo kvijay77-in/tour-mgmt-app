@@ -10,6 +10,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Tour } from '../types/models';
 import { getActiveTour } from '../services/api/tourApi';
+import { ApiError } from '../services/api/apiClient';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,8 +68,26 @@ export function TourProvider({ children }: TourProviderProps) {
         setError('No active tour found. Please contact the tour administrator.');
       }
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to load active tour';
+      console.error('[TourContext] fetchActiveTour error:', err, 'type:', typeof err, 'constructor:', (err as object)?.constructor?.name);
+      let message: string;
+      // Use duck-typing fallback for ApiError in case instanceof fails across module boundaries
+      const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
+      if (isApiError) {
+        const apiErr = err as ApiError;
+        if (apiErr.errorCode === 'CONFIG_ERROR') {
+          message = apiErr.message;
+        } else if (apiErr.statusCode === 0) {
+          message = 'Unable to reach the server. Please check your internet connection and try again.';
+        } else if (apiErr.statusCode === 403) {
+          message = 'You do not have permission to access this tour. Please contact the administrator.';
+        } else {
+          message = 'Failed to load the active tour. Please try again.';
+        }
+      } else if (err instanceof TypeError) {
+        message = 'Unable to reach the server. Please check your internet connection and try again.';
+      } else {
+        message = 'An unexpected error occurred while loading tour data. Please try again.';
+      }
       setError(message);
       // Keep previous tour if available (offline scenario)
     } finally {

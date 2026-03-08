@@ -45,7 +45,7 @@ poc-app/
 │   │   │   ├── rideApi.ts          # Ride endpoints
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard composite endpoint
-│   │   │   └── mockData.ts         # Mock data (retained for development/testing)
+│   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 │   │   ├── auth/                   # AWS Cognito authentication
 │   │   ├── database/               # SQLite for offline support
 │   │   ├── sync/                   # Data synchronization service

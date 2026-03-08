@@ -156,9 +156,28 @@ npx expo start --web
 
 ### Development with Mock Data
 
-The app currently includes a mock data service (`src/services/api/mockData.ts`) for development without a live backend. This allows working on UI features independently of the tour-data-api deployment.
+The app supports a **mock data mode** that allows running entirely without a backend or AWS account. This is useful for:
 
-> **Note**: As backend integration progresses, mock data will be replaced with live API calls. The mock data service is retained for development and testing convenience.
+- Exploring the app and its features
+- UI development without a live backend
+- Demo and testing scenarios
+- Onboarding new developers before AWS access is set up
+
+To enable mock data mode, set the following in your `.env` file:
+
+```
+EXPO_PUBLIC_USE_MOCK_DATA=true
+```
+
+When enabled, the API service layer (`tourApi.ts`, `rideApi.ts`, `dashboardApi.ts`) returns synthetic test data from `mockData.ts` instead of making HTTP calls. This is transparent to all screens and components — they receive data in the same shape as the real API.
+
+To switch back to the real backend, set the variable to any other value or remove it:
+
+```
+EXPO_PUBLIC_USE_MOCK_DATA=
+```
+
+> **Note**: Changes to environment variables require restarting the Expo development server (`npx expo start`) to take effect.
 
 ---
 
@@ -230,6 +249,7 @@ All timestamps should be in UTC with the `Z` suffix.
 | `EXPO_PUBLIC_AWS_USER_POOL_ID` | Cognito User Pool ID | tour-data-api deployment output |
 | `EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID` | Cognito App Client ID | tour-data-api deployment output |
 | `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` | Cognito Identity Pool ID | tour-data-api deployment output (if applicable) |
+| `EXPO_PUBLIC_USE_MOCK_DATA` | Set to `true` to use synthetic test data without a backend | Optional — for development/demo |
 
 ### Amplify Configuration
 

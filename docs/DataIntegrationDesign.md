@@ -94,7 +94,7 @@ src/services/
 │   ├── checkInApi.ts       # Check-in endpoints
 │   ├── dashboardApi.ts     # Dashboard endpoint
 │   ├── userApi.ts          # User endpoints
-│   └── mockData.ts         # Existing mock data (retained for development/testing)
+│   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 ├── database/               # SQLite for offline support
 │   ├── database.ts         # Database initialisation, schema management
 │   ├── riderStore.ts       # Rider data local storage
@@ -560,9 +560,14 @@ EXPO_PUBLIC_AWS_REGION=<region>
 EXPO_PUBLIC_AWS_USER_POOL_ID=<user-pool-id>
 EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID=<client-id>
 EXPO_PUBLIC_AWS_IDENTITY_POOL_ID=<identity-pool-id>
+
+# Mock Data Mode (optional — for development/demo without a backend)
+EXPO_PUBLIC_USE_MOCK_DATA=true
 ```
 
 These values are provided by the `tour-data-api` deployment. The Cognito User Pool is shared between the backend and the frontend app.
+
+When `EXPO_PUBLIC_USE_MOCK_DATA` is set to `true`, the API service functions (`getActiveTour`, `getActiveRide`, `getDashboardData`) return synthetic data from `mockData.ts` without making HTTP calls. All other environment variables can be left empty in this mode.
 
 > **Note**: Variables prefixed with `EXPO_PUBLIC_` are embedded in the client bundle. This is acceptable for User Pool IDs and API URLs (not secrets). See [Development Guide → Environment Configuration](development-guide.md#environment-configuration) for full details.
 
@@ -571,9 +576,9 @@ These values are provided by the `tour-data-api` deployment. The Cognito User Po
 ## 6. Implementation Phases
 
 ### Phase 1: Core API Integration
-1. API client with authentication (`apiClient.ts`)
-2. Tour context (active tour resolution)
-3. Dashboard API integration (replace mock data)
+1. ~~API client with authentication (`apiClient.ts`)~~ ✅
+2. ~~Tour context (active tour resolution)~~ ✅
+3. ~~Dashboard API integration (replace mock data)~~ ✅
 4. Rider API integration
 5. Ride API integration
 6. Check-in API integration

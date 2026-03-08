@@ -79,6 +79,13 @@ export const setAuthTokenProvider = (
 // ---------------------------------------------------------------------------
 
 function buildUrl(path: string, params?: Record<string, string>): string {
+  if (!API_BASE_URL) {
+    throw new ApiError(
+      'API base URL is not configured. Set EXPO_PUBLIC_TOUR_DATA_API_BASE_URL in your .env file, or enable mock mode with EXPO_PUBLIC_USE_MOCK_DATA=true.',
+      0,
+      'CONFIG_ERROR',
+    );
+  }
   const base = API_BASE_URL.replace(/\/+$/, '');
   const url = new URL(`${base}${path}`);
   if (params) {
@@ -218,7 +225,8 @@ async function request<T>(
       }
 
       // Network errors are retryable
-      if (isNetworkError(error) || (error instanceof DOMException && error.name === 'AbortError')) {
+      const isAbortError = error instanceof Error && error.name === 'AbortError';
+      if (isNetworkError(error) || isAbortError) {
         lastError = error;
       } else if (error instanceof ApiError) {
         // Re-throw non-retryable ApiErrors

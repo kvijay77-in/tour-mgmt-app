@@ -2,7 +2,7 @@
  * Dashboard Screen - Main screen showing rider status
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,15 @@ import {
   Animated,
   PanResponder,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
-import { getMockDashboardData, getMockCurrentRide } from '../../services/api/mockData';
-import { RiderStatus, CheckInStatus } from '../../types/models';
+import { useTour } from '../../context/TourContext';
+import { getActiveRide } from '../../services/api/rideApi';
+import { getDashboardData } from '../../services/api/dashboardApi';
+import { ApiError } from '../../services/api/apiClient';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
 
@@ -25,14 +29,135 @@ const { width } = Dimensions.get('window');
 const GRID_COLUMNS = 6;
 const RIDER_ICON_SIZE = (width - 32) / GRID_COLUMNS - 6;
 
+/**
+ * Build RiderStatus[] from dashboard API response data.
+ */
+function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): RiderStatus[] {
+  return riders.map((rider) => {
+    const riderCheckIns = checkIns
+      .filter((ci) => ci.riderId === rider.riderId && ci.rideId === ride.rideId)
+      .sort((a, b) => a.stageNumber - b.stageNumber);
+
+    // Determine overall status
+    let overallStatus = CheckInStatus.NOT_CHECKED_IN;
+    const nrCheckIn = riderCheckIns.find((ci) => ci.isNotRiding);
+    const qrCheckIn = riderCheckIns.find((ci) => ci.isQuitRiding);
+
+    if (nrCheckIn) {
+      overallStatus = CheckInStatus.NOT_RIDING;
+    } else if (qrCheckIn) {
+      overallStatus = CheckInStatus.QUIT_RIDING;
+    } else if (riderCheckIns.length > 0) {
+      overallStatus = CheckInStatus.CHECKED_IN;
+    }
+
+    // Last non-special check-in determines the last stage reached
+    const regularCheckIns = riderCheckIns.filter((ci) => !ci.isNotRiding && !ci.isQuitRiding);
+    const lastRegularCheckIn = regularCheckIns.length > 0
+      ? regularCheckIns[regularCheckIns.length - 1]
+      : undefined;
+
+    const lastStage = lastRegularCheckIn
+      ? ride.stages.find((s) => s.stageNumber === lastRegularCheckIn.stageNumber)
+      : undefined;
+
+    const lastCheckIn = riderCheckIns.length > 0
+      ? riderCheckIns[riderCheckIns.length - 1]
+      : undefined;
+
+    return {
+      rider,
+      ride,
+      lastCheckIn,
+      overallStatus,
+      lastStage,
+      checkInHistory: riderCheckIns,
+    };
+  });
+}
+
 export default function DashboardScreen() {
-  const ride = getMockCurrentRide();
-  const allRiderStatuses = getMockDashboardData();
+  const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
+
+  const [ride, setRide] = useState<Ride | null>(null);
+  const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [stageViewId, setStageViewId] = useState<string | undefined>(undefined);
   const [isSorted, setIsSorted] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
+
+  // Fetch data from API
+  const fetchDashboard = useCallback(async () => {
+    if (!tour) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const activeRide = await getActiveRide(tour.tourId);
+      if (!activeRide) {
+        setError('No active ride found for today.');
+        setIsLoading(false);
+        return;
+      }
+      setRide(activeRide);
+
+      const { data } = await getDashboardData(tour.tourId, activeRide.rideId);
+      if (!data) {
+        setError('No dashboard data available.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate response shape — prevent crashes from malformed data
+      const dashRide = data.ride ?? activeRide;
+      if (!Array.isArray(dashRide.stages) || dashRide.stages.length === 0) {
+        setError('Ride has no stages configured. Please contact the tour administrator.');
+        setRide(dashRide);
+        setIsLoading(false);
+        return;
+      }
+
+      const riders = Array.isArray(data.riders) ? data.riders : [];
+      const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
+
+      setRide(dashRide);
+      setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
+    } catch (err) {
+      console.error('[Dashboard] fetchDashboard error:', err, 'constructor:', (err as object)?.constructor?.name);
+      let message: string;
+      const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
+      if (isApiError) {
+        const apiErr = err as ApiError;
+        if (apiErr.errorCode === 'CONFIG_ERROR') {
+          message = apiErr.message;
+        } else if (apiErr.statusCode === 0) {
+          message = 'Unable to reach the server. Please check your internet connection and try again.';
+        } else if (apiErr.statusCode >= 500) {
+          message = 'The server encountered an error. Please try again later.';
+        } else {
+          message = 'Failed to load dashboard data. Please try again.';
+        }
+      } else if (err instanceof TypeError) {
+        message = 'Unable to reach the server. Please check your internet connection and try again.';
+      } else {
+        message = 'An unexpected error occurred. Please try again.';
+      }
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [tour]);
+
+  useEffect(() => {
+    if (!isTourLoading && tour) {
+      fetchDashboard();
+    } else if (!isTourLoading && !tour) {
+      // Tour loading finished but no tour found — stop loading spinner
+      setIsLoading(false);
+    }
+  }, [isTourLoading, tour, fetchDashboard]);
 
   // Pinch gesture for zoom
   const baseScale = useRef(1);
@@ -123,7 +248,7 @@ export default function DashboardScreen() {
 
     // Sorted mode
     return [...riders].sort((a, b) => {
-      if (stageViewId) {
+      if (stageViewId && ride) {
         // Stage View sorting
         const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
         if (!selectedStage) return 0;
@@ -194,6 +319,8 @@ export default function DashboardScreen() {
   const getStageCounts = () => {
     const counts: Record<string, number> = {};
     
+    if (!ride) return counts;
+
     ride.stages.forEach(stage => {
       // Count riders who have reached this stage or beyond
       // This includes riders currently at this stage, at later stages, or who quit after reaching this stage
@@ -229,7 +356,7 @@ export default function DashboardScreen() {
     }
 
     // Stage view active
-    if (stageViewId) {
+    if (stageViewId && ride) {
       const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
       
       // If rider hasn't checked in anywhere yet, show white
@@ -240,7 +367,7 @@ export default function DashboardScreen() {
       // Check if rider has reached or passed the selected stage
       if (selectedStage && riderStatus.lastStage.stageNumber >= selectedStage.stageNumber) {
         // Rider has reached this stage - show the selected stage's color
-        return getStageColor(selectedStage.stageNumber, ride.stages.length);
+        return getStageColor(selectedStage.stageNumber, ride?.stages.length ?? 0);
       }
       
       // Rider hasn't reached this stage yet
@@ -264,7 +391,7 @@ export default function DashboardScreen() {
     }
     
     if (riderStatus.lastStage) {
-      return getStageColor(riderStatus.lastStage.stageNumber, ride.stages.length);
+      return getStageColor(riderStatus.lastStage.stageNumber, ride?.stages.length ?? 0);
     }
     
     return STAGE_VIEW_COLORS.notCheckedInAtStage; // White with border
@@ -310,7 +437,7 @@ export default function DashboardScreen() {
 
   const getStageButtonStyle = (stage: { stageId: string; stageNumber: number }) => {
     const isActive = stageViewId === stage.stageId;
-    const bgColor = getStageColor(stage.stageNumber, ride.stages.length);
+    const bgColor = getStageColor(stage.stageNumber, ride?.stages.length ?? 0);
     
     return [
       styles.stageBtn,
@@ -322,6 +449,40 @@ export default function DashboardScreen() {
       }
     ];
   };
+
+  // Loading / error / no-data guards
+  if (isTourLoading || isLoading) {
+    return (
+      <View style={[styles.container, styles.centeredContent]}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading dashboard…</Text>
+      </View>
+    );
+  }
+
+  if (tourError || error) {
+    const handleRetry = tourError ? refreshTour : fetchDashboard;
+    return (
+      <View style={[styles.container, styles.centeredContent]}>
+        <MaterialIcons name="error-outline" size={48} color={COLORS.danger} />
+        <Text style={styles.errorText}>{tourError || error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!ride) {
+    return (
+      <View style={[styles.container, styles.centeredContent]}>
+        <Text style={styles.errorText}>No active ride found.</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchDashboard}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={styles.container}>
@@ -520,6 +681,34 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  centeredContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: COLORS.textSecondary,
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     backgroundColor: COLORS.primary,

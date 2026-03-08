@@ -5,6 +5,7 @@
 
 import { apiClient } from './apiClient';
 import { DashboardData } from '../../types/models';
+import { USE_MOCK_DATA, getMockDashboardDataResponse } from './mockData';
 
 /**
  * Get complete dashboard data for a ride.
@@ -19,6 +20,10 @@ export async function getDashboardData(
   rideId: string,
   etag?: string,
 ): Promise<{ data: DashboardData | null; etag?: string }> {
+  if (USE_MOCK_DATA) {
+    return { data: getMockDashboardDataResponse(), etag: undefined };
+  }
+
   const headers: Record<string, string> = {};
   if (etag) {
     headers['If-None-Match'] = etag;

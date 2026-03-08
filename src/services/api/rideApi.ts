@@ -9,6 +9,7 @@ import {
   GetRidesQuery,
 } from '../../types/api';
 import { Ride } from '../../types/models';
+import { USE_MOCK_DATA, MOCK_RIDE } from './mockData';
 
 function ridesPath(tourId: string): string {
   return `/v1/tours/${tourId}/rides`;
@@ -53,15 +54,20 @@ export async function getRideById(
 
 /**
  * Get today's active ride for the tour.
+ * Uses mock data when EXPO_PUBLIC_USE_MOCK_DATA is true.
  */
 export async function getActiveRide(tourId: string): Promise<Ride | null> {
+  if (USE_MOCK_DATA) {
+    return MOCK_RIDE;
+  }
   try {
     const response = await apiClient.get<Ride>(
-      `${ridesPath(tourId)}/active`,
+      `${ridesPath(tourId)}/today`,
     );
     return response.data ?? null;
   } catch (error) {
     if (error instanceof ApiError && error.statusCode === 404) {
+      // NO_ACTIVE_RIDE — normal when no ride is scheduled for today
       return null;
     }
     throw error;

@@ -13,8 +13,17 @@ import {
   CheckInMethod,
   RideStatus,
   RiderStatus,
+  Tour,
+  TourStatus,
+  DashboardData,
   deriveCheckInStatus,
 } from '../../types/models';
+
+// ============================================================================
+// MOCK DATA FLAG
+// ============================================================================
+
+export const USE_MOCK_DATA = process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true';
 
 // ============================================================================
 // MOCK RIDERS
@@ -329,4 +338,38 @@ export const getMockDashboardData = (): RiderStatus[] => {
  */
 export const simulateQRScan = (qrCodeData: string): Rider | undefined => {
   return MOCK_RIDERS.find((r) => r.qrCodeData === qrCodeData);
+};
+
+// ============================================================================
+// MOCK TOUR (for dev mode without backend)
+// ============================================================================
+
+export const MOCK_TOUR: Tour = {
+  tourId: 'MOCK-TOUR-2026',
+  name: 'Mock Cycling Tour 2026',
+  startDate: '2026-02-01',
+  endDate: '2026-02-08',
+  status: TourStatus.ACTIVE,
+  description: 'Synthetic tour for local development and demo',
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-01T00:00:00Z',
+};
+
+// ============================================================================
+// MOCK DASHBOARD DATA (composite response shape)
+// ============================================================================
+
+export const getMockDashboardDataResponse = (): DashboardData => {
+  return {
+    ride: MOCK_RIDE,
+    riders: MOCK_RIDERS,
+    checkIns: MOCK_CHECKINS,
+    summary: {
+      totalRiders: MOCK_RIDERS.length,
+      checkedIn: MOCK_CHECKINS.filter(ci => !ci.isNotRiding && !ci.isQuitRiding).length,
+      notRiding: MOCK_CHECKINS.filter(ci => ci.isNotRiding).length,
+      quitRiding: MOCK_CHECKINS.filter(ci => ci.isQuitRiding).length,
+      notCheckedIn: MOCK_RIDERS.length - new Set(MOCK_CHECKINS.map(ci => ci.riderId)).size,
+    },
+  };
 };

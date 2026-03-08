@@ -5,19 +5,24 @@
 
 import { apiClient, ApiError } from './apiClient';
 import { Tour } from '../../types/models';
+import { USE_MOCK_DATA, MOCK_TOUR } from './mockData';
 
 const TOURS_PATH = '/v1/tours';
 
 /**
  * Get the currently active tour.
- * Used at app startup to resolve the tour context.
+ * Uses mock data when EXPO_PUBLIC_USE_MOCK_DATA is true.
  */
 export async function getActiveTour(): Promise<Tour | null> {
+  if (USE_MOCK_DATA) {
+    return MOCK_TOUR;
+  }
   try {
     const response = await apiClient.get<Tour>(`${TOURS_PATH}/active`);
     return response.data ?? null;
   } catch (error) {
     if (error instanceof ApiError && error.statusCode === 404) {
+      // NO_ACTIVE_TOUR — normal when no tour is currently active
       return null;
     }
     throw error;
