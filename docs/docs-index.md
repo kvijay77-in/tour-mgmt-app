@@ -13,6 +13,7 @@ This page provides a guide to all project documentation.
 | [Solution Design](SolutionDesign.md) | Architecture, design principles, component structure, technical decisions |
 | [Dashboard Feature](Dashboard-Feature.md) | Dashboard screen specification — grid display, stages, sorting, zoom levels, color coding |
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
+| [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md) | Feasibility analysis for distributing a single generic app across multiple organizer AWS subscriptions |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 
 ## Quick Navigation
@@ -49,6 +50,7 @@ This page provides a guide to all project documentation.
 - **State management**: [Solution Design → State Management](SolutionDesign.md#state-management)
 - **Authentication flow**: [Solution Design → Authentication](SolutionDesign.md#authentication)
 - **Project structure**: [Project Structure](project-structure.md)
+- **App distribution / generic app**: [Solution Design → App Distribution](SolutionDesign.md#app-distribution--runtime-configuration-single-app-multiple-organizers) | [Analysis](Generic-App-Distribution-Analysis.md)
 
 ## External Resources
 
