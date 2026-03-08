@@ -1,10 +1,10 @@
-# Multi-Tenancy Feasibility Study
+# Generic App Distribution — Feasibility Analysis
 
 [← Back to README](../README.md)
 
-This document analyses the feasibility of distributing a **single app package** through the Google Play Store / Apple App Store that supports multiple tour organizers, each operating on their own dedicated AWS subscription, without requiring a separate app build per organizer.
+This document analyses the feasibility of distributing a **single generic app package** through the Google Play Store / Apple App Store that works with any tour organizer's dedicated AWS subscription, without baking organizer-specific configuration into the app and without requiring a separate build per organizer.
 
-This is a **feasibility study only**. No implementation changes are included in this document.
+This is a **feasibility analysis**. Implementation details for the chosen approach are documented in [Solution Design → App Distribution — Runtime Configuration](SolutionDesign.md#app-distribution--runtime-configuration-single-app-multiple-organizers).
 
 > **Updated constraint (March 2026):** Self-service sign-up will be removed from the app. Users access the app by invitation only — the tour organizer's team sends each user an email invite. This change is reflected throughout the analysis below, particularly in how the org code is delivered to users and in the authentication flow design.
 >
@@ -70,7 +70,7 @@ The app uses an **invite-only** authentication model — there is no self-servic
 
 At the Cognito User Pool level, this is enforced by setting `allowAdminCreateUserOnly: true`. The app itself never presents a sign-up form.
 
-**Implications for multi-tenancy:**
+**Implications for generic app distribution (invite-only model):**
 - The invite email is a natural and already-trusted channel for delivering the org code or setup link to the user
 - There is no risk of uninvited users self-registering and attempting to access the wrong organizer's system
 - The app's auth screens are simplified: login, change-temporary-password, and (optionally) forgot-password only
@@ -515,7 +515,7 @@ Before implementation can begin, the following decisions need to be made:
 
 ## Related Documentation
 
-- [Solution Design](SolutionDesign.md) — Architecture and design principles
+- [Solution Design → App Distribution](SolutionDesign.md#app-distribution--runtime-configuration-single-app-multiple-organizers) — Implementation design for the chosen approach (Option 3)
 - [Requirements](Requirements.md) — Functional requirements
 - [Development Guide → Environment Configuration](development-guide.md#environment-configuration) — Current env variable setup
 - [Issue #11](https://github.com/kvijay77-in/poc-app/issues/11) — Auth integration context

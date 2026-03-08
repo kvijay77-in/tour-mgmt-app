@@ -19,6 +19,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 - [Navigation Structure](#navigation-structure)
 - [Styling Strategy](#styling-strategy)
 - [Platform Considerations](#platform-considerations)
+- [App Distribution — Runtime Configuration](#app-distribution--runtime-configuration-single-app-multiple-organizers)
 
 ---
 
@@ -385,38 +386,129 @@ Stage colors are defined in `src/constants/colors.ts` and used consistently acro
 
 ---
 
-## Multi-Tenancy (Single App, Multiple Organizers)
+## App Distribution — Runtime Configuration (Single App, Multiple Organizers)
 
 ### Context
 
-The app is intended to be usable by different tour organizers, each operating on their own dedicated AWS subscription (separate Cognito User Pool, separate `tour-data-api` deployment). The goal is to publish a **single app binary** to the Play Store / App Store that can be configured at runtime to point to any organizer's AWS backend — without requiring a new app build per organizer.
+The app is intended to be used by different tour organizers, each operating on their own dedicated AWS subscription (separate Cognito User Pool, separate `tour-data-api` deployment). The goal is to publish a **single generic app binary** to the Play Store / App Store that can be configured at runtime to point to any organizer's AWS backend — without building a separate binary per organizer and without baking any organizer-specific values into the bundle.
 
 ### Current State
 
-AWS configuration (`userPoolId`, `userPoolClientId`, `apiBaseUrl`, etc.) is currently provided via `EXPO_PUBLIC_` environment variables that are **baked into the bundle at build time**. This requires a separate build per organizer and does not support a single-binary distribution model.
+AWS configuration (`userPoolId`, `userPoolClientId`, `apiBaseUrl`, etc.) is currently provided via `EXPO_PUBLIC_` environment variables that are **baked into the bundle at build time**. This requires a separate EAS Build per organizer and does not support a single-binary distribution model.
 
-### Planned Approach
+### Implemented Approach — Setup Deep Link / QR Code in Invite Email
 
-The approved direction (pending final decision — see [Multi-Tenancy Feasibility Study](MultiTenancy-Feasibility.md)) is **runtime configuration via a Bootstrap Service**:
+The chosen solution is **Option 3: Setup Deep Link / QR Code delivered via invite email**. This approach requires no publisher-maintained backend service after the app is published.
 
-1. The app ships with only a stable bootstrap service URL as a build-time constant.
-2. On first launch, an **Organization Setup screen** prompts the user to enter their organizer's unique code.
-3. The app fetches the org-specific AWS config from the bootstrap service.
-4. Config is stored securely via `expo-secure-store` and used to call `Amplify.configure()` at runtime.
-5. All subsequent launches use the stored config without requiring a network call to the bootstrap service.
+#### How It Works
 
-This preserves full AWS account isolation per organizer while eliminating the need for per-organizer builds.
+1. The **publisher** runs a one-time tool (a local script or web form) to generate a **setup deep link** and/or **QR code** for each tour organizer from their AWS config values.
+2. The **organizer** includes the setup deep link (and/or QR code image) in the **invite email** sent to each user, alongside the temporary Cognito password.
+3. On first launch, the app checks for an incoming deep link. If the user tapped the setup link in their email on their mobile device, the app intercepts it automatically. If not, it shows an **OrgSetupScreen** with a QR code scanner as the fallback.
+4. The app **verifies the HMAC-SHA256 signature** on the payload before accepting the config — this prevents forged setup links from redirecting the app to a malicious backend.
+5. The decoded config is stored securely via `expo-secure-store` (Android Keystore / iOS Keychain).
+6. `Amplify.configure()` is called with the stored values. All subsequent app launches skip setup and use the stored config directly.
+
+#### Setup Link Format
+
+```
+https://setup.checkin-app.example.com/setup?payload=<BASE64_JSON>&sig=<HMAC_SHA256>
+```
+
+Where the `payload` is the Base64-encoded form of:
+
+```json
+{
+  "orgCode": "TOURFRANCE-2026",
+  "orgName": "Tour de France 2026 (Non-Competitive)",
+  "awsRegion": "eu-west-1",
+  "userPoolId": "eu-west-1_XXXXXXXXX",
+  "userPoolClientId": "XXXXXXXXXXXXXXXXXXXXXXXXXX",
+  "identityPoolId": "eu-west-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "apiBaseUrl": "https://<api-id>.execute-api.eu-west-1.amazonaws.com/v1"
+}
+```
+
+`sig` is the hex-encoded HMAC-SHA256 of the `payload` string, computed with a publisher-held signing key. The app verifies this signature before storing the config.
+
+The same URL, encoded as a QR code, serves users who receive the email on a desktop.
+
+#### App First-Launch Flow
+
+```
+App Start
+    │
+    ▼
+[Check expo-secure-store for stored org config]
+    │
+    ├─ Config found ──► [Amplify.configure(storedConfig)] ──► Login screen
+    │
+    └─ No config ──────────────────────────────────────────────────────────────┐
+                                                                               │
+                  ┌────────────────────────────────────────────────────────────┘
+                  │
+                  ▼
+         [Check for incoming deep link (from invite email)]
+                  │
+        ┌─────────┴────────────────────┐
+        │ Deep link present            │  No deep link
+        │ (payload + sig in URL)       │
+        └─────────┬────────────────────┘   │
+                  │                        ▼
+                  │               [Show OrgSetupScreen]
+                  │               [User scans QR code]
+                  │                        │
+                  └────────────────────────┘
+                                   │
+                            [Verify HMAC sig]
+                            [Decode config payload]
+                            [Store in expo-secure-store]
+                                   │
+                            [Amplify.configure(config)]
+                                   ▼
+                            [Login screen]
+                            [New-password challenge on first login]
+                                   ▼
+                            [Normal app flow]
+```
+
+#### Reinstall and New-Device Behaviour
+
+`expo-secure-store` is device-bound — data is deleted on uninstall and does not transfer to a new device. After a reinstall or on a new phone the setup screen is presented again. The user re-taps the setup link from their original invite email (it remains valid) or scans the QR code. Organizers should include the following note in the invite email:
+
+> *"Save this email — you will need the setup link again if you reinstall the app or switch to a new device."*
+
+If the organizer's AWS configuration changes after the original invite was sent, existing installed users are unaffected (they retain the old config). Only users who reinstall will need a fresh invite link; the organizer re-sends to that subset.
+
+#### Security Notes
+
+- Config values (`userPoolId`, `apiBaseUrl`, etc.) are **resource identifiers, not credentials** — they do not grant access on their own. Authentication still requires valid Cognito credentials.
+- The `allowAdminCreateUserOnly: true` setting on each Cognito User Pool (invite-only model) means an attacker who reads the QR code cannot create an account.
+- The HMAC signature prevents a malicious QR code from redirecting the app to a fraudulent backend.
+- Deep links use **HTTPS-based Universal Links (iOS) / App Links (Android)** (domain ownership verified) — not custom URL schemes.
+
+#### Universal Link / App Link Domain
+
+The domain `setup.checkin-app.example.com` must serve:
+- `apple-app-site-association` — for iOS Universal Links
+- `.well-known/assetlinks.json` — for Android App Links
+
+This domain does **not** need to serve a backend API. A static S3 bucket with CloudFront is sufficient.
 
 ### Design Impact
 
 | Component | Change Required |
 |-----------|----------------|
-| `src/config/amplify.ts` | Refactor to accept runtime config values instead of `EXPO_PUBLIC_` env vars |
-| `src/screens/auth/` | Add `OrgSetupScreen` shown on first launch when no config is stored |
-| App startup sequence | Load config from `expo-secure-store` before calling `Amplify.configure()` |
-| Bootstrap service | New lightweight service (static S3/Lambda) — separate from `tour-data-api` |
+| `src/config/amplify.ts` | Refactor to accept a runtime `OrgConfig` parameter instead of `EXPO_PUBLIC_` env vars; remove all `EXPO_PUBLIC_` references |
+| `src/screens/auth/OrgSetupScreen.tsx` | New screen: QR code scanner + deep link handler; shown on first launch when no config is stored |
+| `src/services/config/orgConfigService.ts` | New service: deep link payload decoder, HMAC verifier, `expo-secure-store` persistence |
+| App startup sequence (`App.tsx` / `AppNavigator.tsx`) | Check `expo-secure-store` for config before calling `Amplify.configure()`; navigate to `OrgSetupScreen` if config is absent |
+| `app.json` | Add Universal Link / App Link intent filter for the setup domain |
+| `src/screens/auth/` | Remove sign-up screen; add new-password challenge screen (first-login flow) |
+| `src/types/config.ts` | New file: `OrgConfig` TypeScript type |
+| Environment variables | Remove organizer-specific `EXPO_PUBLIC_` vars; retain only neutral build-time constants (e.g., HMAC verification key, app version) |
 
-> For full analysis, options comparison, security considerations, and implementation effort estimate, see [Multi-Tenancy Feasibility Study](MultiTenancy-Feasibility.md).
+> For the full options analysis, comparison matrix, QR obfuscation discussion, and alternatives considered, see [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md).
 
 ---
 
@@ -425,7 +517,7 @@ This preserves full AWS account isolation per organizer while eliminating the ne
 - [Requirements](Requirements.md) — Detailed feature specifications and business rules
 - [Dashboard Feature](Dashboard-Feature.md) — Dashboard screen specification
 - [Data Integration Design](DataIntegrationDesign.md) — Backend integration and offline architecture
-- [Multi-Tenancy Feasibility](MultiTenancy-Feasibility.md) — Single-app multi-organizer architecture study
+- [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md) — Options analysis and alternatives considered
 - [Project Structure](project-structure.md) — Folder organization
 
 ---

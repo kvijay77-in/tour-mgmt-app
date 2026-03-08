@@ -16,6 +16,7 @@ poc-app/
 │   ├── SolutionDesign.md
 │   ├── Dashboard-Feature.md
 │   ├── DataIntegrationDesign.md
+│   ├── Generic-App-Distribution-Analysis.md
 │   ├── development-guide.md
 │   ├── docs-index.md
 │   ├── project-structure.md
@@ -116,6 +117,7 @@ poc-app/
 - **`SolutionDesign.md`**: Architecture, design principles, component structure, technical decisions
 - **`Dashboard-Feature.md`**: Dashboard screen specification — grid, stages, sorting, zoom, colors
 - **`DataIntegrationDesign.md`**: Backend API integration architecture, offline sync, conflict resolution
+- **`Generic-App-Distribution-Analysis.md`**: Feasibility analysis for distributing one generic app across multiple organizer AWS subscriptions
 - **`development-guide.md`**: Environment setup, running the app, testing, troubleshooting
 - **`docs-index.md`**: Complete documentation index with persona-based navigation
 - **`project-structure.md`**: This file — project folder organization
