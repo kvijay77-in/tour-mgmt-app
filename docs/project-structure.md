@@ -91,6 +91,9 @@ poc-app/
 │   ├── fonts/                      # Custom fonts
 │   └── icons/                      # Icon files
 │
+├── tools/                          # Publisher/admin utilities (not part of the app bundle)
+│   └── setup-link-generator.html   # HMAC-signed setup link & QR code generator
+│
 ├── node_modules/                   # Dependencies (not in git)
 │
 ├── .gitignore                      # Git ignore rules
