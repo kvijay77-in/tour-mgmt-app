@@ -18,12 +18,16 @@ import {
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTour } from '../../context/TourContext';
-import { getActiveRide } from '../../services/api/rideApi';
+import { useAuth } from '../../context/AuthContext';
+import { getActiveRide, listRides } from '../../services/api/rideApi';
 import { getDashboardData } from '../../services/api/dashboardApi';
-import { ApiError } from '../../services/api/apiClient';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus } from '../../types/models';
+import { ApiError, isNetworkError } from '../../services/api/apiClient';
+import { logger } from '../../utils/logger';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
+import { hasPermission } from '../../utils/permissions';
+import CheckInScreen from '../checkin/CheckInScreen';
 
 const { width } = Dimensions.get('window');
 const GRID_COLUMNS = 6;
@@ -78,8 +82,13 @@ function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): R
 
 export default function DashboardScreen() {
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
+  const { user, logout } = useAuth();
 
   const [ride, setRide] = useState<Ride | null>(null);
+  const [allRides, setAllRides] = useState<Ride[]>([]);
+  const [isHistorical, setIsHistorical] = useState(false);
+  const [showRidePicker, setShowRidePicker] = useState(false);
+  const [showCheckIn, setShowCheckIn] = useState(false);
   const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,29 +98,24 @@ export default function DashboardScreen() {
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
 
-  // Fetch data from API
-  const fetchDashboard = useCallback(async () => {
-    if (!tour) return;
+  // RBAC: can this user perform check-ins?
+  const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
+
+  // Load a specific ride's dashboard data
+  const loadRideDashboard = useCallback(async (targetRide: Ride, historical: boolean) => {
     setIsLoading(true);
     setError(null);
+    setRide(targetRide);
+    setIsHistorical(historical);
     try {
-      const activeRide = await getActiveRide(tour.tourId);
-      if (!activeRide) {
-        setError('No active ride found for today.');
-        setIsLoading(false);
-        return;
-      }
-      setRide(activeRide);
-
-      const { data } = await getDashboardData(tour.tourId, activeRide.rideId);
+      const { data } = await getDashboardData(tour!.tourId, targetRide.rideId);
       if (!data) {
         setError('No dashboard data available.');
         setIsLoading(false);
         return;
       }
 
-      // Validate response shape — prevent crashes from malformed data
-      const dashRide = data.ride ?? activeRide;
+      const dashRide = data.ride ?? targetRide;
       if (!Array.isArray(dashRide.stages) || dashRide.stages.length === 0) {
         setError('Ride has no stages configured. Please contact the tour administrator.');
         setRide(dashRide);
@@ -125,7 +129,7 @@ export default function DashboardScreen() {
       setRide(dashRide);
       setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
     } catch (err) {
-      console.error('[Dashboard] fetchDashboard error:', err, 'constructor:', (err as object)?.constructor?.name);
+      logger.error('Dashboard', 'loadRideDashboard failed', err);
       let message: string;
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
       if (isApiError) {
@@ -139,7 +143,7 @@ export default function DashboardScreen() {
         } else {
           message = 'Failed to load dashboard data. Please try again.';
         }
-      } else if (err instanceof TypeError) {
+      } else if (isNetworkError(err)) {
         message = 'Unable to reach the server. Please check your internet connection and try again.';
       } else {
         message = 'An unexpected error occurred. Please try again.';
@@ -149,6 +153,88 @@ export default function DashboardScreen() {
       setIsLoading(false);
     }
   }, [tour]);
+
+  // Fetch data from API — tries today's ride first, then falls back to most recent
+  const fetchDashboard = useCallback(async () => {
+    if (!tour) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Fetch ride list for the selector
+      const rides = await listRides(tour.tourId);
+      // Sort by date descending (most recent first)
+      const sortedRides = [...rides].sort((a, b) => b.date.localeCompare(a.date));
+      setAllRides(sortedRides);
+
+      // Try today's ride first
+      const activeRide = await getActiveRide(tour.tourId);
+      if (activeRide) {
+        setIsHistorical(false);
+        setRide(activeRide);
+
+        const { data } = await getDashboardData(tour.tourId, activeRide.rideId);
+        if (!data) {
+          setError('No dashboard data available.');
+          setIsLoading(false);
+          return;
+        }
+
+        const dashRide = data.ride ?? activeRide;
+        if (!Array.isArray(dashRide.stages) || dashRide.stages.length === 0) {
+          setError('Ride has no stages configured. Please contact the tour administrator.');
+          setRide(dashRide);
+          setIsLoading(false);
+          return;
+        }
+
+        const riders = Array.isArray(data.riders) ? data.riders : [];
+        const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
+
+        setRide(dashRide);
+        setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
+      } else if (sortedRides.length > 0) {
+        // Fall back to the most recent ride (historical/read-only)
+        await loadRideDashboard(sortedRides[0], true);
+        return;
+      } else {
+        setError('No rides found for this tour.');
+        setIsLoading(false);
+        return;
+      }
+    } catch (err) {
+      logger.error('Dashboard', 'fetchDashboard failed', err);
+      let message: string;
+      const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
+      if (isApiError) {
+        const apiErr = err as ApiError;
+        if (apiErr.errorCode === 'CONFIG_ERROR') {
+          message = apiErr.message;
+        } else if (apiErr.statusCode === 0) {
+          message = 'Unable to reach the server. Please check your internet connection and try again.';
+        } else if (apiErr.statusCode >= 500) {
+          message = 'The server encountered an error. Please try again later.';
+        } else {
+          message = 'Failed to load dashboard data. Please try again.';
+        }
+      } else if (isNetworkError(err)) {
+        message = 'Unable to reach the server. Please check your internet connection and try again.';
+      } else {
+        message = 'An unexpected error occurred. Please try again.';
+      }
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [tour, loadRideDashboard]);
+
+  // Switch to a specific ride from the picker
+  const switchToRide = useCallback((selectedRide: Ride) => {
+    setShowRidePicker(false);
+    // Determine if this is today's ride
+    const today = new Date().toISOString().split('T')[0];
+    const historical = selectedRide.date !== today;
+    loadRideDashboard(selectedRide, historical);
+  }, [loadRideDashboard]);
 
   useEffect(() => {
     if (!isTourLoading && tour) {
@@ -489,8 +575,29 @@ export default function DashboardScreen() {
       {/* Compact Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
-          <Text style={styles.rideTitle}>{ride.name}</Text>
-          <Text style={styles.rideDate}>{ride.date}</Text>
+          <View style={styles.headerTitleRow}>
+            <Text style={styles.rideTitle}>{ride.name}</Text>
+            {isHistorical && (
+              <View style={styles.historicalBadge}>
+                <Text style={styles.historicalBadgeText}>Historical</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.dateSelector}
+              onPress={() => setShowRidePicker(true)}
+              disabled={allRides.length <= 1}
+            >
+              <Text style={styles.rideDate}>{ride.date}</Text>
+              {allRides.length > 1 && (
+                <MaterialIcons name="arrow-drop-down" size={20} color={COLORS.white} />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={logout} style={styles.logoutButton}>
+              <MaterialIcons name="logout" size={20} color={COLORS.white} />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.statsRow}>
           {ride.stages.map((stage) => (
@@ -650,29 +757,98 @@ export default function DashboardScreen() {
         </ScrollView>
       </View>
 
-      {/* Floating Action Button for QR Scanner - Draggable */}
-      <Animated.View
-        style={[
-          styles.fab,
-          {
-            transform: [{ translateX: pan.x }, { translateY: pan.y }],
-          },
-        ]}
-        {...panResponder.panHandlers}
+      {/* Floating Action Button for QR Scanner - Draggable (hidden for historical rides and non-checkin roles) */}
+      {!isHistorical && canCheckIn && ride && (
+        <Animated.View
+          style={[
+            styles.fab,
+            {
+              transform: [{ translateX: pan.x }, { translateY: pan.y }],
+            },
+          ]}
+          {...panResponder.panHandlers}
+        >
+          <TouchableOpacity
+            style={styles.fabButton}
+            disabled={isDragging}
+            onPress={() => {
+              if (!isDragging) {
+                setShowCheckIn(true);
+              }
+            }}
+          >
+            <MaterialIcons name="qr-code-scanner" size={28} color={COLORS.white} />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* Check-In Screen Modal */}
+      {ride && (
+        <Modal
+          visible={showCheckIn}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowCheckIn(false)}
+        >
+          <CheckInScreen
+            ride={ride}
+            onCheckInComplete={() => {
+              // Refresh dashboard data after a check-in
+              if (tour && ride) {
+                loadRideDashboard(ride, false);
+              }
+            }}
+            onClose={() => setShowCheckIn(false)}
+          />
+        </Modal>
+      )}
+
+      {/* Ride Picker Modal */}
+      <Modal
+        visible={showRidePicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowRidePicker(false)}
       >
         <TouchableOpacity
-          style={styles.fabButton}
-          disabled={isDragging}
-          onPress={() => {
-            if (!isDragging) {
-              // Handle QR scan action
-              // TODO: Navigate to QR scanner screen
-            }
-          }}
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowRidePicker(false)}
         >
-          <MaterialIcons name="qr-code-scanner" size={28} color={COLORS.white} />
+          <View style={styles.ridePickerContainer}>
+            <View style={styles.ridePickerHeader}>
+              <Text style={styles.ridePickerTitle}>Select Ride</Text>
+              <TouchableOpacity onPress={() => setShowRidePicker(false)}>
+                <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.ridePickerList}>
+              {allRides.map((r) => {
+                const isSelected = r.rideId === ride?.rideId;
+                const today = new Date().toISOString().split('T')[0];
+                const isToday = r.date === today;
+                return (
+                  <TouchableOpacity
+                    key={r.rideId}
+                    style={[styles.ridePickerItem, isSelected && styles.ridePickerItemSelected]}
+                    onPress={() => switchToRide(r)}
+                  >
+                    <View>
+                      <Text style={[styles.ridePickerItemName, isSelected && styles.ridePickerItemNameSelected]}>
+                        {r.name}
+                      </Text>
+                      <Text style={styles.ridePickerItemDate}>
+                        {r.date}{isToday ? ' (Today)' : ''}
+                      </Text>
+                    </View>
+                    <Text style={styles.ridePickerItemStatus}>{r.status}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         </TouchableOpacity>
-      </Animated.View>
+      </Modal>
     </GestureHandlerRootView>
   );
 }
@@ -721,6 +897,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  historicalBadge: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  historicalBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dateSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoutButton: {
+    padding: 4,
   },
   rideTitle: {
     fontSize: 20,
@@ -910,5 +1115,62 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+  },
+  ridePickerContainer: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '60%',
+    width: '100%',
+    position: 'absolute',
+    bottom: 0,
+  },
+  ridePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  ridePickerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+  },
+  ridePickerList: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  ridePickerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  ridePickerItemSelected: {
+    backgroundColor: COLORS.primary + '10',
+  },
+  ridePickerItemName: {
+    fontSize: 16,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  ridePickerItemNameSelected: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  ridePickerItemDate: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  ridePickerItemStatus: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
   },
 });

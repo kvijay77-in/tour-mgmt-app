@@ -10,7 +10,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Tour } from '../types/models';
 import { getActiveTour } from '../services/api/tourApi';
-import { ApiError } from '../services/api/apiClient';
+import { ApiError, isNetworkError } from '../services/api/apiClient';
+import { logger } from '../utils/logger';
+
+const TAG = 'TourContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +71,7 @@ export function TourProvider({ children }: TourProviderProps) {
         setError('No active tour found. Please contact the tour administrator.');
       }
     } catch (err) {
-      console.error('[TourContext] fetchActiveTour error:', err, 'type:', typeof err, 'constructor:', (err as object)?.constructor?.name);
+      logger.error(TAG, 'Failed to fetch active tour', err);
       let message: string;
       // Use duck-typing fallback for ApiError in case instanceof fails across module boundaries
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
@@ -83,7 +86,7 @@ export function TourProvider({ children }: TourProviderProps) {
         } else {
           message = 'Failed to load the active tour. Please try again.';
         }
-      } else if (err instanceof TypeError) {
+      } else if (isNetworkError(err)) {
         message = 'Unable to reach the server. Please check your internet connection and try again.';
       } else {
         message = 'An unexpected error occurred while loading tour data. Please try again.';

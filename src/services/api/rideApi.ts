@@ -28,8 +28,9 @@ export async function listRides(
   if (query?.limit) params.limit = String(query.limit);
   if (query?.nextToken) params.nextToken = query.nextToken;
 
-  const response = await apiClient.get<Ride[]>(ridesPath(tourId), { params });
-  return response.data ?? [];
+  const response = await apiClient.get<{ rides: Ride[] }>(ridesPath(tourId), { params });
+  const payload = response.data;
+  return Array.isArray(payload) ? payload : (payload?.rides ?? []);
 }
 
 /**

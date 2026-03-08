@@ -45,6 +45,7 @@ yarn-error.*
 .vscode/
 
 # AWS Amplify Gen 2
+# Amplify Gen 2 build outputs (if Amplify backend is ever re-added)
 .amplify/
 amplify_outputs*
 amplifyconfiguration*

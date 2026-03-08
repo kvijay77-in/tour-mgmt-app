@@ -13,12 +13,24 @@
  */
 
 import { ApiResponse } from '../../types/api';
+import { logger } from '../../utils/logger';
+
+const TAG = 'ApiClient';
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL || '';
+/** Runtime-settable API base URL. Initialised from env var, overridden by OrgConfig at startup. */
+let _apiBaseUrl = process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL || '';
+
+/**
+ * Set the API base URL at runtime (called from App startup after loading OrgConfig).
+ */
+export function setApiBaseUrl(url: string): void {
+  _apiBaseUrl = url.replace(/\/+$/, '');
+  logger.info(TAG, `API base URL set to ${_apiBaseUrl}`);
+}
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 3;
@@ -55,18 +67,18 @@ export class ApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Auth token provider (placeholder until Phase 4)
+// Auth token provider — wired by AuthContext at app startup
 // ---------------------------------------------------------------------------
 
 /**
  * Returns the current JWT access token for API authentication.
- * Phase 4 will replace this with Amplify Auth session token.
+ * Wired by AuthContext via setAuthTokenProvider() with Amplify Auth session token.
  */
 let _getAuthToken: (() => Promise<string | null>) = async () => null;
 
 /**
- * Register the auth token provider. Called during app initialisation
- * once Amplify Auth is configured (Phase 4).
+ * Register the auth token provider. Called by AuthContext on mount
+ * to supply the Amplify Auth session token for all API requests.
  */
 export const setAuthTokenProvider = (
   provider: () => Promise<string | null>,
@@ -74,19 +86,35 @@ export const setAuthTokenProvider = (
   _getAuthToken = provider;
 };
 
+/**
+ * Callback invoked when the API receives a 401 that cannot be recovered
+ * by refreshing the token. AuthContext registers this to force logout.
+ */
+let _onAuthInvalidated: (() => void) | null = null;
+
+/**
+ * Register a callback for unrecoverable 401 errors.
+ * Called by AuthContext to redirect to the login screen.
+ */
+export const setAuthInvalidatedCallback = (
+  callback: () => void,
+): void => {
+  _onAuthInvalidated = callback;
+};
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 function buildUrl(path: string, params?: Record<string, string>): string {
-  if (!API_BASE_URL) {
+  if (!_apiBaseUrl) {
     throw new ApiError(
       'API base URL is not configured. Set EXPO_PUBLIC_TOUR_DATA_API_BASE_URL in your .env file, or enable mock mode with EXPO_PUBLIC_USE_MOCK_DATA=true.',
       0,
       'CONFIG_ERROR',
     );
   }
-  const base = API_BASE_URL.replace(/\/+$/, '');
+  const base = _apiBaseUrl.replace(/\/+$/, '');
   const url = new URL(`${base}${path}`);
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -118,10 +146,24 @@ function isRetryable(status: number): boolean {
   return status >= 500 || status === 429;
 }
 
-function isNetworkError(error: unknown): boolean {
+/**
+ * Determine whether an error represents a network connectivity failure.
+ *
+ * `fetch()` throws TypeError on network failures, but TypeErrors also arise
+ * from data processing bugs (e.g. iterating a non-iterable).  We therefore
+ * match against known network-failure messages to avoid mis-classification.
+ */
+const NETWORK_ERROR_PATTERNS = [
+  'network request failed',   // React Native
+  'failed to fetch',          // Chrome / Edge
+  'load failed',              // Safari
+  'networkerror',             // Generic
+];
+
+export function isNetworkError(error: unknown): boolean {
   if (error instanceof TypeError) {
-    // fetch throws TypeError on network failures
-    return true;
+    const msg = error.message.toLowerCase();
+    return NETWORK_ERROR_PATTERNS.some((p) => msg.includes(p));
   }
   return false;
 }
@@ -151,6 +193,8 @@ async function request<T>(
   const url = buildUrl(path, params);
   const headers = await buildHeaders(extraHeaders);
 
+  logger.debug(TAG, `${method} ${url}`);
+
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -177,6 +221,8 @@ async function request<T>(
       const response = await fetch(url, fetchOptions);
       clearTimeout(timeoutId);
 
+      logger.debug(TAG, `Response ${response.status} (attempt ${attempt})`);
+
       // Handle 401 — attempt token refresh once
       if (response.status === 401 && attempt === 0) {
         // Token may have expired. Refresh and retry once.
@@ -185,11 +231,15 @@ async function request<T>(
           headers['Authorization'] = `Bearer ${newToken}`;
           continue;
         }
+        // Token refresh failed — session is invalid, notify AuthContext
+        if (_onAuthInvalidated) {
+          _onAuthInvalidated();
+        }
       }
 
       // Parse response body
       const responseBody = await response.json().catch((e: unknown) => {
-        console.warn('[ApiClient] Failed to parse response JSON:', e);
+        logger.warn(TAG, 'Failed to parse response JSON', e);
         return null;
       });
 
@@ -218,6 +268,8 @@ async function request<T>(
       );
     } catch (error) {
       clearTimeout(timeoutId);
+
+      logger.warn(TAG, `Request error (attempt ${attempt})`, error);
 
       // If externally aborted, don't retry
       if (signal?.aborted) {

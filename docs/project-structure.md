@@ -47,6 +47,8 @@ poc-app/
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard composite endpoint
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
+│   │   ├── config/                 # Runtime org configuration service
+│   │   │   └── orgConfigService.ts # HMAC verification, expo-secure-store persistence
 │   │   ├── auth/                   # AWS Cognito authentication
 │   │   ├── database/               # SQLite for offline support
 │   │   ├── sync/                   # Data synchronization service
@@ -66,9 +68,11 @@ poc-app/
 │   ├── types/                      # TypeScript type definitions
 │   │   ├── models.ts               # Data models
 │   │   ├── api.ts                  # API types
+│   │   ├── config.ts               # OrgConfig type for runtime org configuration
 │   │   └── navigation.ts           # Navigation types
 │   │
 │   ├── utils/                      # Helper utility functions
+│   │   ├── logger.ts               # Structured, level-gated logging utility
 │   │   ├── permissions.ts          # RBAC permission utilities
 │   │   ├── validators.ts           # Input validation
 │   │   └── formatters.ts           # Data formatting utilities
@@ -87,8 +91,6 @@ poc-app/
 │   ├── fonts/                      # Custom fonts
 │   └── icons/                      # Icon files
 │
-├── amplify/                        # AWS Amplify backend (auto-generated)
-│
 ├── node_modules/                   # Dependencies (not in git)
 │
 ├── .gitignore                      # Git ignore rules
@@ -104,7 +106,7 @@ poc-app/
 ### Source Code (`src/`)
 - **`screens/`**: Page-level components organized by feature domain (dashboard, check-in, admin, auth). Each screen connects to context providers and services.
 - **`components/`**: Reusable UI components. `common/` for shared components, feature-specific folders for domain components.
-- **`services/`**: Business logic layer isolated from UI. Contains API client, SQLite database, and sync service.
+- **`services/`**: Business logic layer isolated from UI. Contains API client, org configuration service, SQLite database, and sync service.
 - **`context/`**: React Context providers for global state — authentication, active tour, offline mode, RBAC roles.
 - **`types/`**: TypeScript type definitions and interfaces for data models, API responses, and navigation.
 - **`constants/`**: Application-wide constants — color definitions, role definitions, stage definitions.

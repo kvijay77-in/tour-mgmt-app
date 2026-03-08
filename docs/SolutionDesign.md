@@ -18,6 +18,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 - [Offline Architecture](#offline-architecture)
 - [Navigation Structure](#navigation-structure)
 - [Styling Strategy](#styling-strategy)
+- [Logging](#logging)
 - [Platform Considerations](#platform-considerations)
 - [App Distribution — Runtime Configuration](#app-distribution--runtime-configuration-single-app-multiple-organizers)
 
@@ -265,7 +266,7 @@ All communication with the tour-data-api is through the service layer at `src/se
 - **Auto-retry**: Exponential backoff for network failures (3 retries)
 - **Token refresh**: Automatic on 401 responses (retry once)
 - **Error standardization**: Backend errors mapped to consistent frontend error types
-- **Logging**: Request/response logging (non-sensitive data only)
+- **Logging**: Structured, level-gated logging via the app logger (see [Logging](#logging))
 
 ### Data Flow: API → SQLite → UI
 
@@ -383,6 +384,69 @@ Stage colors are defined in `src/constants/colors.ts` and used consistently acro
 - `@react-native-community/netinfo` provides connectivity events on all platforms
 - Camera/barcode scanning is mobile-focused — web fallback should use manual entry
 - `expo-secure-store` is mobile-only; web uses equivalent browser storage
+
+---
+
+## Logging
+
+The app uses a centralised, structured logger (`src/utils/logger.ts`) for all diagnostic and operational output. Direct `console.log` / `console.warn` / `console.error` calls must not be used in application code — all output should go through the logger.
+
+### Log Levels
+
+| Level | When to use | Console method |
+|-------|-------------|----------------|
+| **DEBUG** | Verbose detail useful only during development (request URLs, response codes, state transitions) | `console.log` |
+| **INFO** | Noteworthy application events (session found, tour loaded, ride selected) | `console.log` |
+| **WARN** | Recoverable issues that may need attention (JSON parse failure, retryable error, missing optional data) | `console.warn` |
+| **ERROR** | Failures requiring investigation (API errors, unhandled exceptions, data integrity issues) | `console.error` |
+
+### Usage
+
+```typescript
+import { logger } from '../utils/logger';
+
+logger.info('AuthContext', 'Session found', { username });
+logger.error('Dashboard', 'fetchDashboard failed', err);
+```
+
+Every call takes a **tag** (module or component name), a **message**, and an optional **data** argument. Errors passed as `data` are automatically formatted with name, message, and any `ApiError`-specific fields (`statusCode`, `errorCode`).
+
+### Level Configuration
+
+The active log level is set via the `EXPO_PUBLIC_LOG_LEVEL` environment variable:
+
+| Value | Output |
+|-------|--------|
+| `DEBUG` | Everything (default in `__DEV__`) |
+| `INFO` | INFO + WARN + ERROR |
+| `WARN` | WARN + ERROR (default in production) |
+| `ERROR` | Errors only |
+| `NONE` | Silent |
+
+Messages below the active level are suppressed at no runtime cost.
+
+### Output Format
+
+```
+[LEVEL] [Tag] Message — optional data
+```
+
+Example: `[ERROR] [Dashboard] fetchDashboard failed — ApiError: HTTP 500 | statusCode=500`
+
+### Where Logs Appear
+
+| Environment | Destination |
+|-------------|-------------|
+| Expo Dev Server | Terminal running `npx expo start` |
+| JS Debugger | Browser Console (press `j` in Expo CLI) |
+| Android (no debugger) | `adb logcat *:S ReactNativeJS:V` |
+| iOS (no debugger) | Xcode Console / Console.app |
+
+> **Note**: Standard `console.*` output is not persisted or remotely accessible in production builds. Remote log collection (e.g. Sentry, CloudWatch) can be added later by extending the `log()` function in `logger.ts`.
+
+### Network Error Detection
+
+`isNetworkError()` (exported from `apiClient.ts`) distinguishes genuine network connectivity failures from other `TypeError`s by matching against known network-failure messages (`"Network request failed"`, `"Failed to fetch"`, `"Load failed"`). This prevents data-processing bugs from being mis-classified as connection errors in catch blocks.
 
 ---
 

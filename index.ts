@@ -1,3 +1,8 @@
+// Amplify v6 React Native polyfills — must be imported before any Amplify code
+import 'react-native-get-random-values';
+import 'react-native-url-polyfill/auto';
+import '@aws-amplify/react-native';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';

@@ -15,7 +15,6 @@ module.exports = [
       'android/**',
       'ios/**',
       'web-build/**',
-      'amplify/**',
       '*.config.js',
       'babel.config.js',
       'metro.config.js',

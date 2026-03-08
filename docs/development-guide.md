@@ -72,17 +72,48 @@ cp .env.example .env
 Update the `.env` file with your environment-specific values:
 
 ```
-# Tour Data API
+# Tour Data API (dev-mode fallback — overridden by runtime OrgConfig)
 EXPO_PUBLIC_TOUR_DATA_API_BASE_URL=https://<api-id>.execute-api.<region>.amazonaws.com/v1
 
-# AWS Cognito (for JWT authentication)
+# AWS Cognito (dev-mode fallback — overridden by runtime OrgConfig)
 EXPO_PUBLIC_AWS_REGION=<region>
 EXPO_PUBLIC_AWS_USER_POOL_ID=<user-pool-id>
 EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID=<client-id>
 EXPO_PUBLIC_AWS_IDENTITY_POOL_ID=<identity-pool-id>
+
+# HMAC signing key for setup link verification (must match publisher's key)
+EXPO_PUBLIC_SETUP_HMAC_KEY=<hex-encoded-256-bit-key>
+
+# Logging (optional — defaults to DEBUG in dev, WARN in production)
+# Valid values: DEBUG, INFO, WARN, ERROR, NONE
+EXPO_PUBLIC_LOG_LEVEL=DEBUG
 ```
 
+> **Dev-mode fallback**: When the app has no stored OrgConfig (first launch, no setup link/QR), it falls back to reading the `EXPO_PUBLIC_AWS_*` and `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` env vars. This allows local development without the setup flow. In production builds these vars are typically empty — the app shows the OrgSetupScreen instead.
+
 > **Important**: All environment variables must use the `EXPO_PUBLIC_` prefix to be accessible in the app at runtime. This is an Expo requirement — variables without this prefix are not bundled into the app. See [Expo Environment Variables](https://docs.expo.dev/guides/environment-variables/) for details.
+
+### Cognito User Role Setup (User Groups)
+
+The app resolves each user's role from **Cognito User Group** membership.
+The ID token's `cognito:groups` claim is read at login / session restore — no extra API call is needed.
+
+1. **Create groups** in the Cognito User Pool (one-time, via Console or CLI):
+   ```
+   ADMINISTRATOR
+   SUPER_USER
+   PIT_STOP_CREW
+   HOTEL_STAFF
+   GUEST
+   ```
+   Group names must match the `UserRole` enum values exactly (case-sensitive).
+
+2. **Assign users to a group** via the Cognito Console → User Pool → Users → select user → Group memberships → Add to group.
+   Each user should belong to exactly **one** role group. If a user is in multiple groups, the first matching `UserRole` (by enum declaration order) is used.
+
+3. **Ensure the App Client** is configured to include `cognito:groups` in the ID token (this is the default for new app clients).
+
+If the user belongs to no recognised group, the app defaults to `GUEST` (read-only dashboard).
 
 These values come from the [tour-data-api](https://github.com/kvijay77-in/tour-data-api) deployment. See the tour-data-api [Deployment Guide](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/deployment-guide.md#after-deployment-getting-your-api-url) for how to retrieve API URLs and Cognito configuration.
 
