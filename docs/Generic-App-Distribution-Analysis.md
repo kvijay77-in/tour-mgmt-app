@@ -518,7 +518,7 @@ Before implementation can begin, the following decisions need to be made:
 - [Solution Design → App Distribution](SolutionDesign.md#app-distribution--runtime-configuration-single-app-multiple-organizers) — Implementation design for the chosen approach (Option 3)
 - [Requirements](Requirements.md) — Functional requirements
 - [Development Guide → Environment Configuration](development-guide.md#environment-configuration) — Current env variable setup
-- [Issue #11](https://github.com/kvijay77-in/poc-app/issues/11) — Auth integration context
+- [Issue #11](https://github.com/kvijay77-in/tour-mgmt-app/issues/11) — Auth integration context
 
 ---
 

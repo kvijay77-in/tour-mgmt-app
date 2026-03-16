@@ -1,4 +1,4 @@
-# Check-In App (poc-app)
+# Check-In App (tour-mgmt-app)
 
 Mobile and web application for managing rider check-ins during non-competitive cycling tours. Built with React Native and Expo, supporting iOS, Android, and Web from a single codebase.
 
@@ -116,7 +116,7 @@ The app uses **SQLite as the single source of truth** for all UI reads. Two inde
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd poc-app
+cd tour-mgmt-app
 
 # Install dependencies
 npm install

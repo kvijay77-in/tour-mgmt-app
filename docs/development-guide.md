@@ -50,7 +50,7 @@ Complete guide for setting up your development environment, running the app, tes
 
 ```bash
 git clone <repository-url>
-cd poc-app
+cd tour-mgmt-app
 ```
 
 ### 2. Install Dependencies

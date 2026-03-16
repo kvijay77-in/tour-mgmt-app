@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "poc-app",
-    "slug": "poc-app",
+    "name": "tour-mgmt-app",
+    "slug": "tour-mgmt-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
