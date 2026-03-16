@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-This document provides the analysis and design for integrating the `tour-data-api` backend with the Check-In App (poc-app) frontend. It must be reviewed and approved before any development work begins.
+This document provides the analysis and design for integrating the `tour-data-api` backend with the Check-In App (tour-mgmt-app) frontend. It must be reviewed and approved before any development work begins.
 
 ## Table of Contents
 
