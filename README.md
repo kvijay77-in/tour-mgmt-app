@@ -181,6 +181,7 @@ For detailed project organization and folder structure, see [docs/project-struct
 |----------|-------------|
 | [Documentation Index](docs/docs-index.md) | Complete guide to all project documentation |
 | [Development Guide](docs/development-guide.md) | Environment setup, running the app, testing, troubleshooting |
+| [Release Guide](docs/release-guide.md) | Building and distributing the ToT Android APK via EAS Build |
 | [Requirements](docs/Requirements.md) | Detailed functional requirements, use cases, and feature specifications |
 | [Solution Design](docs/SolutionDesign.md) | Architecture, design principles, component structure, technical decisions |
 | [Dashboard Feature](docs/Dashboard-Feature.md) | Dashboard screen specification — grid, stages, sorting, zoom |

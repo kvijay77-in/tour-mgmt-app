@@ -6,6 +6,26 @@ This document covers the solution design aspects of the Check-In App that must b
 
 This is an evolving document and hence latest info must be referred to at all times.
 
+> **Note on the initial ToT release build.**
+> The design in this document covers a **generic** Check-In App capable of
+> serving multiple organizers via a runtime OrgConfig delivered as a
+> signed setup link or QR code (see [App Distribution — Runtime
+> Configuration](#app-distribution--runtime-configuration-single-app-multiple-organizers)).
+>
+> The **first APK release is intentionally tied to the Tour of Trails
+> (ToT) AWS subscription only.** Cognito IDs and the tour-data-api base
+> URL are baked into the APK at build time via `EXPO_PUBLIC_*` environment
+> variables (stored as EAS project secrets). The setup deep link / QR
+> flow and HMAC signing key are therefore **not exercised** by this build
+> — the existing dev-mode env-var fallback in `App.tsx` (which
+> short-circuits `OrgSetupScreen` when both `EXPO_PUBLIC_AWS_USER_POOL_ID`
+> and `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` are present) is used instead.
+>
+> The generic distribution design remains valid and unchanged for future
+> multi-organizer releases; the ToT build is a specialisation, not a
+> replacement. See [docs/release-guide.md](./release-guide.md) for the
+> concrete APK build and distribution procedure.
+
 ## Table of Contents
 
 - [Design Principles](#design-principles)

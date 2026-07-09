@@ -20,6 +20,8 @@
       ]
     },
     "android": {
+      "package": "com.kvijay77.tourmgmt",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -51,6 +53,11 @@
           "cameraPermission": "Camera access is required to scan the organisation setup QR code."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID_AFTER_EAS_INIT"
+      }
+    }
   }
 }
