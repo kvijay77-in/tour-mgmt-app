@@ -17,7 +17,7 @@ event.
 
 1. [Prerequisites](#1-prerequisites)
 2. [One-time EAS setup](#2-one-time-eas-setup)
-3. [Configuring build-time secrets](#3-configuring-build-time-secrets)
+3. [Configuring build-time environment variables](#3-configuring-build-time-environment-variables)
 4. [Building the APK](#4-building-the-apk)
 5. [Distributing to testers](#5-distributing-to-testers)
 6. [Version bumps & re-releases](#6-version-bumps--re-releases)
@@ -89,13 +89,13 @@ No edits are required for the ToT build.
 
 ---
 
-## 3. Configuring build-time secrets
+## 3. Configuring build-time environment variables
 
 The Check-In App reads AWS resource IDs and the tour-data-api URL from
 `EXPO_PUBLIC_*` environment variables that are inlined into the JS bundle at
 build time. For the ToT APK these values must be present when EAS builds
-run — store them as **EAS project secrets** so they are never committed to
-git.
+run — store them as **EAS project environment variables** so they are never
+committed to git.
 
 ### 3.1 Required variables
 
@@ -108,37 +108,44 @@ git.
 | `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` | `https://api.tot.example.com` | tour-data-api API Gateway invoke URL. |
 
 > `EXPO_PUBLIC_USE_MOCK_DATA` and `EXPO_PUBLIC_LOG_LEVEL` are already set per
-> profile in `eas.json` and should **not** be duplicated as secrets.
+> profile in `eas.json` and should **not** be duplicated as EAS environment
+> variables.
 
-### 3.2 Register secrets in EAS
+### 3.2 Register environment variables in EAS
 
 For each variable above:
 
 ```bash
-npx eas-cli secret:create \
-  --scope project \
-  --name  EXPO_PUBLIC_AWS_REGION \
-  --value ap-south-1 \
-  --type  string
+npx eas-cli env:create \
+   --scope project \
+   --name EXPO_PUBLIC_AWS_REGION \
+   --value ap-south-1 \
+   --type string \
+   --visibility plaintext \
+   --environment preview \
+   --environment production
 ```
 
-Repeat for each variable. To list existing secrets:
+Repeat for each variable and target environment, using `preview` for tester
+rollout and `production` for future production-channel builds.
+
+To list existing environment variables:
 
 ```bash
-npx eas-cli secret:list
+npx eas-cli env:list --scope project
 ```
 
 Alternatively, upload from a local file (do **not** commit this file):
 
 ```bash
-npx eas-cli secret:push --scope project --env-file .env.tot
+npx eas-cli env:push --path .env.tot --environment preview --environment production
 ```
 
 > **⚠️ Do not commit `.env.tot`.** Add it to your local `.gitignore` if you
 > create one. The repository's `.gitignore` already excludes `.env` and
 > `.env.*.local`.
 
-### 3.3 Values that must NOT be secrets
+### 3.3 Values that must NOT be added as secret-visibility variables
 
 - `EXPO_PUBLIC_SETUP_HMAC_KEY` — the generic setup-link flow is out of
   scope for the ToT APK. Leave unset. If ever set, the app will silently
@@ -162,7 +169,7 @@ What happens:
 
 1. EAS uploads the project tarball (trimmed by `.easignore`).
 2. Build runs on Expo cloud infrastructure.
-3. The `EXPO_PUBLIC_*` secrets from §3 are injected as environment
+3. The `EXPO_PUBLIC_*` environment variables from §3 are injected as environment
    variables during `expo export`.
 4. `versionCode` is auto-incremented (per `eas.json`).
 5. Android app is signed with an **EAS-managed keystore** — the private
@@ -231,10 +238,18 @@ Options in order of convenience:
 
 If a Cognito App Client secret, User Pool ID, or API URL changes:
 
-1. Update the corresponding EAS secret:
+1. Update the corresponding EAS environment variable in each relevant
+    environment:
    ```bash
-   npx eas-cli secret:delete --name EXPO_PUBLIC_TOUR_DATA_API_BASE_URL
-   npx eas-cli secret:create --name EXPO_PUBLIC_TOUR_DATA_API_BASE_URL --value <new-url> --scope project
+    npx eas-cli env:update preview \
+       --scope project \
+       --variable-name EXPO_PUBLIC_TOUR_DATA_API_BASE_URL \
+       --value <new-url>
+
+    npx eas-cli env:update production \
+       --scope project \
+       --variable-name EXPO_PUBLIC_TOUR_DATA_API_BASE_URL \
+       --value <new-url>
    ```
 2. Trigger a new build; testers will install the updated APK.
 
@@ -250,8 +265,8 @@ uninstall the previous APK before installing the new one.
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Build fails: `Missing EAS project ID` | `eas init` not run | Run `npx eas-cli init` (see §2.2). |
-| Build succeeds but login fails on device | Cognito secrets not set / typo | Check `eas secret:list`; recreate offending secret. |
-| App gets stuck on setup screen | ToT env vars not injected at build time | Confirm `EXPO_PUBLIC_AWS_USER_POOL_ID` and `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` are EAS secrets and the build ran after they were added. |
+| Build succeeds but login fails on device | Cognito environment variables not set / typo | Check `eas env:list --scope project`; recreate or update the offending variable. |
+| App gets stuck on setup screen | ToT env vars not injected at build time | Confirm `EXPO_PUBLIC_AWS_USER_POOL_ID` and `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` are EAS project environment variables and the build ran after they were added. |
 | APK too large / build slow | Extraneous files being uploaded | Check `.easignore`; large binaries (e.g. `tour-data-api-main.zip`) should be listed. |
 | `Install blocked` on tester device | "Install unknown apps" not enabled | Guide the tester through the OS setting for the source app. |
 
