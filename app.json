@@ -39,8 +39,15 @@
               "pathPrefix": "/setup"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
+      ],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -56,8 +63,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID_AFTER_EAS_INIT"
+        "projectId": "9ca24b5e-82b1-45d8-9a96-dd72b2579fbc"
       }
-    }
+    },
+    "owner": "kvijay77.in"
   }
 }
