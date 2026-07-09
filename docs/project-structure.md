@@ -20,6 +20,7 @@ tour-mgmt-app/
 │   ├── development-guide.md
 │   ├── docs-index.md
 │   ├── project-structure.md
+│   ├── release-guide.md
 │   └── Images/
 │
 ├── src/
@@ -98,8 +99,10 @@ tour-mgmt-app/
 │
 ├── .gitignore                      # Git ignore rules
 ├── .env.example                    # Environment variables template
+├── .easignore                      # Files excluded from EAS Build upload tarball
 ├── App.tsx                         # Root application component
 ├── app.json                        # Expo configuration
+├── eas.json                        # EAS Build profiles (development / preview / production)
 ├── package.json                    # NPM dependencies and scripts
 └── tsconfig.json                   # TypeScript configuration
 ```
@@ -124,6 +127,7 @@ tour-mgmt-app/
 - **`DataIntegrationDesign.md`**: Backend API integration architecture, offline sync, conflict resolution
 - **`Generic-App-Distribution-Analysis.md`**: Feasibility analysis for distributing one generic app across multiple organizer AWS subscriptions
 - **`development-guide.md`**: Environment setup, running the app, testing, troubleshooting
+- **`release-guide.md`**: Building and distributing the ToT Android APK via EAS Build
 - **`docs-index.md`**: Complete documentation index with persona-based navigation
 - **`project-structure.md`**: This file — project folder organization
 
@@ -131,6 +135,8 @@ tour-mgmt-app/
 - **`amplify/`**: AWS Amplify Gen 2 backend configuration (authentication, data resources). Auto-generated structure managed by Amplify CLI.
 - **`App.tsx`**: Root application component — single entry point for Android, iOS, and Web.
 - **`app.json`**: Expo configuration (app name, splash screen, platform settings).
+- **`eas.json`**: EAS Build profiles for producing signed APKs. See [release-guide.md](./release-guide.md).
+- **`.easignore`**: Excludes non-build artefacts (backend snapshot zip, docs, tools) from the EAS upload tarball.
 
 ### Additional Notes
 - **Single Entry Point**: `App.tsx` serves as the root component for Android, iOS, and Web
