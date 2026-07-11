@@ -16,13 +16,12 @@
     "ios": {
       "supportsTablet": true,
       "associatedDomains": [
-        "applinks:setup.checkin-app.example.com",
         "applinks:setup.checkin-app.example.com"
       ]
     },
     "android": {
       "package": "com.kvijay77.tourmgmt",
-      "versionCode": 2,
+      "versionCode": 12,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -44,26 +43,9 @@
             "BROWSABLE",
             "DEFAULT"
           ]
-        },
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "setup.checkin-app.example.com",
-              "pathPrefix": "/setup"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
         }
       ],
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
@@ -77,7 +59,8 @@
         {
           "cameraPermission": "Camera access is required to scan the organisation setup QR code."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

@@ -51,3 +51,7 @@ amplify_outputs*
 amplifyconfiguration*
 
 /Temp
+/temp
+
+*.apk
+*.aab

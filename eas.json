@@ -8,18 +8,34 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": {
-        "buildType": "apk"
+        "buildType": "app-bundle"
       },
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "true",
         "EXPO_PUBLIC_LOG_LEVEL": "DEBUG"
       }
     },
+    "localpreview": {
+      "distribution": "internal",
+      "channel": "localpreview",
+      "android": {
+        "buildType": "apk",
+        "autoIncrement": "versionCode"
+      },
+      "env": {
+        "EXPO_PUBLIC_USE_MOCK_DATA": "false",
+        "EXPO_PUBLIC_LOG_LEVEL": "WARN",
+        "EXPO_PUBLIC_AWS_REGION": "ap-south-1",
+        "EXPO_PUBLIC_AWS_USER_POOL_ID": "ap-south-1_MMxOi2Qmt",
+        "EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID": "31s80dcc5u1oob7shuc2s4up0a",
+        "EXPO_PUBLIC_TOUR_DATA_API_BASE_URL": "https://mgyezkldn2.execute-api.ap-south-1.amazonaws.com/dev"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "channel": "preview",
       "android": {
-        "buildType": "apk",
+        "buildType": "app-bundle",
         "autoIncrement": "versionCode"
       },
       "env": {
@@ -31,7 +47,7 @@
       "distribution": "internal",
       "channel": "production",
       "android": {
-        "buildType": "apk",
+        "buildType": "app-bundle",
         "autoIncrement": "versionCode"
       },
       "env": {
