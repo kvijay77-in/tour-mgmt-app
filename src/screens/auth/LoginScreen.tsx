@@ -5,7 +5,7 @@
  * See docs/SolutionDesign.md § Authentication.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,21 +16,63 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
+  Modal,
+  Alert,
 } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { resetPassword } from 'aws-amplify/auth';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
 
+const REMEMBERED_CREDENTIALS_KEY = 'auth.rememberedCredentials';
+
+interface RememberedCredentials {
+  username: string;
+  password: string;
+}
+
 interface LoginScreenProps {
-  onNewPasswordRequired: () => void;
+  onNewPasswordRequired: (payload: {
+    username: string;
+    rememberMe: boolean;
+  }) => void;
 }
 
 export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps) {
   const { login, isAuthenticating, error } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isForgotPasswordModalVisible, setIsForgotPasswordModalVisible] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordError, setForgotPasswordError] = useState<string | null>(null);
+  const [isSubmittingForgotPassword, setIsSubmittingForgotPassword] = useState(false);
+
+  useEffect(() => {
+    const loadRememberedCredentials = async () => {
+      try {
+        const raw = await SecureStore.getItemAsync(REMEMBERED_CREDENTIALS_KEY);
+        if (!raw) {
+          return;
+        }
+
+        const parsed = JSON.parse(raw) as Partial<RememberedCredentials>;
+        if (typeof parsed.username === 'string' && typeof parsed.password === 'string') {
+          setUsername(parsed.username);
+          setPassword(parsed.password);
+          setRememberMe(true);
+        }
+      } catch {
+        // Corrupted or inaccessible saved credentials should not block sign-in.
+      }
+    };
+
+    void loadRememberedCredentials();
+  }, []);
 
   const handleLogin = async () => {
     setLocalError(null);
@@ -46,11 +88,63 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
 
     try {
       const result = await login(username.trim(), password);
+
+      if (result === 'DONE') {
+        if (rememberMe) {
+          const credentials: RememberedCredentials = {
+            username: username.trim(),
+            password,
+          };
+          await SecureStore.setItemAsync(
+            REMEMBERED_CREDENTIALS_KEY,
+            JSON.stringify(credentials),
+          );
+        } else {
+          await SecureStore.deleteItemAsync(REMEMBERED_CREDENTIALS_KEY);
+        }
+      }
+
       if (result === 'NEW_PASSWORD_REQUIRED') {
-        onNewPasswordRequired();
+        onNewPasswordRequired({
+          username: username.trim(),
+          rememberMe,
+        });
       }
     } catch {
       // Error is already set in AuthContext
+    }
+  };
+
+  const handleForgotPasswordSubmit = async () => {
+    setForgotPasswordError(null);
+    const email = forgotPasswordEmail.trim();
+
+    if (!email) {
+      setForgotPasswordError('Please enter your email ID.');
+      return;
+    }
+
+    try {
+      setIsSubmittingForgotPassword(true);
+      const result = await resetPassword({ username: email });
+      const destination = result.nextStep.codeDeliveryDetails?.destination;
+
+      setIsForgotPasswordModalVisible(false);
+      setForgotPasswordEmail('');
+
+      Alert.alert(
+        'Password Reset Email Sent',
+        destination
+          ? `A verification code has been sent to ${destination}.`
+          : 'If the email exists, a password reset verification code has been sent.',
+      );
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : 'Unable to start password reset. Please try again.';
+      setForgotPasswordError(message);
+    } finally {
+      setIsSubmittingForgotPassword(false);
     }
   };
 
@@ -66,7 +160,11 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.logoContainer}>
-          <MaterialIcons name="directions-bike" size={80} color={COLORS.primary} />
+          <Image
+            source={require('../../../assets/tot-signin.jpg')}
+            style={styles.signInImage}
+            resizeMode="contain"
+          />
           <Text style={styles.appTitle}>Tour Check-In</Text>
           <Text style={styles.subtitle}>Sign in to continue</Text>
         </View>
@@ -124,6 +222,18 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
                 />
               </TouchableOpacity>
             </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                setForgotPasswordError(null);
+                setForgotPasswordEmail('');
+                setIsForgotPasswordModalVisible(true);
+              }}
+              disabled={isAuthenticating}
+              style={styles.forgotPasswordLink}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -137,8 +247,75 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
               <Text style={styles.loginButtonText}>Sign In</Text>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.rememberMeContainer}
+            onPress={() => setRememberMe((prev) => !prev)}
+            disabled={isAuthenticating}
+          >
+            <MaterialIcons
+              name={rememberMe ? 'check-box' : 'check-box-outline-blank'}
+              size={20}
+              color={rememberMe ? COLORS.primary : COLORS.gray[500]}
+            />
+            <Text style={styles.rememberMeText}>Remember me</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={isForgotPasswordModalVisible}
+        onRequestClose={() => setIsForgotPasswordModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Forgot Password</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter your email ID to receive a password reset verification code.
+            </Text>
+
+            <TextInput
+              style={styles.modalInput}
+              value={forgotPasswordEmail}
+              onChangeText={setForgotPasswordEmail}
+              placeholder="Enter your email"
+              placeholderTextColor={COLORS.textDisabled}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              textContentType="emailAddress"
+              editable={!isSubmittingForgotPassword}
+            />
+
+            {forgotPasswordError && (
+              <Text style={styles.modalErrorText}>{forgotPasswordError}</Text>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setIsForgotPasswordModalVisible(false)}
+                disabled={isSubmittingForgotPassword}
+              >
+                <Text style={styles.modalCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalSubmitButton}
+                onPress={handleForgotPasswordSubmit}
+                disabled={isSubmittingForgotPassword}
+              >
+                {isSubmittingForgotPassword ? (
+                  <ActivityIndicator color={COLORS.white} size="small" />
+                ) : (
+                  <Text style={styles.modalSubmitButtonText}>Send</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -155,7 +332,12 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 28,
+  },
+  signInImage: {
+    width: '100%',
+    maxWidth: 280,
+    height: 140,
   },
   appTitle: {
     fontSize: 28,
@@ -189,6 +371,15 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 16,
+  },
+  forgotPasswordLink: {
+    alignSelf: 'flex-end',
+    marginTop: 8,
+  },
+  forgotPasswordText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
   label: {
     fontSize: 14,
@@ -230,6 +421,83 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: COLORS.white,
     fontSize: 16,
+    fontWeight: '600',
+  },
+  rememberMeContainer: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+  },
+  rememberMeText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: COLORS.textPrimary,
+  },
+  modalErrorText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    marginTop: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  modalCancelButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginRight: 8,
+  },
+  modalCancelButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalSubmitButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    minWidth: 86,
+    alignItems: 'center',
+  },
+  modalSubmitButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
     fontWeight: '600',
   },
 });

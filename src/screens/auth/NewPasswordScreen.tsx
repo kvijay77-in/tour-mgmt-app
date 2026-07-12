@@ -17,11 +17,19 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
 
-export default function NewPasswordScreen() {
+const REMEMBERED_CREDENTIALS_KEY = 'auth.rememberedCredentials';
+
+interface NewPasswordScreenProps {
+  username: string;
+  rememberMe: boolean;
+}
+
+export default function NewPasswordScreen({ username, rememberMe }: NewPasswordScreenProps) {
   const { completeNewPassword, isAuthenticating, error } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,6 +54,18 @@ export default function NewPasswordScreen() {
 
     try {
       await completeNewPassword(newPassword);
+
+      if (rememberMe) {
+        await SecureStore.setItemAsync(
+          REMEMBERED_CREDENTIALS_KEY,
+          JSON.stringify({
+            username,
+            password: newPassword,
+          }),
+        );
+      } else {
+        await SecureStore.deleteItemAsync(REMEMBERED_CREDENTIALS_KEY);
+      }
     } catch {
       // Error is already set in AuthContext
     }

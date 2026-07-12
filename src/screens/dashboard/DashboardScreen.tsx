@@ -14,6 +14,9 @@ import {
   PanResponder,
   Modal,
   ActivityIndicator,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -80,9 +83,25 @@ function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): R
   });
 }
 
+/**
+ * Natural compare for rider IDs (e.g. R2 < R10).
+ */
+function compareRiderIdsNatural(a: string, b: string): number {
+  return a.localeCompare(b, 'en', {
+    numeric: true,
+    sensitivity: 'base',
+  });
+}
+
 export default function DashboardScreen() {
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
-  const { user, logout } = useAuth();
+  const {
+    user,
+    logout,
+    changePassword,
+    isAuthenticating: isAuthBusy,
+    error: authError,
+  } = useAuth();
 
   const [ride, setRide] = useState<Ride | null>(null);
   const [allRides, setAllRides] = useState<Ride[]>([]);
@@ -97,6 +116,12 @@ export default function DashboardScreen() {
   const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
 
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
@@ -323,12 +348,61 @@ export default function DashboardScreen() {
     }
   };
 
+  const resetChangePasswordForm = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordFormError(null);
+  };
+
+  const handleOpenChangePassword = () => {
+    setShowHeaderMenu(false);
+    resetChangePasswordForm();
+    setShowChangePasswordModal(true);
+  };
+
+  const handleCloseChangePassword = () => {
+    setShowChangePasswordModal(false);
+    resetChangePasswordForm();
+  };
+
+  const handleSubmitChangePassword = async () => {
+    setPasswordFormError(null);
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordFormError('Please fill in all password fields.');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordFormError('New password must be at least 8 characters.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordFormError('New password and confirm password do not match.');
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      setPasswordFormError('New password must be different from current password.');
+      return;
+    }
+
+    try {
+      await changePassword(currentPassword, newPassword);
+      handleCloseChangePassword();
+    } catch {
+      // AuthContext already sets a user-friendly error message.
+    }
+  };
+
   // Sort riders based on requirements
   const sortRiders = (riders: RiderStatus[]): RiderStatus[] => {
     if (!isSorted) {
-      // Unsorted mode: sort by Rider ID lexicographically
+      // Unsorted mode: sort by Rider ID using 'natural sort' instead of lexicographically
       return [...riders].sort((a, b) => 
-        a.rider.riderId.localeCompare(b.rider.riderId)
+        compareRiderIdsNatural(a.rider.riderId, b.rider.riderId)
       );
     }
 
@@ -353,26 +427,26 @@ export default function DashboardScreen() {
         if (aIsNR && !bIsNR) return 1;
         if (!aIsNR && bIsNR) return -1;
         if (aIsNR && bIsNR) {
-          return a.rider.riderId.localeCompare(b.rider.riderId);
+          return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
         }
         
         // Checked in at this stage (excluding QR) - comes after QR
         if (aCheckedInAtStage && !aIsQR && (!bCheckedInAtStage || bIsQR) && !bIsNR) return 1;
         if (bCheckedInAtStage && !bIsQR && (!aCheckedInAtStage || aIsQR) && !aIsNR) return -1;
         if (aCheckedInAtStage && !aIsQR && bCheckedInAtStage && !bIsQR) {
-          return a.rider.riderId.localeCompare(b.rider.riderId);
+          return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
         }
         
         // All QR riders - comes after not checked in
         if (aIsQR && !bIsQR && !bCheckedInAtStage && !bIsNR) return 1;
         if (bIsQR && !aIsQR && !aCheckedInAtStage && !aIsNR) return -1;
         if (aIsQR && bIsQR) {
-          return a.rider.riderId.localeCompare(b.rider.riderId);
+          return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
         }
         
         // Not checked in (and not QR, not NR) - first group
         // Same group: sub-sort by Rider ID
-        return a.rider.riderId.localeCompare(b.rider.riderId);
+        return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
       } else {
         // Default View sorting
         // Assign group order: not checked in → QR → stages → NR
@@ -391,7 +465,7 @@ export default function DashboardScreen() {
         }
         
         // Same group: sub-sort by Rider ID
-        return a.rider.riderId.localeCompare(b.rider.riderId);
+        return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
       }
     });
   };
@@ -594,8 +668,8 @@ export default function DashboardScreen() {
                 <MaterialIcons name="arrow-drop-down" size={20} color={COLORS.white} />
               )}
             </TouchableOpacity>
-            <TouchableOpacity onPress={logout} style={styles.logoutButton}>
-              <MaterialIcons name="logout" size={20} color={COLORS.white} />
+            <TouchableOpacity onPress={() => setShowHeaderMenu(true)} style={styles.menuButton}>
+              <MaterialIcons name="menu" size={22} color={COLORS.white} />
             </TouchableOpacity>
           </View>
         </View>
@@ -723,6 +797,139 @@ export default function DashboardScreen() {
             )}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Header Floating Menu */}
+      <Modal
+        visible={showHeaderMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowHeaderMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowHeaderMenu(false)}
+        >
+          <View style={styles.menuPanel}>
+            <TouchableOpacity style={styles.menuItem} onPress={handleOpenChangePassword}>
+              <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Change password</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={async () => {
+                setShowHeaderMenu(false);
+                await logout();
+              }}
+            >
+              <MaterialIcons name="logout" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Change Password Popup */}
+      <Modal
+        visible={showChangePasswordModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseChangePassword}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={handleCloseChangePassword}
+          >
+            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.changePasswordCard}>
+              <View style={styles.changePasswordHeader}>
+                <Text style={styles.changePasswordTitle}>Change Password</Text>
+                <TouchableOpacity onPress={handleCloseChangePassword}>
+                  <MaterialIcons name="close" size={22} color={COLORS.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              {(passwordFormError || authError) && (
+                <View style={styles.changePasswordErrorBanner}>
+                  <MaterialIcons name="error-outline" size={18} color={COLORS.danger} />
+                  <Text style={styles.changePasswordErrorText}>{passwordFormError || authError}</Text>
+                </View>
+              )}
+
+              <View style={styles.changePasswordFieldGroup}>
+                <Text style={styles.changePasswordLabel}>Current password</Text>
+                <TextInput
+                  value={currentPassword}
+                  onChangeText={setCurrentPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  textContentType="password"
+                  placeholder="Enter current password"
+                  placeholderTextColor={COLORS.textDisabled}
+                  style={styles.changePasswordInput}
+                  editable={!isAuthBusy}
+                />
+              </View>
+
+              <View style={styles.changePasswordFieldGroup}>
+                <Text style={styles.changePasswordLabel}>New password</Text>
+                <TextInput
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  placeholder="Enter new password"
+                  placeholderTextColor={COLORS.textDisabled}
+                  style={styles.changePasswordInput}
+                  editable={!isAuthBusy}
+                />
+              </View>
+
+              <View style={styles.changePasswordFieldGroup}>
+                <Text style={styles.changePasswordLabel}>Confirm new password</Text>
+                <TextInput
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                  textContentType="newPassword"
+                  placeholder="Re-enter new password"
+                  placeholderTextColor={COLORS.textDisabled}
+                  style={styles.changePasswordInput}
+                  editable={!isAuthBusy}
+                  onSubmitEditing={handleSubmitChangePassword}
+                />
+              </View>
+
+              <View style={styles.changePasswordActions}>
+                <TouchableOpacity
+                  style={styles.changePasswordCancelButton}
+                  onPress={handleCloseChangePassword}
+                  disabled={isAuthBusy}
+                >
+                  <Text style={styles.changePasswordCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.changePasswordSaveButton, isAuthBusy && styles.changePasswordSaveButtonDisabled]}
+                  onPress={handleSubmitChangePassword}
+                  disabled={isAuthBusy}
+                >
+                  {isAuthBusy ? (
+                    <ActivityIndicator size="small" color={COLORS.white} />
+                  ) : (
+                    <Text style={styles.changePasswordSaveButtonText}>Update</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Footer with Sort and Stage View Toggles */}
@@ -924,7 +1131,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  logoutButton: {
+  menuButton: {
     padding: 4,
   },
   rideTitle: {
@@ -1057,6 +1264,122 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+  },
+  menuPanel: {
+    position: 'absolute',
+    top: 84,
+    right: 12,
+    backgroundColor: COLORS.white,
+    borderRadius: 10,
+    minWidth: 190,
+    paddingVertical: 8,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  menuItemText: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  changePasswordCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    padding: 16,
+    width: width * 0.9,
+    maxWidth: 420,
+  },
+  changePasswordHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  changePasswordTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  changePasswordErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    padding: 10,
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  changePasswordErrorText: {
+    fontSize: 13,
+    color: COLORS.danger,
+    flex: 1,
+  },
+  changePasswordFieldGroup: {
+    marginTop: 12,
+  },
+  changePasswordLabel: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  changePasswordInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    backgroundColor: COLORS.white,
+    fontSize: 15,
+    color: COLORS.textPrimary,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  changePasswordActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 18,
+  },
+  changePasswordCancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: COLORS.gray[100],
+  },
+  changePasswordCancelButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  changePasswordSaveButton: {
+    minWidth: 90,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+  },
+  changePasswordSaveButtonDisabled: {
+    opacity: 0.7,
+  },
+  changePasswordSaveButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '700',
   },
   footer: {
     backgroundColor: COLORS.white,

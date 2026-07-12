@@ -30,7 +30,13 @@ import OrgSetupScreen from './src/screens/auth/OrgSetupScreen';
 
 const TAG = 'App';
 
-type AuthScreen = 'login' | 'newPassword';
+type AuthScreen =
+  | { screen: 'login' }
+  | {
+      screen: 'newPassword';
+      username: string;
+      rememberMe: boolean;
+    };
 
 // ---------------------------------------------------------------------------
 // Apply runtime org config (Amplify + apiClient)
@@ -47,12 +53,12 @@ function applyOrgConfig(config: OrgConfig): void {
 
 function AuthGate() {
   const { user, isLoading } = useAuth();
-  const [authScreen, setAuthScreen] = useState<AuthScreen>('login');
+  const [authScreen, setAuthScreen] = useState<AuthScreen>({ screen: 'login' });
 
   // Reset to login screen whenever the user is signed out
   React.useEffect(() => {
     if (!user && !isLoading) {
-      setAuthScreen('login');
+      setAuthScreen({ screen: 'login' });
     }
   }, [user, isLoading]);
 
@@ -65,12 +71,22 @@ function AuthGate() {
   }
 
   if (!user) {
-    if (authScreen === 'newPassword') {
-      return <NewPasswordScreen />;
+    if (authScreen.screen === 'newPassword') {
+      return (
+        <NewPasswordScreen
+          username={authScreen.username}
+          rememberMe={authScreen.rememberMe}
+        />
+      );
     }
     return (
       <LoginScreen
-        onNewPasswordRequired={() => setAuthScreen('newPassword')}
+        onNewPasswordRequired={({ username, rememberMe }) =>
+          setAuthScreen({
+            screen: 'newPassword',
+            username,
+            rememberMe,
+          })}
       />
     );
   }

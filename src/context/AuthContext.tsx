@@ -14,6 +14,7 @@ import {
   fetchAuthSession,
   confirmSignIn,
   getCurrentUser,
+  updatePassword,
 } from 'aws-amplify/auth';
 import { setAuthTokenProvider, setAuthInvalidatedCallback } from '../services/api/apiClient';
 import { UserRole } from '../types/models';
@@ -50,6 +51,8 @@ interface AuthContextValue {
   completeNewPassword: (newPassword: string) => Promise<void>;
   /** Sign out and clear session */
   logout: () => Promise<void>;
+  /** Change password for an authenticated user */
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +67,7 @@ const AuthContext = createContext<AuthContextValue>({
   login: async () => 'DONE',
   completeNewPassword: async () => {},
   logout: async () => {},
+  changePassword: async () => {},
 });
 
 export function useAuth(): AuthContextValue {
@@ -258,6 +262,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
+  const changePassword = useCallback(async (oldPassword: string, newPassword: string): Promise<void> => {
+    setIsAuthenticating(true);
+    setError(null);
+    try {
+      await updatePassword({
+        oldPassword,
+        newPassword,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to change password.';
+      setError(message);
+      throw err;
+    } finally {
+      setIsAuthenticating(false);
+    }
+  }, []);
+
   const value: AuthContextValue = {
     user,
     isLoading,
@@ -266,6 +287,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     completeNewPassword,
     logout,
+    changePassword,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
