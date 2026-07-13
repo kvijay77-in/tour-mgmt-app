@@ -306,8 +306,11 @@ export default function DashboardScreen() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      // Let taps pass through to the FAB button; only capture real drag gestures.
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gesture) => {
+        return Math.abs(gesture.dx) > 4 || Math.abs(gesture.dy) > 4;
+      },
       onPanResponderGrant: () => {
         pan.setOffset({
           // @ts-ignore - accessing private _value property
@@ -412,39 +415,33 @@ export default function DashboardScreen() {
         // Stage View sorting
         const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
         if (!selectedStage) return 0;
-        
-        const aIsNR = a.overallStatus === CheckInStatus.NOT_RIDING;
-        const bIsNR = b.overallStatus === CheckInStatus.NOT_RIDING;
-        const aIsQR = a.overallStatus === CheckInStatus.QUIT_RIDING;
-        const bIsQR = b.overallStatus === CheckInStatus.QUIT_RIDING;
-        const aCheckedInAtStage = a.lastStage && a.lastStage.stageNumber >= selectedStage.stageNumber;
-        const bCheckedInAtStage = b.lastStage && b.lastStage.stageNumber >= selectedStage.stageNumber;
-        
-        // Order: not checked in → QR (all QR) → checked in → NR
-        // All sub-sorted by Rider ID
-        
-        // NR always last
-        if (aIsNR && !bIsNR) return 1;
-        if (!aIsNR && bIsNR) return -1;
-        if (aIsNR && bIsNR) {
-          return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
+
+        const getStageViewGroupOrder = (rs: RiderStatus): number => {
+          if (rs.overallStatus === CheckInStatus.NOT_RIDING) {
+            return 3; // NR always last
+          }
+
+          const hasReachedSelectedStage = !!rs.lastStage && rs.lastStage.stageNumber >= selectedStage.stageNumber;
+          if (hasReachedSelectedStage) {
+            // In stage view, stage check-in takes precedence over QR.
+            // Riders who quit later still belong to checked-in group for this stage.
+            return 1;
+          }
+
+          if (rs.overallStatus === CheckInStatus.QUIT_RIDING) {
+            return 2; // QR who quit before reaching this stage
+          }
+
+          return 0; // Not checked in at selected stage
+        };
+
+        const aGroup = getStageViewGroupOrder(a);
+        const bGroup = getStageViewGroupOrder(b);
+
+        if (aGroup !== bGroup) {
+          return aGroup - bGroup;
         }
-        
-        // Checked in at this stage (excluding QR) - comes after QR
-        if (aCheckedInAtStage && !aIsQR && (!bCheckedInAtStage || bIsQR) && !bIsNR) return 1;
-        if (bCheckedInAtStage && !bIsQR && (!aCheckedInAtStage || aIsQR) && !aIsNR) return -1;
-        if (aCheckedInAtStage && !aIsQR && bCheckedInAtStage && !bIsQR) {
-          return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
-        }
-        
-        // All QR riders - comes after not checked in
-        if (aIsQR && !bIsQR && !bCheckedInAtStage && !bIsNR) return 1;
-        if (bIsQR && !aIsQR && !aCheckedInAtStage && !aIsNR) return -1;
-        if (aIsQR && bIsQR) {
-          return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
-        }
-        
-        // Not checked in (and not QR, not NR) - first group
+
         // Same group: sub-sort by Rider ID
         return compareRiderIdsNatural(a.rider.riderId, b.rider.riderId);
       } else {
