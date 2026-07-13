@@ -21,7 +21,7 @@ import {
 export interface CheckInRequest {
   riderId: string;
   rideId: string;
-  stageNumber: number;
+  stageNumber?: number;
   method: CheckInMethod;
   isNotRiding?: boolean;
   isQuitRiding?: boolean;

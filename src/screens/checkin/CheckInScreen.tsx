@@ -39,6 +39,19 @@ const TAG = 'CheckInScreen';
 /** Max QR scan retries before showing manual input */
 const MAX_SCAN_RETRIES = 3;
 
+/**
+ * Supported QR payload formats:
+ * 1) "R123" (riderId only)
+ * 2) "R123|..." (pipe-delimited; first segment is riderId)
+ */
+function extractRiderIdFromQr(rawValue?: string): string | null {
+  const value = rawValue?.trim();
+  if (!value) return null;
+
+  const riderId = value.includes('|') ? value.split('|')[0]?.trim() : value;
+  return riderId || null;
+}
+
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
 
 interface CheckInScreenProps {
@@ -160,7 +173,13 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
   const selectCheckInType = (type: CheckInType) => {
     setCheckInType(type);
-    setPhase('stage_select');
+    if (type === 'quit_riding') {
+      // Quit Riding can happen between stages; no stage selection required.
+      setSelectedStage(null);
+      setPhase('scanning');
+    } else {
+      setPhase('stage_select');
+    }
   };
 
   const selectStageAndScan = (stage: Stage) => {
@@ -178,7 +197,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   const handleBarcodeScan = useCallback(
     (result: BarcodeScanningResult) => {
       if (processingRef.current) return;
-      const riderId = result.data?.trim();
+      const riderId = extractRiderIdFromQr(result.data);
       if (!riderId) return;
 
       processingRef.current = true;
@@ -219,7 +238,8 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   // -----------------------------------------------------------------------
 
   const submitCheckIn = async () => {
-    if (!tour || !selectedStage || !scannedRiderId) return;
+    if (!tour || !scannedRiderId) return;
+    if (checkInType !== 'quit_riding' && !selectedStage) return;
 
     setIsSubmitting(true);
     setErrorMessage('');
@@ -231,24 +251,33 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
             ? CheckInMethod.MANUAL
             : CheckInMethod.QR_SCAN;
 
-      const request: CheckInRequest = {
-        riderId: scannedRiderId,
-        rideId: ride.rideId,
-        stageNumber: selectedStage.stageNumber,
-        method,
-        isNotRiding: checkInType === 'not_riding',
-        isQuitRiding: checkInType === 'quit_riding',
-      };
+      const request: CheckInRequest = checkInType === 'quit_riding'
+        ? {
+            riderId: scannedRiderId,
+            rideId: ride.rideId,
+            method,
+            isNotRiding: false,
+            isQuitRiding: true,
+          }
+        : {
+            riderId: scannedRiderId,
+            rideId: ride.rideId,
+            stageNumber: selectedStage!.stageNumber,
+            method,
+            isNotRiding: checkInType === 'not_riding',
+            isQuitRiding: false,
+          };
 
       await createCheckIn(tour.tourId, request);
 
+      const stageName = selectedStage?.name ?? '—';
       const typeLabel =
         checkInType === 'not_riding' ? 'Not Riding' :
         checkInType === 'quit_riding' ? 'Quit Riding' :
-        selectedStage.name;
+        stageName;
       setResultMessage(`${scannedRiderId} — ${typeLabel} ✓`);
       setPhase('success');
-      logger.info(TAG, `Check-in recorded: ${scannedRiderId} at ${selectedStage.name} (${checkInType})`);
+      logger.info(TAG, `Check-in recorded: ${scannedRiderId} at ${stageName} (${checkInType})`);
     } catch (err) {
       logger.error(TAG, 'Check-in submission failed', err);
       const message = err instanceof Error ? err.message : 'Check-in failed. Please try again.';
@@ -426,10 +455,12 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
             <Text style={styles.confirmLabel}>Rider ID</Text>
             <Text style={styles.confirmValue}>{scannedRiderId}</Text>
           </View>
-          <View style={styles.confirmRow}>
-            <Text style={styles.confirmLabel}>Stage</Text>
-            <Text style={styles.confirmValue}>{selectedStage?.name ?? '—'}</Text>
-          </View>
+          {checkInType !== 'quit_riding' && (
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Stage</Text>
+              <Text style={styles.confirmValue}>{selectedStage?.name ?? '—'}</Text>
+            </View>
+          )}
           <View style={styles.confirmRow}>
             <Text style={styles.confirmLabel}>Type</Text>
             <Text style={styles.confirmValue}>{typeLabel}</Text>
@@ -487,7 +518,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
   const phaseTitle: Record<Phase, string> = {
     type_select: 'Check-In',
-    stage_select: 'Select Stage',
+    stage_select: checkInType === 'quit_riding' ? 'Quit Riding' : 'Select Stage',
     scanning: 'Scan QR Code',
     manual_entry: 'Manual Entry',
     confirming: 'Confirm',
