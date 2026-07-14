@@ -146,6 +146,44 @@ function isRetryable(status: number): boolean {
   return status >= 500 || status === 429;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function toCamelCaseKey(key: string): string {
+  return key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
+
+function normalizePayloadKeysToCamelCase(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizePayloadKeysToCamelCase(item));
+  }
+
+  if (!isPlainObject(value)) {
+    return value;
+  }
+
+  const normalized: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const camelKey = toCamelCaseKey(key);
+    normalized[camelKey] = normalizePayloadKeysToCamelCase(nestedValue);
+  }
+  return normalized;
+}
+
+function isDevelopmentRuntime(): boolean {
+  const maybeDev = (globalThis as { __DEV__?: unknown }).__DEV__;
+  if (typeof maybeDev === 'boolean') {
+    return maybeDev;
+  }
+  return process.env.NODE_ENV !== 'production';
+}
+
 /**
  * Determine whether an error represents a network connectivity failure.
  *
@@ -215,7 +253,14 @@ async function request<T>(
       };
 
       if (body !== undefined && method !== 'GET') {
-        fetchOptions.body = JSON.stringify(body);
+        const normalizedBody = normalizePayloadKeysToCamelCase(body);
+        if (isDevelopmentRuntime() && attempt === 0) {
+          logger.debug(TAG, `${method} payload (normalized)`, {
+            path,
+            payload: normalizedBody,
+          });
+        }
+        fetchOptions.body = JSON.stringify(normalizedBody);
       }
 
       const response = await fetch(url, fetchOptions);
