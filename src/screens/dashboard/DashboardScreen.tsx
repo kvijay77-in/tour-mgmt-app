@@ -127,24 +127,38 @@ export default function DashboardScreen() {
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
 
   // Load a specific ride's dashboard data
-  const loadRideDashboard = useCallback(async (targetRide: Ride, historical: boolean) => {
-    setIsLoading(true);
-    setError(null);
+  const loadRideDashboard = useCallback(async (
+    targetRide: Ride,
+    historical: boolean,
+    options?: { background?: boolean }
+  ) => {
+    const isBackgroundRefresh = options?.background === true;
+
+    if (!isBackgroundRefresh) {
+      setIsLoading(true);
+      setError(null);
+    }
     setRide(targetRide);
     setIsHistorical(historical);
     try {
       const { data } = await getDashboardData(tour!.tourId, targetRide.rideId);
       if (!data) {
-        setError('No dashboard data available.');
-        setIsLoading(false);
+        if (!isBackgroundRefresh) {
+          setError('No dashboard data available.');
+          setIsLoading(false);
+        }
         return;
       }
 
       const dashRide = data.ride ?? targetRide;
       if (!Array.isArray(dashRide.stages) || dashRide.stages.length === 0) {
-        setError('Ride has no stages configured. Please contact the tour administrator.');
+        if (!isBackgroundRefresh) {
+          setError('Ride has no stages configured. Please contact the tour administrator.');
+        }
         setRide(dashRide);
-        setIsLoading(false);
+        if (!isBackgroundRefresh) {
+          setIsLoading(false);
+        }
         return;
       }
 
@@ -173,9 +187,13 @@ export default function DashboardScreen() {
       } else {
         message = 'An unexpected error occurred. Please try again.';
       }
-      setError(message);
+      if (!isBackgroundRefresh) {
+        setError(message);
+      }
     } finally {
-      setIsLoading(false);
+      if (!isBackgroundRefresh) {
+        setIsLoading(false);
+      }
     }
   }, [tour]);
 
@@ -999,7 +1017,7 @@ export default function DashboardScreen() {
             onCheckInComplete={() => {
               // Refresh dashboard data after a check-in
               if (tour && ride) {
-                loadRideDashboard(ride, false);
+                loadRideDashboard(ride, false, { background: true });
               }
             }}
             onClose={() => setShowCheckIn(false)}
@@ -1146,13 +1164,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statChip: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 12,
-    gap: 4,
+    gap: 1,
   },
   statChipValue: {
     fontSize: 14,
@@ -1163,6 +1182,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.white,
     opacity: 0.9,
+    textAlign: 'center',
   },
   scrollView: {
     flex: 1,

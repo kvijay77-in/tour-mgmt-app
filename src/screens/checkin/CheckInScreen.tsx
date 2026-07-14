@@ -270,6 +270,10 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
       await createCheckIn(tour.tourId, request);
 
+      // Notify parent immediately so dashboard can refresh without waiting
+      // for the user to tap "Scan Next Rider".
+      onCheckInComplete();
+
       const stageName = selectedStage?.name ?? '—';
       const typeLabel =
         checkInType === 'not_riding' ? 'Not Riding' :
@@ -295,7 +299,6 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
     setScanAttempts(0);
     processingRef.current = false;
     setPhase('scanning');
-    onCheckInComplete();
   };
 
   // Reset to type selection
