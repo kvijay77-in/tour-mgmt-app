@@ -43,6 +43,33 @@ function shouldLog(level: LogLevel): boolean {
   return level >= activeLevel;
 }
 
+function safeStringify(value: unknown): string {
+  if (value === undefined) return 'undefined';
+  if (value === null) return 'null';
+
+  try {
+    const seen = new WeakSet<object>();
+    return JSON.stringify(value, (_key, nestedValue: unknown) => {
+      if (typeof nestedValue === 'object' && nestedValue !== null) {
+        if (seen.has(nestedValue as object)) {
+          return '[Circular]';
+        }
+        seen.add(nestedValue as object);
+      }
+      if (typeof nestedValue === 'bigint') {
+        return nestedValue.toString();
+      }
+      return nestedValue;
+    });
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return '[Unserializable]';
+    }
+  }
+}
+
 /**
  * Format an error for logging — extracts class name, message and relevant properties.
  */
@@ -59,11 +86,7 @@ function formatError(err: unknown): string {
     }
     return parts.join(' | ');
   }
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
+  return safeStringify(err);
 }
 
 function log(level: LogLevel, tag: string, message: string, data?: unknown): void {
@@ -71,7 +94,7 @@ function log(level: LogLevel, tag: string, message: string, data?: unknown): voi
 
   const prefix = `[${LEVEL_NAMES[level]}] [${tag}]`;
   const extra = data !== undefined
-    ? (data instanceof Error ? formatError(data) : (typeof data === 'string' ? data : JSON.stringify(data)))
+    ? (data instanceof Error ? formatError(data) : (typeof data === 'string' ? data : safeStringify(data)))
     : '';
 
   const line = extra ? `${prefix} ${message} — ${extra}` : `${prefix} ${message}`;

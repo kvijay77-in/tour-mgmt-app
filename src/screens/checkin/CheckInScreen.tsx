@@ -28,6 +28,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
 import { createCheckIn } from '../../services/api/checkInApi';
+import { ApiError } from '../../services/api/apiClient';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
 import { CheckInMethod, Permission, Ride, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
@@ -136,6 +137,20 @@ const stageStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 
 type Phase = 'type_select' | 'stage_select' | 'scanning' | 'manual_entry' | 'confirming' | 'success' | 'error';
+type ErrorPresentation = 'error' | 'info';
+
+function isDuplicateCheckInError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.statusCode !== 409) return false;
+
+  const code = (error.errorCode || '').toUpperCase();
+  if (code === 'DUPLICATE_CHECKIN' || code.includes('DUPLICATE')) {
+    return true;
+  }
+
+  const message = (error.message || '').toLowerCase();
+  return message.includes('duplicate') || message.includes('already checked');
+}
 
 export default function CheckInScreen({ ride, onCheckInComplete, onClose }: CheckInScreenProps) {
   const { user } = useAuth();
@@ -151,6 +166,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorPresentation, setErrorPresentation] = useState<ErrorPresentation>('error');
   const processingRef = useRef(false);
 
   // Determine available check-in types based on role
@@ -243,6 +259,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
     setIsSubmitting(true);
     setErrorMessage('');
+    setErrorPresentation('error');
     try {
       const method: CheckInMethod =
         phase === 'confirming' && scanAttempts >= MAX_SCAN_RETRIES
@@ -283,9 +300,15 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
       setPhase('success');
       logger.info(TAG, `Check-in recorded: ${scannedRiderId} at ${stageName} (${checkInType})`);
     } catch (err) {
-      logger.error(TAG, 'Check-in submission failed', err);
+      const isDuplicate = isDuplicateCheckInError(err);
+      if (isDuplicate) {
+        logger.info(TAG, 'Duplicate check-in attempt (informational)', err);
+      } else {
+        logger.error(TAG, 'Check-in submission failed', err);
+      }
       const message = err instanceof Error ? err.message : 'Check-in failed. Please try again.';
       setErrorMessage(message);
+      setErrorPresentation(isDuplicate ? 'info' : 'error');
       setPhase('error');
     } finally {
       setIsSubmitting(false);
@@ -310,6 +333,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
     setManualRiderId('');
     setScanAttempts(0);
     setErrorMessage('');
+    setErrorPresentation('error');
     processingRef.current = false;
   };
 
@@ -504,11 +528,17 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
   const renderError = () => (
     <View style={styles.resultContainer}>
-      <MaterialIcons name="error" size={64} color={COLORS.danger} />
-      <Text style={styles.errorResultText}>{errorMessage}</Text>
-      <TouchableOpacity style={styles.primaryButton} onPress={submitCheckIn}>
-        <Text style={styles.primaryButtonText}>Retry</Text>
-      </TouchableOpacity>
+      <MaterialIcons
+        name={errorPresentation === 'info' ? 'info-outline' : 'error'}
+        size={64}
+        color={errorPresentation === 'info' ? COLORS.primary : COLORS.danger}
+      />
+      <Text style={errorPresentation === 'info' ? styles.infoResultText : styles.errorResultText}>{errorMessage}</Text>
+      {errorPresentation !== 'info' && (
+        <TouchableOpacity style={styles.primaryButton} onPress={submitCheckIn}>
+          <Text style={styles.primaryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      )}
       <TouchableOpacity style={styles.secondaryButton} onPress={resetToStart}>
         <Text style={styles.secondaryButtonText}>Start Over</Text>
       </TouchableOpacity>
@@ -526,7 +556,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
     manual_entry: 'Manual Entry',
     confirming: 'Confirm',
     success: 'Check-In Recorded',
-    error: 'Check-In Failed',
+    error: errorPresentation === 'info' ? 'Check-In Info' : 'Check-In Failed',
   };
 
   return (
@@ -785,6 +815,12 @@ const styles = StyleSheet.create({
   errorResultText: {
     fontSize: 15,
     color: COLORS.danger,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  infoResultText: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
     textAlign: 'center',
     paddingHorizontal: 16,
   },
