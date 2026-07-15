@@ -35,6 +35,15 @@ export function setApiBaseUrl(url: string): void {
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY_MS = 2_000;
+const DEBUG_GET_REQUESTS = process.env.EXPO_PUBLIC_API_DEBUG_GET === 'true';
+
+function shouldDebugMethod(method: RequestMethod): boolean {
+  return method !== 'GET' || DEBUG_GET_REQUESTS;
+}
+
+function hasRequestBody(method: RequestMethod): boolean {
+  return method === 'POST' || method === 'PUT';
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +61,8 @@ interface RequestOptions {
   /** Override default max retries */
   maxRetries?: number;
 }
+
+type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 /** Errors thrown by the API client */
 export class ApiError extends Error {
@@ -215,7 +226,7 @@ async function delay(ms: number): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function request<T>(
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: RequestMethod,
   path: string,
   body?: unknown,
   options: RequestOptions = {},
@@ -230,8 +241,21 @@ async function request<T>(
 
   const url = buildUrl(path, params);
   const headers = await buildHeaders(extraHeaders);
+  const debugMethod = shouldDebugMethod(method);
 
-  logger.debug(TAG, `${method} ${url}`);
+  if (debugMethod) {
+    logger.debug(TAG, `Request init ${method}`, {
+      path,
+      params,
+      hasAuthHeader: Boolean(headers.Authorization),
+      timeoutMs,
+      maxRetries,
+    });
+  }
+
+  if (debugMethod) {
+    logger.debug(TAG, `${method} ${url}`);
+  }
 
   let lastError: unknown;
 
@@ -252,9 +276,9 @@ async function request<T>(
         signal: mergedSignal,
       };
 
-      if (body !== undefined && method !== 'GET') {
+      if (body !== undefined && hasRequestBody(method)) {
         const normalizedBody = normalizePayloadKeysToCamelCase(body);
-        if (isDevelopmentRuntime() && attempt === 0) {
+        if (debugMethod && isDevelopmentRuntime() && attempt === 0) {
           logger.debug(TAG, `${method} payload (normalized)`, {
             path,
             payload: normalizedBody,
@@ -263,10 +287,23 @@ async function request<T>(
         fetchOptions.body = JSON.stringify(normalizedBody);
       }
 
+      if (debugMethod) {
+        logger.debug(TAG, `Request attempt ${attempt + 1}/${maxRetries + 1}`, {
+          method,
+          path,
+        });
+      }
+
       const response = await fetch(url, fetchOptions);
       clearTimeout(timeoutId);
 
-      logger.debug(TAG, `Response ${response.status} (attempt ${attempt})`);
+      if (debugMethod) {
+        logger.debug(TAG, `Response ${response.status} (attempt ${attempt + 1})`, {
+          method,
+          path,
+          ok: response.ok,
+        });
+      }
 
       // Handle 401 — attempt token refresh once
       if (response.status === 401 && attempt === 0) {
@@ -314,7 +351,14 @@ async function request<T>(
     } catch (error) {
       clearTimeout(timeoutId);
 
-      logger.warn(TAG, `Request error (attempt ${attempt})`, error);
+      if (debugMethod) {
+        logger.debug(TAG, `Request error (attempt ${attempt + 1})`, {
+          method,
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      logger.warn(TAG, `Request error (attempt ${attempt + 1})`, error);
 
       // If externally aborted, don't retry
       if (signal?.aborted) {
@@ -339,6 +383,13 @@ async function request<T>(
     // Exponential backoff before retry
     if (attempt < maxRetries) {
       const backoffMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+      if (debugMethod) {
+        logger.debug(TAG, `Retry backoff ${backoffMs}ms`, {
+          method,
+          path,
+          nextAttempt: attempt + 2,
+        });
+      }
       await delay(backoffMs);
     }
   }

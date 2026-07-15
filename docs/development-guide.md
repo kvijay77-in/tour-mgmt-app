@@ -281,6 +281,7 @@ All timestamps should be in UTC with the `Z` suffix.
 | `EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID` | Cognito App Client ID | tour-data-api deployment output |
 | `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` | Cognito Identity Pool ID | tour-data-api deployment output (if applicable) |
 | `EXPO_PUBLIC_USE_MOCK_DATA` | Set to `true` to use synthetic test data without a backend | Optional — for development/demo |
+| `EXPO_PUBLIC_API_DEBUG_GET` | Set to `true` to enable DEBUG logs for GET API calls (default disabled) | Optional — troubleshooting only |
 
 ### Amplify Configuration
 

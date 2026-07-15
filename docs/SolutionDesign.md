@@ -445,6 +445,12 @@ The active log level is set via the `EXPO_PUBLIC_LOG_LEVEL` environment variable
 
 Messages below the active level are suppressed at no runtime cost.
 
+For API interaction logs, GET request/response DEBUG logging is additionally
+gated by `EXPO_PUBLIC_API_DEBUG_GET` (default `false`) so verbose read-path
+tracing can be enabled only during focused troubleshooting. Write operations
+(`POST`, `PUT`, `DELETE`) continue to emit DEBUG diagnostics when the active
+log level includes DEBUG.
+
 ### Output Format
 
 ```

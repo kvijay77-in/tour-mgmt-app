@@ -12,7 +12,8 @@
       },
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "true",
-        "EXPO_PUBLIC_LOG_LEVEL": "DEBUG"
+        "EXPO_PUBLIC_LOG_LEVEL": "DEBUG",
+        "EXPO_PUBLIC_API_DEBUG_GET": "false"
       }
     },
     "localpreview": {
@@ -25,6 +26,7 @@
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
         "EXPO_PUBLIC_LOG_LEVEL": "WARN",
+        "EXPO_PUBLIC_API_DEBUG_GET": "false",
         "EXPO_PUBLIC_AWS_REGION": "ap-south-1",
         "EXPO_PUBLIC_AWS_USER_POOL_ID": "ap-south-1_MMxOi2Qmt",
         "EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID": "31s80dcc5u1oob7shuc2s4up0a",
@@ -40,7 +42,8 @@
       },
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
-        "EXPO_PUBLIC_LOG_LEVEL": "WARN"
+        "EXPO_PUBLIC_LOG_LEVEL": "WARN",
+        "EXPO_PUBLIC_API_DEBUG_GET": "false"
       }
     },
     "production": {
@@ -52,7 +55,8 @@
       },
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
-        "EXPO_PUBLIC_LOG_LEVEL": "WARN"
+        "EXPO_PUBLIC_LOG_LEVEL": "WARN",
+        "EXPO_PUBLIC_API_DEBUG_GET": "false"
       }
     }
   },
