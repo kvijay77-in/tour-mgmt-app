@@ -7,6 +7,14 @@ import { apiClient, ApiError } from './apiClient';
 import { CheckInRequest, GetCheckInsQuery } from '../../types/api';
 import { CheckIn } from '../../types/models';
 
+export type InteractiveCheckInOutcome =
+  | { kind: 'success'; checkIn: CheckIn }
+  | {
+      kind: 'info_conflict';
+      reason: 'duplicate' | 'quit_riding';
+      message: string;
+    };
+
 function checkInsPath(tourId: string): string {
   return `/v1/tours/${tourId}/checkins`;
 }
@@ -27,6 +35,59 @@ export async function createCheckIn(
     throw new Error('Unexpected empty response from createCheckIn');
   }
   return response.data;
+}
+
+function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcome | null {
+  if (!(error instanceof ApiError) || error.statusCode !== 409) {
+    return null;
+  }
+
+  const code = (error.errorCode || '').toUpperCase();
+  const message = (error.message || '').toLowerCase();
+
+  if (code === 'DUPLICATE_CHECKIN' || code.includes('DUPLICATE') || message.includes('duplicate') || message.includes('already checked')) {
+    return {
+      kind: 'info_conflict',
+      reason: 'duplicate',
+      message: error.message,
+    };
+  }
+
+  if (code.includes('QUIT') || message.includes('quit riding') || message.includes('already quit')) {
+    return {
+      kind: 'info_conflict',
+      reason: 'quit_riding',
+      message: error.message,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Create a check-in for the interactive screen flow.
+ *
+ * Expected rider-state conflicts such as duplicate scans or a rider who has
+ * already quit riding are returned as informational outcomes so the UI can
+ * present them without treating them as errors.
+ */
+export async function createInteractiveCheckIn(
+  tourId: string,
+  checkIn: CheckInRequest,
+): Promise<InteractiveCheckInOutcome> {
+  try {
+    const createdCheckIn = await createCheckIn(tourId, checkIn);
+    return {
+      kind: 'success',
+      checkIn: createdCheckIn,
+    };
+  } catch (error) {
+    const outcome = getInteractiveConflictOutcome(error);
+    if (outcome) {
+      return outcome;
+    }
+    throw error;
+  }
 }
 
 /**

@@ -27,8 +27,7 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
-import { createCheckIn } from '../../services/api/checkInApi';
-import { ApiError } from '../../services/api/apiClient';
+import { createInteractiveCheckIn } from '../../services/api/checkInApi';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
 import { CheckInMethod, Permission, Ride, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
@@ -137,20 +136,7 @@ const stageStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 
 type Phase = 'type_select' | 'stage_select' | 'scanning' | 'manual_entry' | 'confirming' | 'success' | 'error';
-type ErrorPresentation = 'error' | 'info';
-
-function isDuplicateCheckInError(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false;
-  if (error.statusCode !== 409) return false;
-
-  const code = (error.errorCode || '').toUpperCase();
-  if (code === 'DUPLICATE_CHECKIN' || code.includes('DUPLICATE')) {
-    return true;
-  }
-
-  const message = (error.message || '').toLowerCase();
-  return message.includes('duplicate') || message.includes('already checked');
-}
+type ErrorPresentation = 'error' | 'info' | 'warning';
 
 export default function CheckInScreen({ ride, onCheckInComplete, onClose }: CheckInScreenProps) {
   const { user } = useAuth();
@@ -285,7 +271,19 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
             isQuitRiding: false,
           };
 
-      await createCheckIn(tour.tourId, request);
+      const outcome = await createInteractiveCheckIn(tour.tourId, request);
+
+      if (outcome.kind === 'info_conflict') {
+        logger.info(TAG, `Check-in informational outcome: ${outcome.reason}`, {
+          riderId: scannedRiderId,
+          checkInType,
+          stageNumber: selectedStage?.stageNumber ?? null,
+        });
+        setErrorMessage(outcome.message);
+        setErrorPresentation(outcome.reason === 'quit_riding' ? 'warning' : 'info');
+        setPhase('error');
+        return;
+      }
 
       // Notify parent immediately so dashboard can refresh without waiting
       // for the user to tap "Scan Next Rider".
@@ -300,15 +298,10 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
       setPhase('success');
       logger.info(TAG, `Check-in recorded: ${scannedRiderId} at ${stageName} (${checkInType})`);
     } catch (err) {
-      const isDuplicate = isDuplicateCheckInError(err);
-      if (isDuplicate) {
-        logger.info(TAG, 'Duplicate check-in attempt (informational)', err);
-      } else {
-        logger.error(TAG, 'Check-in submission failed', err);
-      }
+      logger.error(TAG, 'Check-in submission failed', err);
       const message = err instanceof Error ? err.message : 'Check-in failed. Please try again.';
       setErrorMessage(message);
-      setErrorPresentation(isDuplicate ? 'info' : 'error');
+      setErrorPresentation('error');
       setPhase('error');
     } finally {
       setIsSubmitting(false);
@@ -529,12 +522,24 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   const renderError = () => (
     <View style={styles.resultContainer}>
       <MaterialIcons
-        name={errorPresentation === 'info' ? 'info-outline' : 'error'}
+        name={
+          errorPresentation === 'warning'
+            ? 'warning-amber'
+            : errorPresentation === 'info'
+              ? 'info-outline'
+              : 'error'
+        }
         size={64}
-        color={errorPresentation === 'info' ? COLORS.primary : COLORS.danger}
+        color={
+          errorPresentation === 'warning'
+            ? COLORS.warning
+            : errorPresentation === 'info'
+              ? COLORS.primary
+              : COLORS.danger
+        }
       />
-      <Text style={errorPresentation === 'info' ? styles.infoResultText : styles.errorResultText}>{errorMessage}</Text>
-      {errorPresentation !== 'info' && (
+      <Text style={errorPresentation === 'error' ? styles.errorResultText : styles.infoResultText}>{errorMessage}</Text>
+      {errorPresentation === 'error' && (
         <TouchableOpacity style={styles.primaryButton} onPress={submitCheckIn}>
           <Text style={styles.primaryButtonText}>Retry</Text>
         </TouchableOpacity>
@@ -556,7 +561,12 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
     manual_entry: 'Manual Entry',
     confirming: 'Confirm',
     success: 'Check-In Recorded',
-    error: errorPresentation === 'info' ? 'Check-In Info' : 'Check-In Failed',
+    error:
+      errorPresentation === 'warning'
+        ? 'Check-In Warning'
+        : errorPresentation === 'info'
+          ? 'Check-In Info'
+          : 'Check-In Failed',
   };
 
   return (
