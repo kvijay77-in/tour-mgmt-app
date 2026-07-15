@@ -2,7 +2,7 @@
  * Dashboard Screen - Main screen showing rider status
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -122,6 +123,7 @@ export default function DashboardScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
+  const [isSkippedHighlightEnabled, setIsSkippedHighlightEnabled] = useState(true);
 
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
@@ -356,6 +358,37 @@ export default function DashboardScreen() {
     setStageViewId(stageViewId === stageId ? undefined : stageId);
   };
 
+  const selectedStage = useMemo(() => {
+    if (!stageViewId || !ride) return undefined;
+    return ride.stages.find((s) => s.stageId === stageViewId);
+  }, [stageViewId, ride]);
+
+  const hasRegularCheckInAtStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
+    return riderStatus.checkInHistory.some(
+      (ci) => ci.stageNumber === stageNumber && !ci.isNotRiding && !ci.isQuitRiding
+    );
+  }, []);
+
+  const hasRegularCheckInAfterStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
+    return riderStatus.checkInHistory.some(
+      (ci) => ci.stageNumber > stageNumber && !ci.isNotRiding && !ci.isQuitRiding
+    );
+  }, []);
+
+  const shouldShowSkippedIndicator = useCallback((riderStatus: RiderStatus): boolean => {
+    if (!isSkippedHighlightEnabled || !selectedStage) {
+      return false;
+    }
+
+    if (riderStatus.overallStatus === CheckInStatus.NOT_RIDING) {
+      return false;
+    }
+
+    // Show caution only when there is a later regular check-in but the selected stage itself is missing.
+    return hasRegularCheckInAfterStage(riderStatus, selectedStage.stageNumber)
+      && !hasRegularCheckInAtStage(riderStatus, selectedStage.stageNumber);
+  }, [hasRegularCheckInAfterStage, hasRegularCheckInAtStage, isSkippedHighlightEnabled, selectedStage]);
+
   // Toggle sort
   const toggleSort = () => {
     setIsSorted(!isSorted);
@@ -429,20 +462,16 @@ export default function DashboardScreen() {
 
     // Sorted mode
     return [...riders].sort((a, b) => {
-      if (stageViewId && ride) {
+      if (selectedStage) {
         // Stage View sorting
-        const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
-        if (!selectedStage) return 0;
-
         const getStageViewGroupOrder = (rs: RiderStatus): number => {
           if (rs.overallStatus === CheckInStatus.NOT_RIDING) {
             return 3; // NR always last
           }
 
-          const hasReachedSelectedStage = !!rs.lastStage && rs.lastStage.stageNumber >= selectedStage.stageNumber;
-          if (hasReachedSelectedStage) {
-            // In stage view, stage check-in takes precedence over QR.
-            // Riders who quit later still belong to checked-in group for this stage.
+          const hasCheckedInAtSelectedStage = hasRegularCheckInAtStage(rs, selectedStage.stageNumber);
+          if (hasCheckedInAtSelectedStage) {
+            // Stage view marks checked-in only with an explicit check-in at this stage.
             return 1;
           }
 
@@ -531,17 +560,15 @@ export default function DashboardScreen() {
     }
 
     // Stage view active
-    if (stageViewId && ride) {
-      const selectedStage = ride.stages.find(s => s.stageId === stageViewId);
+    if (selectedStage && ride) {
       
       // If rider hasn't checked in anywhere yet, show white
       if (!riderStatus.lastStage) {
         return STAGE_VIEW_COLORS.notCheckedInAtStage;
       }
       
-      // Check if rider has reached or passed the selected stage
-      if (selectedStage && riderStatus.lastStage.stageNumber >= selectedStage.stageNumber) {
-        // Rider has reached this stage - show the selected stage's color
+      // Stage view should show checked-in only if this exact stage has a check-in record.
+      if (hasRegularCheckInAtStage(riderStatus, selectedStage.stageNumber)) {
         return getStageColor(selectedStage.stageNumber, ride?.stages.length ?? 0);
       }
       
@@ -711,12 +738,18 @@ export default function DashboardScreen() {
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.gridContainer}>
         {filteredRiders.map((riderStatus) => {
           const isWhiteBg = getRiderColor(riderStatus) === COLORS.white;
+          const showSkippedIndicator = shouldShowSkippedIndicator(riderStatus);
           return (
             <TouchableOpacity
               key={riderStatus.rider.riderId}
               style={getRiderIconStyle(riderStatus)}
               onPress={() => handleRiderTap(riderStatus)}
             >
+              {showSkippedIndicator && (
+                <View style={styles.skippedIndicatorBadge}>
+                  <MaterialIcons name="warning-amber" size={12} color={COLORS.warning} />
+                </View>
+              )}
               <View style={styles.riderIconContent}>
                 {/* Level 1: Rider ID only */}
                 {zoomLevel === 1 && (
@@ -827,10 +860,30 @@ export default function DashboardScreen() {
           onPress={() => setShowHeaderMenu(false)}
         >
           <View style={styles.menuPanel}>
+            <TouchableOpacity
+              style={styles.menuCloseButton}
+              onPress={() => setShowHeaderMenu(false)}
+            >
+              <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={handleOpenChangePassword}>
               <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
               <Text style={styles.menuItemText}>Change password</Text>
             </TouchableOpacity>
+            {selectedStage && (
+              <View style={styles.menuSwitchItem}>
+                <View style={styles.menuSwitchLabelWrap}>
+                  <MaterialIcons name="warning-amber" size={18} color={COLORS.warning} />
+                  <Text style={styles.menuItemText}>Show skipped Check-In</Text>
+                </View>
+                <Switch
+                  value={isSkippedHighlightEnabled}
+                  onValueChange={setIsSkippedHighlightEnabled}
+                  thumbColor={COLORS.white}
+                  trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
+                />
+              </View>
+            )}
             <TouchableOpacity
               style={styles.menuItem}
               onPress={async () => {
@@ -1199,11 +1252,21 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
     elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+  },
+  skippedIndicatorBadge: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    zIndex: 2,
+    backgroundColor: COLORS.white,
+    borderRadius: 8,
+    padding: 1,
   },
   riderIconContent: {
     flex: 1,
@@ -1292,7 +1355,8 @@ const styles = StyleSheet.create({
     right: 12,
     backgroundColor: COLORS.white,
     borderRadius: 10,
-    minWidth: 190,
+    minWidth: 260,
+    maxWidth: width * 0.86,
     paddingVertical: 8,
     elevation: 8,
     shadowColor: '#000',
@@ -1300,12 +1364,33 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 8,
   },
+  menuCloseButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    padding: 4,
+    zIndex: 2,
+  },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 11,
+  },
+  menuSwitchItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  menuSwitchLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
   },
   menuItemText: {
     fontSize: 14,
