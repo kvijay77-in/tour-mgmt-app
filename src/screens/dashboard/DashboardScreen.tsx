@@ -746,8 +746,8 @@ export default function DashboardScreen() {
               onPress={() => handleRiderTap(riderStatus)}
             >
               {showSkippedIndicator && (
-                <View style={styles.skippedIndicatorBadge}>
-                  <MaterialIcons name="warning-amber" size={12} color={COLORS.warning} />
+                <View style={styles.skippedBadge} pointerEvents="none">
+                  <MaterialIcons name="warning" size={12} color={COLORS.warning} />
                 </View>
               )}
               <View style={styles.riderIconContent}>
@@ -1258,15 +1258,33 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+    overflow: 'visible',
   },
-  skippedIndicatorBadge: {
+  skippedBadge: {
     position: 'absolute',
-    top: 1,
-    right: 1,
-    zIndex: 2,
-    backgroundColor: COLORS.white,
-    borderRadius: 8,
-    padding: 1,
+    top: -5,
+    right: -5,
+    zIndex: 3,
+    elevation: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    backgroundColor: '#FFF8E1',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+  },
+  skippedBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    color: '#92400E',
   },
   riderIconContent: {
     flex: 1,
