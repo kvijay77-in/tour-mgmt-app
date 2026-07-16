@@ -29,7 +29,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
 import { createInteractiveCheckIn } from '../../services/api/checkInApi';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
-import { CheckInMethod, Permission, Ride, Stage, StageType } from '../../types/models';
+import { CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
 import { hasPermission } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
@@ -71,16 +71,30 @@ function StageSelector({
   selectedStage,
   onSelect,
   checkInType,
+  rideStatus,
 }: {
   stages: Stage[];
   selectedStage: Stage | null;
   onSelect: (stage: Stage) => void;
   checkInType: CheckInType;
+  rideStatus: RideStatus;
 }) {
   // For Not Riding, always use the Start stage
   const filteredStages = checkInType === 'not_riding'
     ? stages.filter((s) => s.type === StageType.START)
     : stages;
+
+  const isStageEnabled = (stage: Stage): boolean => {
+    if (checkInType === 'not_riding') {
+      return rideStatus === RideStatus.OPEN;
+    }
+
+    if (stage.type === StageType.START) {
+      return rideStatus === RideStatus.OPEN;
+    }
+
+    return rideStatus === RideStatus.STARTED;
+  };
 
   return (
     <View style={stageStyles.container}>
@@ -91,6 +105,7 @@ function StageSelector({
         {filteredStages.map((stage) => {
           const isSelected = selectedStage?.stageId === stage.stageId;
           const color = getStageColor(stage.stageNumber, stages.length);
+          const isEnabled = isStageEnabled(stage);
           return (
             <TouchableOpacity
               key={stage.stageId}
@@ -98,9 +113,10 @@ function StageSelector({
                 stageStyles.chip,
                 { borderColor: color },
                 isSelected && { backgroundColor: color },
+                !isEnabled && stageStyles.chipDisabled,
               ]}
               onPress={() => onSelect(stage)}
-              disabled={checkInType === 'not_riding'}
+              disabled={!isEnabled}
             >
               <Text
                 style={[
@@ -127,6 +143,9 @@ const stageStyles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 2,
+  },
+  chipDisabled: {
+    opacity: 0.45,
   },
   chipText: { fontSize: 13, fontWeight: '600' },
 });
@@ -173,7 +192,59 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   // Check-in type selection
   // -----------------------------------------------------------------------
 
+  const getValidationMessage = useCallback((type: CheckInType, stage: Stage | null): string | null => {
+    if (type === 'not_riding') {
+      if (ride.status !== RideStatus.OPEN) {
+        return `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
+      }
+      return null;
+    }
+
+    if (type === 'quit_riding') {
+      if (ride.status !== RideStatus.STARTED) {
+        return `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${ride.status}.`;
+      }
+      return null;
+    }
+
+    if (!stage) {
+      return 'Please select a stage before continuing.';
+    }
+
+    if (stage.type === StageType.START && ride.status !== RideStatus.OPEN) {
+      return `Start stage check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
+    }
+
+    if (stage.type !== StageType.START && ride.status !== RideStatus.STARTED) {
+      return `This check-in type is allowed only when today's ride status is STARTED. Current status: ${ride.status}.`;
+    }
+
+    return null;
+  }, [ride.status]);
+
+  const blockWithValidationMessage = useCallback((message: string) => {
+    setErrorMessage(message);
+    setErrorPresentation('warning');
+    setPhase('error');
+  }, []);
+
   const selectCheckInType = (type: CheckInType) => {
+    if (type === 'not_riding') {
+      const validationError = getValidationMessage(type, ride.stages.find((s) => s.type === StageType.START) ?? null);
+      if (validationError) {
+        blockWithValidationMessage(validationError);
+        return;
+      }
+    }
+
+    if (type === 'quit_riding') {
+      const validationError = getValidationMessage(type, null);
+      if (validationError) {
+        blockWithValidationMessage(validationError);
+        return;
+      }
+    }
+
     setCheckInType(type);
     if (type === 'quit_riding') {
       // Quit Riding can happen between stages; no stage selection required.
@@ -185,6 +256,12 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   };
 
   const selectStageAndScan = (stage: Stage) => {
+    const validationError = getValidationMessage(checkInType, stage);
+    if (validationError) {
+      blockWithValidationMessage(validationError);
+      return;
+    }
+
     setSelectedStage(stage);
     setPhase('scanning');
     setScanAttempts(0);
@@ -241,7 +318,22 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
   const submitCheckIn = async () => {
     if (!tour || !scannedRiderId) return;
-    if (checkInType !== 'quit_riding' && !selectedStage) return;
+
+    const effectiveStage =
+      checkInType === 'not_riding'
+        ? (selectedStage ?? ride.stages.find((s) => s.type === StageType.START) ?? null)
+        : selectedStage;
+
+    if (checkInType !== 'quit_riding' && !effectiveStage) {
+      blockWithValidationMessage('Start stage is required for this check-in type.');
+      return;
+    }
+
+    const validationError = getValidationMessage(checkInType, effectiveStage);
+    if (validationError) {
+      blockWithValidationMessage(validationError);
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMessage('');
@@ -265,7 +357,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
         : {
             riderId: scannedRiderId,
             rideId: ride.rideId,
-            stageNumber: selectedStage!.stageNumber,
+            stageNumber: effectiveStage!.stageNumber,
             method,
             isNotRiding: checkInType === 'not_riding',
             isQuitRiding: false,
@@ -277,7 +369,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
         logger.info(TAG, `Check-in informational outcome: ${outcome.reason}`, {
           riderId: scannedRiderId,
           checkInType,
-          stageNumber: selectedStage?.stageNumber ?? null,
+          stageNumber: effectiveStage?.stageNumber ?? null,
         });
         setErrorMessage(outcome.message);
         setErrorPresentation(outcome.reason === 'quit_riding' ? 'warning' : 'info');
@@ -289,7 +381,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
       // for the user to tap "Scan Next Rider".
       onCheckInComplete();
 
-      const stageName = selectedStage?.name ?? '—';
+      const stageName = effectiveStage?.name ?? '—';
       const typeLabel =
         checkInType === 'not_riding' ? 'Not Riding' :
         checkInType === 'quit_riding' ? 'Quit Riding' :
@@ -348,21 +440,37 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
         </TouchableOpacity>
       )}
       {canCheckInNR && (
-        <TouchableOpacity style={styles.typeButton} onPress={() => selectCheckInType('not_riding')}>
+        <TouchableOpacity
+          style={[styles.typeButton, ride.status !== RideStatus.OPEN && styles.typeButtonDisabled]}
+          onPress={() => selectCheckInType('not_riding')}
+          disabled={ride.status !== RideStatus.OPEN}
+        >
           <MaterialIcons name="do-not-disturb" size={24} color={COLORS.gray[500]} />
           <View style={styles.typeButtonText}>
             <Text style={styles.typeButtonTitle}>Not Riding</Text>
-            <Text style={styles.typeButtonSubtitle}>Mark rider as not participating today</Text>
+            <Text style={styles.typeButtonSubtitle}>
+              {ride.status === RideStatus.OPEN
+                ? 'Mark rider as not participating today'
+                : `Available only when ride is OPEN (current: ${ride.status})`}
+            </Text>
           </View>
           <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
         </TouchableOpacity>
       )}
       {canCheckInQR && (
-        <TouchableOpacity style={styles.typeButton} onPress={() => selectCheckInType('quit_riding')}>
+        <TouchableOpacity
+          style={[styles.typeButton, ride.status !== RideStatus.STARTED && styles.typeButtonDisabled]}
+          onPress={() => selectCheckInType('quit_riding')}
+          disabled={ride.status !== RideStatus.STARTED}
+        >
           <MaterialIcons name="cancel" size={24} color="#B91C1C" />
           <View style={styles.typeButtonText}>
             <Text style={styles.typeButtonTitle}>Quit Riding</Text>
-            <Text style={styles.typeButtonSubtitle}>Rider leaving mid-ride</Text>
+            <Text style={styles.typeButtonSubtitle}>
+              {ride.status === RideStatus.STARTED
+                ? 'Rider leaving mid-ride'
+                : `Available only when ride is STARTED (current: ${ride.status})`}
+            </Text>
           </View>
           <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
         </TouchableOpacity>
@@ -372,14 +480,41 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
   const renderStageSelection = () => (
     <View style={styles.section}>
+      {checkInType === 'regular' && ride.status === RideStatus.PLANNED && (
+        <View style={styles.infoBanner}>
+          <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
+          <Text style={styles.infoBannerText}>
+            All check-ins are unavailable while ride status is PLANNED. Ride should be OPEN for 'Start' stage check-ins.
+          </Text>
+        </View>
+      )}
+      {checkInType === 'regular' && ride.status === RideStatus.OPEN && (
+        <View style={styles.infoBanner}>
+          <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
+          <Text style={styles.infoBannerText}>
+            Ride status is OPEN. Only Start stage check-ins are allowed now.{'\n'}Other stages will be activated once the ride is STARTED.
+          </Text>
+        </View>
+      )}
       <StageSelector
         stages={ride.stages}
         selectedStage={selectedStage}
         onSelect={selectStageAndScan}
         checkInType={checkInType}
+        rideStatus={ride.status}
       />
       {checkInType === 'not_riding' && selectedStage && (
-        <TouchableOpacity style={styles.primaryButton} onPress={() => setPhase('scanning')}>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => {
+            const validationError = getValidationMessage('not_riding', selectedStage);
+            if (validationError) {
+              blockWithValidationMessage(validationError);
+              return;
+            }
+            setPhase('scanning');
+          }}
+        >
           <Text style={styles.primaryButtonText}>Continue to Scan</Text>
         </TouchableOpacity>
       )}
@@ -589,7 +724,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
       {/* Ride context bar */}
       <View style={styles.contextBar}>
-        <Text style={styles.contextText}>{ride.name} — {ride.date}</Text>
+        <Text style={styles.contextText}>{ride.name} — {ride.date} — Status: {ride.status}</Text>
       </View>
 
       {/* Content */}
@@ -671,6 +806,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  typeButtonDisabled: {
+    opacity: 0.5,
   },
   typeButtonText: {
     flex: 1,

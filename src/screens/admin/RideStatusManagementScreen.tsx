@@ -218,7 +218,7 @@ export default function RideStatusManagementScreen({
                     disabled={!canOpenTodayRide || isSubmitting}
                     onPress={handleOpenRide}
                   >
-                    <Text style={styles.actionButtonText}>Set OPEN</Text>
+                    <Text style={styles.actionButtonText}> Open Ride</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -226,7 +226,7 @@ export default function RideStatusManagementScreen({
                     disabled={!canStartTodayRide || isSubmitting}
                     onPress={handleStartRide}
                   >
-                    <Text style={styles.actionButtonText}>Set STARTED</Text>
+                    <Text style={styles.actionButtonText}>Start Ride`</Text>
                   </TouchableOpacity>
                 </View>
 
