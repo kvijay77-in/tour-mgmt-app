@@ -17,11 +17,8 @@ import {
   Platform,
   ScrollView,
   Image,
-  Modal,
-  Alert,
 } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { resetPassword } from 'aws-amplify/auth';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
@@ -34,23 +31,27 @@ interface RememberedCredentials {
 }
 
 interface LoginScreenProps {
+  initialUsername?: string;
   onNewPasswordRequired: (payload: {
     username: string;
     rememberMe: boolean;
   }) => void;
+  onForgotPassword: (payload: { username?: string }) => void;
+  externalErrorMessage?: string | null;
 }
 
-export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps) {
+export default function LoginScreen({
+  initialUsername,
+  onNewPasswordRequired,
+  onForgotPassword,
+  externalErrorMessage = null,
+}: LoginScreenProps) {
   const { login, isAuthenticating, error } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [isForgotPasswordModalVisible, setIsForgotPasswordModalVisible] = useState(false);
-  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
-  const [forgotPasswordError, setForgotPasswordError] = useState<string | null>(null);
-  const [isSubmittingForgotPassword, setIsSubmittingForgotPassword] = useState(false);
 
   useEffect(() => {
     const loadRememberedCredentials = async () => {
@@ -73,6 +74,14 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
 
     void loadRememberedCredentials();
   }, []);
+
+  useEffect(() => {
+    if (!initialUsername) {
+      return;
+    }
+    setUsername(initialUsername);
+    setPassword('');
+  }, [initialUsername]);
 
   const handleLogin = async () => {
     setLocalError(null);
@@ -115,40 +124,7 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
     }
   };
 
-  const handleForgotPasswordSubmit = async () => {
-    setForgotPasswordError(null);
-    const email = forgotPasswordEmail.trim();
-
-    if (!email) {
-      setForgotPasswordError('Please enter your email ID.');
-      return;
-    }
-
-    try {
-      setIsSubmittingForgotPassword(true);
-      const result = await resetPassword({ username: email });
-      const destination = result.nextStep.codeDeliveryDetails?.destination;
-
-      setIsForgotPasswordModalVisible(false);
-      setForgotPasswordEmail('');
-
-      Alert.alert(
-        'Password Reset Email Sent',
-        destination
-          ? `A verification code has been sent to ${destination}.`
-          : 'If the email exists, a password reset verification code has been sent.',
-      );
-    } catch (err) {
-      const message = err instanceof Error
-        ? err.message
-        : 'Unable to start password reset. Please try again.';
-      setForgotPasswordError(message);
-    } finally {
-      setIsSubmittingForgotPassword(false);
-    }
-  };
-
-  const displayError = localError || error;
+  const displayError = localError || externalErrorMessage || error;
 
   return (
     <KeyboardAvoidingView
@@ -184,12 +160,15 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
               <TextInput
                 style={styles.input}
                 value={username}
-                onChangeText={setUsername}
-                placeholder="Enter your username"
+                onChangeText={(text) => setUsername(text.replace(/\s+/g, ''))}
+                placeholder="Enter your email ID"
                 placeholderTextColor={COLORS.textDisabled}
                 autoCapitalize="none"
                 autoCorrect={false}
-                textContentType="username"
+                spellCheck={false}
+                keyboardType="email-address"
+                autoComplete="email"
+                textContentType="emailAddress"
                 editable={!isAuthenticating}
               />
             </View>
@@ -207,6 +186,8 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
                 placeholderTextColor={COLORS.textDisabled}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
                 textContentType="password"
                 editable={!isAuthenticating}
                 onSubmitEditing={handleLogin}
@@ -225,9 +206,7 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
 
             <TouchableOpacity
               onPress={() => {
-                setForgotPasswordError(null);
-                setForgotPasswordEmail('');
-                setIsForgotPasswordModalVisible(true);
+                onForgotPassword({ username: username.trim() || undefined });
               }}
               disabled={isAuthenticating}
               style={styles.forgotPasswordLink}
@@ -262,60 +241,6 @@ export default function LoginScreen({ onNewPasswordRequired }: LoginScreenProps)
           </TouchableOpacity>
         </View>
       </ScrollView>
-
-      <Modal
-        animationType="fade"
-        transparent
-        visible={isForgotPasswordModalVisible}
-        onRequestClose={() => setIsForgotPasswordModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Forgot Password</Text>
-            <Text style={styles.modalSubtitle}>
-              Enter your email ID to receive a password reset verification code.
-            </Text>
-
-            <TextInput
-              style={styles.modalInput}
-              value={forgotPasswordEmail}
-              onChangeText={setForgotPasswordEmail}
-              placeholder="Enter your email"
-              placeholderTextColor={COLORS.textDisabled}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              textContentType="emailAddress"
-              editable={!isSubmittingForgotPassword}
-            />
-
-            {forgotPasswordError && (
-              <Text style={styles.modalErrorText}>{forgotPasswordError}</Text>
-            )}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => setIsForgotPasswordModalVisible(false)}
-                disabled={isSubmittingForgotPassword}
-              >
-                <Text style={styles.modalCancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.modalSubmitButton}
-                onPress={handleForgotPasswordSubmit}
-                disabled={isSubmittingForgotPassword}
-              >
-                {isSubmittingForgotPassword ? (
-                  <ActivityIndicator color={COLORS.white} size="small" />
-                ) : (
-                  <Text style={styles.modalSubmitButtonText}>Send</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -434,70 +359,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textSecondary,
     fontWeight: '500',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  modalCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: COLORS.textPrimary,
-  },
-  modalErrorText: {
-    color: COLORS.danger,
-    fontSize: 13,
-    marginTop: 8,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 16,
-  },
-  modalCancelButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginRight: 8,
-  },
-  modalCancelButtonText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalSubmitButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    minWidth: 86,
-    alignItems: 'center',
-  },
-  modalSubmitButtonText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '600',
   },
 });

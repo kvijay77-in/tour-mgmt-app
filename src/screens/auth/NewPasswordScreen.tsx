@@ -5,7 +5,7 @@
  * See docs/SolutionDesign.md § Authentication.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -27,14 +27,31 @@ const REMEMBERED_CREDENTIALS_KEY = 'auth.rememberedCredentials';
 interface NewPasswordScreenProps {
   username: string;
   rememberMe: boolean;
+  onCancel: () => void;
+  onPasswordChangedNoRole: () => void;
 }
 
-export default function NewPasswordScreen({ username, rememberMe }: NewPasswordScreenProps) {
+export default function NewPasswordScreen({
+  username,
+  rememberMe,
+  onCancel,
+  onPasswordChangedNoRole,
+}: NewPasswordScreenProps) {
   const { completeNewPassword, isAuthenticating, error } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [successToastMessage, setSuccessToastMessage] = useState<string | null>(null);
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = async () => {
     setLocalError(null);
@@ -53,7 +70,7 @@ export default function NewPasswordScreen({ username, rememberMe }: NewPasswordS
     }
 
     try {
-      await completeNewPassword(newPassword);
+      const result = await completeNewPassword(newPassword);
 
       if (rememberMe) {
         await SecureStore.setItemAsync(
@@ -65,6 +82,13 @@ export default function NewPasswordScreen({ username, rememberMe }: NewPasswordS
         );
       } else {
         await SecureStore.deleteItemAsync(REMEMBERED_CREDENTIALS_KEY);
+      }
+
+      if (result === 'NO_ROLE') {
+        setSuccessToastMessage('Password changed successfully. Redirecting to sign in...');
+        redirectTimerRef.current = setTimeout(() => {
+          onPasswordChangedNoRole();
+        }, 1600);
       }
     } catch {
       // Error is already set in AuthContext
@@ -78,6 +102,13 @@ export default function NewPasswordScreen({ username, rememberMe }: NewPasswordS
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
+      {successToastMessage && (
+        <View style={styles.successToast}>
+          <MaterialIcons name="check-circle" size={18} color={COLORS.white} />
+          <Text style={styles.successToastText}>{successToastMessage}</Text>
+        </View>
+      )}
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -110,6 +141,8 @@ export default function NewPasswordScreen({ username, rememberMe }: NewPasswordS
                 placeholderTextColor={COLORS.textDisabled}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
                 textContentType="newPassword"
                 editable={!isAuthenticating}
               />
@@ -138,6 +171,8 @@ export default function NewPasswordScreen({ username, rememberMe }: NewPasswordS
                 placeholderTextColor={COLORS.textDisabled}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
                 textContentType="newPassword"
                 editable={!isAuthenticating}
                 onSubmitEditing={handleSubmit}
@@ -145,17 +180,27 @@ export default function NewPasswordScreen({ username, rememberMe }: NewPasswordS
             </View>
           </View>
 
-          <TouchableOpacity
-            style={[styles.submitButton, isAuthenticating && styles.submitButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={isAuthenticating}
-          >
-            {isAuthenticating ? (
-              <ActivityIndicator color={COLORS.white} />
-            ) : (
-              <Text style={styles.submitButtonText}>Set Password</Text>
-            )}
-          </TouchableOpacity>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={onCancel}
+              disabled={isAuthenticating}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.submitButton, isAuthenticating && styles.submitButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={isAuthenticating}
+            >
+              {isAuthenticating ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.submitButtonText}>Set Password</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -166,6 +211,31 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  successToast: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 56 : 28,
+    left: 16,
+    right: 16,
+    zIndex: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#15803D',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+  },
+  successToastText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
@@ -238,12 +308,29 @@ const styles = StyleSheet.create({
   eyeButton: {
     padding: 12,
   },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  cancelButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginRight: 8,
+  },
+  cancelButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
   submitButton: {
     backgroundColor: COLORS.primary,
     borderRadius: 8,
     paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    marginTop: 8,
+    minWidth: 140,
   },
   submitButtonDisabled: {
     opacity: 0.6,

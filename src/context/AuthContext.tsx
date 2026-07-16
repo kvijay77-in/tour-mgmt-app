@@ -48,7 +48,7 @@ interface AuthContextValue {
    */
   login: (username: string, password: string) => Promise<'DONE' | 'NEW_PASSWORD_REQUIRED'>;
   /** Complete the new-password challenge (first login with temp password) */
-  completeNewPassword: (newPassword: string) => Promise<void>;
+  completeNewPassword: (newPassword: string) => Promise<'SIGNED_IN' | 'NO_ROLE'>;
   /** Sign out and clear session */
   logout: () => Promise<void>;
   /** Change password for an authenticated user */
@@ -65,7 +65,7 @@ const AuthContext = createContext<AuthContextValue>({
   isAuthenticating: false,
   error: null,
   login: async () => 'DONE',
-  completeNewPassword: async () => {},
+  completeNewPassword: async () => 'SIGNED_IN',
   logout: async () => {},
   changePassword: async () => {},
 });
@@ -119,12 +119,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  /** Sign out and show a "no role assigned" error. */
-  const handleNoRole = useCallback(async () => {
+  /** Sign out and optionally show a "no role assigned" error. */
+  const handleNoRole = useCallback(async (showErrorMessage = true) => {
     logger.warn(TAG, 'User has no role assigned — signing out');
     await signOut().catch(() => {});
     setUser(null);
-    setError('No role has been assigned to your account. Please contact your tour administrator.');
+    if (showErrorMessage) {
+      setError('No role has been assigned to your account. Please contact your tour administrator.');
+    }
   }, []);
 
   // Wire the JWT token provider into apiClient so all API calls include auth
@@ -224,7 +226,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [resolveUserRole, handleNoRole]);
 
-  const completeNewPassword = useCallback(async (newPassword: string): Promise<void> => {
+  const completeNewPassword = useCallback(async (newPassword: string): Promise<'SIGNED_IN' | 'NO_ROLE'> => {
     setIsAuthenticating(true);
     setError(null);
     try {
@@ -233,15 +235,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const currentUser = await getCurrentUser();
         const userRole = await resolveUserRole();
         if (!userRole) {
-          await handleNoRole();
-          return;
+          await handleNoRole(false);
+          return 'NO_ROLE';
         }
         setUser({
           username: currentUser.username,
           userId: currentUser.userId,
           userRole,
         });
+        return 'SIGNED_IN';
       }
+      return 'SIGNED_IN';
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to set new password.';
       setError(message);
