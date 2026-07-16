@@ -29,6 +29,7 @@ Detailed functional requirements, use cases, and feature specifications for the 
   - [Guest](#guest)
 - [Offline Capability](#offline-capability)
 - [Administrator Features](#administrator-features)
+  - [Ride Status Management](#ride-status-management)
 - [Backend](#backend)
 - [Others](#others)
 
@@ -199,6 +200,33 @@ Since 'Not Riding' status is records before the ride starts, this data should be
 
 1. Add/Modify Ride
 1. Close Ride - Lock the day's ride as completed and disable any further check ins.  
+
+## Ride Status Management
+
+Ride status management is available from the Dashboard hamburger menu as an Administrator-only feature.
+
+Allowed transitions and constraints:
+
+1. PLANNED to OPEN
+  - Allowed only for today's ride
+  - API: `POST /v1/tours/{tourId}/rides/open`
+  - `rideId` is not sent from frontend; backend resolves today's ride
+
+2. OPEN to STARTED
+  - Allowed only for today's ride
+  - API: `POST /v1/tours/{tourId}/rides/start`
+  - `rideId` is not sent from frontend; backend resolves today's ride
+
+3. STARTED to COMPLETED
+  - Allowed only for rides with date as today or in the past
+  - Ride must be in STARTED status
+  - API: `POST /v1/tours/{tourId}/rides/{rideId}/close`
+  - `rideId` is determined by the frontend and sent in the API path
+
+Access control:
+
+1. Only users with `ADMINISTRATOR` role should see the "Ride status management" menu option.
+2. Only `ADMINISTRATOR` role should be able to use this feature.
 
 Data model and fields to be determined as part of design and development stage.
 

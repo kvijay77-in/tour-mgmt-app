@@ -28,6 +28,7 @@ tour-mgmt-app/
 │   │   ├── dashboard/              # Dashboard related screens
 │   │   ├── checkin/                # Check-in related screens
 │   │   ├── admin/                  # Admin feature screens
+│   │   │   └── RideStatusManagementScreen.tsx  # Administrator-only ride status transitions
 │   │   └── auth/                   # Authentication screens
 │   │
 │   ├── components/                 # Reusable UI components

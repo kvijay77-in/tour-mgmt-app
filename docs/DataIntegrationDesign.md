@@ -156,7 +156,7 @@ The frontend types in `src/types/models.ts` need updates to align with the backe
 | Frontend Type | Changes Needed |
 |--------------|---------------|
 | `Rider` | Add `profileId`, `photoS3Key`; remove `qrCodeData` (moved to TourRider) |
-| `Ride` | Add `rideNo`, `flagOffTime`, `description`; change status `IN_PROGRESS` → `ACTIVE` |
+| `Ride` | Add `rideNo`, `flagOffTime`, `description`; align status values to `PLANNED | OPEN | STARTED | COMPLETED | CLOSED` |
 | `Stage` | Add `location` field |
 | `CheckIn` | Replace `status` enum with `isNotRiding`/`isQuitRiding` boolean flags (status is derived); add `stageNumber`; `checkInId` format is `<riderId>#<stageNumber>#<timestamp>` |
 
@@ -164,11 +164,30 @@ The frontend types in `src/types/models.ts` need updates to align with the backe
 
 1. **Check-in status**: Backend does not store a `status` field. Status is derived from `isNotRiding` and `isQuitRiding` flags. The frontend `CheckInStatus` enum remains for UI purposes but the mapping function handles derivation.
 
-2. **Ride status values**: Backend uses `ACTIVE` where frontend currently uses `IN_PROGRESS`. The frontend types should align with the backend (`PLANNED | ACTIVE | COMPLETED | CLOSED`).
+2. **Ride status values**: Frontend types should align with backend status values (`PLANNED | OPEN | STARTED | COMPLETED | CLOSED`).
 
 3. **Rider ID format**: Backend uses `R1`, `R57` (no zero-padding). Frontend mock data uses `R001`, `R025` (3-digit padded). Frontend should align with backend format.
 
 4. **Tour-scoping**: Backend API paths include `tourId` (e.g., `/v1/tours/{tourId}/rides`). The service layer abstracts this by using the active tour context.
+
+### 3.3 Ride Status Transition API Usage
+
+Frontend ride status transition calls must follow backend contracts:
+
+1. `PLANNED -> OPEN`
+  - Endpoint: `POST /v1/tours/{tourId}/rides/open`
+  - Applies only to today's ride
+  - `rideId` is not sent by frontend
+
+2. `OPEN -> STARTED`
+  - Endpoint: `POST /v1/tours/{tourId}/rides/start`
+  - Applies only to today's ride
+  - `rideId` is not sent by frontend
+
+3. `STARTED -> COMPLETED`
+  - Endpoint: `POST /v1/tours/{tourId}/rides/{rideId}/close`
+  - Applies to rides dated today or in the past
+  - Frontend determines and sends `rideId`
 
 ### 3.2 API Response Mapping
 

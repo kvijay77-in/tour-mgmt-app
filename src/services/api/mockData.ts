@@ -104,7 +104,7 @@ export const MOCK_RIDE: Ride = {
   finishLocation: 'Coastal Resort',
   totalDistance: 75,
   stages: MOCK_STAGES,
-  status: RideStatus.ACTIVE,
+  status: RideStatus.STARTED,
   startedAt: '2026-02-01T08:00:00Z',
 };
 

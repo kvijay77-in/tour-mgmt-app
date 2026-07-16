@@ -27,11 +27,12 @@ import { getActiveRide, listRides } from '../../services/api/rideApi';
 import { getDashboardData } from '../../services/api/dashboardApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission } from '../../types/models';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
 import { hasPermission } from '../../utils/permissions';
 import CheckInScreen from '../checkin/CheckInScreen';
+import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
 
 const { width } = Dimensions.get('window');
 const GRID_COLUMNS = 6;
@@ -119,6 +120,7 @@ export default function DashboardScreen() {
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [showRideStatusManagement, setShowRideStatusManagement] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -127,6 +129,7 @@ export default function DashboardScreen() {
 
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
+  const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
 
   // Load a specific ride's dashboard data
   const loadRideDashboard = useCallback(async (
@@ -870,6 +873,18 @@ export default function DashboardScreen() {
               <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
               <Text style={styles.menuItemText}>Change password</Text>
             </TouchableOpacity>
+            {isAdministrator && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowHeaderMenu(false);
+                  setShowRideStatusManagement(true);
+                }}
+              >
+                <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
+                <Text style={styles.menuItemText}>Ride status management</Text>
+              </TouchableOpacity>
+            )}
             {selectedStage && (
               <View style={styles.menuSwitchItem}>
                 <View style={styles.menuSwitchLabelWrap}>
@@ -1074,6 +1089,22 @@ export default function DashboardScreen() {
               }
             }}
             onClose={() => setShowCheckIn(false)}
+          />
+        </Modal>
+      )}
+
+      {/* Ride Status Management Screen Modal (Admin only) */}
+      {tour && isAdministrator && (
+        <Modal
+          visible={showRideStatusManagement}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowRideStatusManagement(false)}
+        >
+          <RideStatusManagementScreen
+            tourId={tour.tourId}
+            onClose={() => setShowRideStatusManagement(false)}
+            onStatusChanged={fetchDashboard}
           />
         </Modal>
       )}

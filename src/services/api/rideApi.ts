@@ -108,6 +108,36 @@ export async function updateRide(
 }
 
 /**
+ * Open today's ride.
+ * Backend resolves today's ride by UTC date.
+ */
+export async function openTodayRide(tourId: string): Promise<Ride> {
+  const response = await apiClient.post<Ride>(
+    `${ridesPath(tourId)}/open`,
+    {},
+  );
+  if (!response.data) {
+    throw new Error('Unexpected empty response from openTodayRide');
+  }
+  return response.data;
+}
+
+/**
+ * Start today's ride.
+ * Backend resolves today's ride by UTC date.
+ */
+export async function startTodayRide(tourId: string): Promise<Ride> {
+  const response = await apiClient.post<Ride>(
+    `${ridesPath(tourId)}/start`,
+    {},
+  );
+  if (!response.data) {
+    throw new Error('Unexpected empty response from startTodayRide');
+  }
+  return response.data;
+}
+
+/**
  * Close a ride (lock — no further check-ins).
  */
 export async function closeRide(

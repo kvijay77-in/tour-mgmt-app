@@ -68,7 +68,7 @@ export async function getRidesByDate(date: string): Promise<Ride[]> {
 export async function getActiveRide(): Promise<Ride | null> {
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
-    "SELECT * FROM rides WHERE status = 'ACTIVE' ORDER BY date DESC LIMIT 1",
+    "SELECT * FROM rides WHERE status = 'STARTED' ORDER BY date DESC LIMIT 1",
   );
   return row ? mapRowToRide(row) : null;
 }

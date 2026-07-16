@@ -31,11 +31,12 @@ export enum StageType {
 
 /**
  * Ride status values
- * Aligned with backend: PLANNED, ACTIVE, COMPLETED, CLOSED
+ * Aligned with backend: PLANNED, OPEN, STARTED, COMPLETED, CLOSED
  */
 export enum RideStatus {
   PLANNED = 'PLANNED',
-  ACTIVE = 'ACTIVE',
+  OPEN = 'OPEN',
+  STARTED = 'STARTED',
   COMPLETED = 'COMPLETED',
   CLOSED = 'CLOSED',
 }

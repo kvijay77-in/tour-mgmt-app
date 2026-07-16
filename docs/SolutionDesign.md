@@ -275,7 +275,7 @@ All communication with the tour-data-api is through the service layer at `src/se
 | `apiClient.ts` | — | Base HTTP client with auth, retry, error handling |
 | `tourApi.ts` | `GET /v1/tours/active`, `GET /v1/tours` | Tour resolution and listing |
 | `riderApi.ts` | `GET /v1/tours/{tourId}/riders` | Rider data for dashboard |
-| `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, CRUD | Ride management |
+| `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, `POST /v1/tours/{tourId}/rides/open`, `POST /v1/tours/{tourId}/rides/start`, `POST /v1/tours/{tourId}/rides/{rideId}/close`, CRUD | Ride management and status transitions |
 | `checkInApi.ts` | `POST /v1/tours/{tourId}/checkins`, GET | Check-in operations |
 | `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard` | Composite dashboard data |
 
@@ -353,6 +353,12 @@ AppNavigator
 - **Hotel Staff** role skips Dashboard and goes directly to check-in
 - **Guest** role has read-only Dashboard with no check-in access
 - **Deep links** are not currently required
+
+### Dashboard Header Menu
+
+- The Dashboard hamburger menu includes account actions for all authenticated users.
+- The "Ride status management" entry is shown only to `ADMINISTRATOR` users.
+- The entry opens an admin-only full-screen flow for controlled ride status transitions.
 
 ---
 

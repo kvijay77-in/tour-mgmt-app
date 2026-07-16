@@ -85,6 +85,8 @@ Located in the header, displays cumulative counts:
 **Header:**
 - Ride name and date
 - Stage count chips with counts
+- Hamburger menu with account actions
+- Administrator-only menu entry for Ride status management (opens dedicated full-screen flow)
 
 **Body:**
 - Scrollable rider grid
