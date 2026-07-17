@@ -11,7 +11,7 @@ export type InteractiveCheckInOutcome =
   | { kind: 'success'; checkIn: CheckIn }
   | {
       kind: 'info_conflict';
-      reason: 'duplicate' | 'quit_riding';
+      reason: 'duplicate' | 'quit_riding' | 'not_riding';
       message: string;
     };
 
@@ -61,6 +61,19 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
     };
   }
 
+  if (
+    code === 'RIDER_NOT_RIDING' ||
+    code.includes('NOT_RIDING') ||
+    message.includes('already not riding') ||
+    (message.includes('not riding') && message.includes('already'))
+  ) {
+    return {
+      kind: 'info_conflict',
+      reason: 'not_riding',
+      message: error.message,
+    };
+  }
+
   return null;
 }
 
@@ -76,6 +89,29 @@ export async function createInteractiveCheckIn(
   checkIn: CheckInRequest,
 ): Promise<InteractiveCheckInOutcome> {
   try {
+    if (checkIn.isQuitRiding) {
+      let riderCheckIns: CheckIn[] = [];
+      try {
+        riderCheckIns = await listCheckIns(tourId, {
+          rideId: checkIn.rideId,
+          riderId: checkIn.riderId,
+        });
+      } catch (error) {
+        // Some backend deployments return 404 when no check-ins exist for rider/ride yet.
+        if (!(error instanceof ApiError && error.statusCode === 404)) {
+          throw error;
+        }
+      }
+      const hasNotRidingEntry = riderCheckIns.some((ci) => ci.isNotRiding);
+      if (hasNotRidingEntry) {
+        return {
+          kind: 'info_conflict',
+          reason: 'not_riding',
+          message: 'Rider is already marked as Not Riding for this ride. Quit Riding check-in is not allowed.',
+        };
+      }
+    }
+
     const createdCheckIn = await createCheckIn(tourId, checkIn);
     return {
       kind: 'success',

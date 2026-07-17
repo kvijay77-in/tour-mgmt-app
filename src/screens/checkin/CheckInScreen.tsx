@@ -372,7 +372,9 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
           stageNumber: effectiveStage?.stageNumber ?? null,
         });
         setErrorMessage(outcome.message);
-        setErrorPresentation(outcome.reason === 'quit_riding' ? 'warning' : 'info');
+        setErrorPresentation(
+          outcome.reason === 'quit_riding' || outcome.reason === 'not_riding' ? 'warning' : 'info',
+        );
         setPhase('error');
         return;
       }

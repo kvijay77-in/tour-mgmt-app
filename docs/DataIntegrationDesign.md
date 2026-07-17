@@ -422,6 +422,26 @@ The **outbound sync process** runs independently:
 - When offline: paused — operations accumulate in the queue
 - On transition to online: resumes processing from where it left off
 
+#### Interactive Multi-User Validation (Online)
+
+For interactive online check-in operations, the app must validate against the latest backend rider status immediately before final create/write.
+
+Rules:
+1. Any online interactive check-in (`Regular`, `Not Riding`, `Quit Riding`) must use backend-latest rider status for validation.
+2. Locally available SQLite status must not be treated as authoritative in online mode.
+3. If latest backend status makes the requested action invalid, block creation and return informational conflict outcome rendered as a Warning in UI (no app exception path).
+
+Currently enforced conflict example:
+- Before creating a `Quit Riding` check-in, fetch latest rider check-ins for the same ride.
+- If rider is already `Not Riding`, do not create `Quit Riding`.
+- Return an informational conflict outcome and show it as a Warning in the UI.
+
+Offline exception:
+- When offline, local SQLite status can be used for pre-validation/UX guidance.
+- Authoritative validation still happens when pending operations are synced to backend.
+
+This protects correctness in concurrent/multi-actor usage (multiple pit crew users and rider self check-in channels).
+
 #### Outbound Sync Process (Check-In → Backend)
 
 The sync process runs as a background task, triggered by connectivity events and a periodic timer:
@@ -546,7 +566,19 @@ A user may attempt to check in a rider who has already been checked in at the sa
 2. Display a non-blocking notification to the user: _"Rider [ID] already checked in at [Stage]. No further action required."_
 3. No retry, no manual intervention needed
 
-On the **frontend**, before queuing a check-in, the app should also check SQLite for an existing check-in for the same rider at the same stage and warn the user proactively (reducing unnecessary API calls).
+On the **frontend**:
+1. Online mode: use backend-latest rider status as the authoritative validation source before final create/write.
+2. Offline mode: SQLite may be used for proactive warnings before queueing, but authoritative validation occurs during backend sync.
+
+#### Scenario: Quit Riding Attempt After Not Riding
+
+A user attempts to create a `Quit Riding` check-in for a rider who is already marked `Not Riding` by another user/channel.
+
+**Resolution:**
+1. Validate latest rider state from backend before final create/write.
+2. If `Not Riding` exists, block `Quit Riding` creation.
+3. Return informational conflict outcome and present a Warning to the user (non-crashing path).
+4. No retry for this action until rider state changes through valid workflow.
 
 #### Conflict Resolution Summary
 
@@ -554,6 +586,7 @@ On the **frontend**, before queuing a check-in, the app should also check SQLite
 |----------|-----------|-------|
 | Offline check-in syncs successfully | Mark as `SYNCED` | ✅ Yes |
 | Duplicate check-in (409: same rider + stage) | Mark as `SYNCED` (already exists), notify user "already checked in" | ✅ Yes |
+| Quit Riding attempted after rider is already Not Riding | Block create, show warning/info conflict to user | ✅ Yes |
 | Rider quit after check-in was captured (409) | Backend accepts if check-in `T` < quit `T` (timestamp-based validation) | ✅ Yes |
 | Rider quit before check-in was captured (409) | Mark `FAILED`, notify user — check-in is genuinely invalid | ✅ Yes |
 | Ride CLOSED, check-in captured before closure (409) | Backend accepts if check-in `T` < `closedAt` (timestamp-based validation) | ✅ Yes |

@@ -132,6 +132,8 @@ Finish point is usually a hotel at the destination town where the riders will co
 ## Not Riding (NR)  
 When a Rider decides to not ride for the day, same needs to be registered by a tour staff with relevant permission  at the starting point before the ride starts for the day. Once a Rider is marked 'Not Riding' no further check should be allowed at any other stages.
 
+In multi-user scenarios (multiple crew users and rider self check-in channels), check-in validation must use the latest central status at submission time. If the rider is already marked 'Not Riding', any subsequent regular or 'Quit Riding' check-in attempt must be blocked and shown to the app user as a Warning (not an app error/exception).
+
 ## Quit Riding  
 A rider can decide to quit the ride or call it a day at any point in the ride after starting the ride. A Rider can decide to 'Quit Riding' at a pit stop or any location between stages.  
 
@@ -140,6 +142,28 @@ If Rider decides at a pit stop, pit stop crew user should register the Rider as 
 If a Rider decides to Quit Riding in between any stage, QR Code scanning is not possible as there is no user around to do it. In this scenario usually Rider inform/post in the WhatsApp Group Chat monitored by Tour Director or user with Super User role and one of them can perform a manual check in using the Rider ID, remotely.
 
 Once a Rider is registered as 'Quit Riding' any further check in should not be allowed for that Rider.  
+
+In multi-user scenarios, 'Quit Riding' creation must validate the rider's latest status before write. If the rider is already marked 'Not Riding', the app must not create a 'Quit Riding' entry and must display a Warning response to the user.
+
+## Check-In Validation Matrix
+
+For all interactive online check-ins, validation must use the latest rider status from backend before final write. Locally available status is not authoritative in online mode.
+
+| Requested Action | Latest Rider Status | Expected Result |
+|---|---|---|
+| Regular check-in | `NOT_CHECKED_IN` or `CHECKED_IN` | Allow, subject to stage and ride-status rules |
+| Regular check-in | `NOT_RIDING` | Block and show Warning |
+| Regular check-in | `QUIT_RIDING` | Block and show Warning |
+| Not Riding | `NOT_CHECKED_IN` or `CHECKED_IN` | Allow |
+| Not Riding | `NOT_RIDING` | Block and show Warning |
+| Not Riding | `QUIT_RIDING` | Block and show Warning |
+| Quit Riding | `NOT_CHECKED_IN` or `CHECKED_IN` | Allow |
+| Quit Riding | `NOT_RIDING` | Block and show Warning |
+| Quit Riding | `QUIT_RIDING` | Block and show Warning |
+
+Offline mode exception:
+1. When offline, local SQLite status can be used for pre-validation.
+2. Final conflict/validity is still enforced when pending operations sync to backend.
 
 ## Check In for Stage View  
 When a Rider checks in at multiple stages implies that the Rider has checked in all stages till the last checked in stage. This is important in Stage View.
