@@ -5,7 +5,7 @@
 
 import { apiClient, ApiError } from './apiClient';
 import { CheckInRequest, GetCheckInsQuery } from '../../types/api';
-import { CheckIn } from '../../types/models';
+import { CheckIn, CheckInStatus, deriveCheckInStatus } from '../../types/models';
 
 export type InteractiveCheckInOutcome =
   | { kind: 'success'; checkIn: CheckIn }
@@ -77,6 +77,77 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
   return null;
 }
 
+function getRequestedActionLabel(checkIn: CheckInRequest): string {
+  if (checkIn.isNotRiding) {
+    return 'Not Riding';
+  }
+  if (checkIn.isQuitRiding) {
+    return 'Quit Riding';
+  }
+  return 'Regular check-in';
+}
+
+function getLatestRiderStatus(checkIns: CheckIn[]): CheckInStatus {
+  if (checkIns.length === 0) {
+    return CheckInStatus.NOT_CHECKED_IN;
+  }
+
+  const latestCheckIn = checkIns.reduce((latest, current) => {
+    const latestTime = Date.parse(latest.timestamp);
+    const currentTime = Date.parse(current.timestamp);
+    if (Number.isNaN(latestTime) || Number.isNaN(currentTime)) {
+      return latest;
+    }
+    return currentTime > latestTime ? current : latest;
+  });
+
+  return deriveCheckInStatus(latestCheckIn);
+}
+
+function getStatusConflictOutcome(
+  checkIn: CheckInRequest,
+  latestStatus: CheckInStatus,
+): InteractiveCheckInOutcome | null {
+  const actionLabel = getRequestedActionLabel(checkIn);
+
+  if (latestStatus === CheckInStatus.NOT_RIDING) {
+    return {
+      kind: 'info_conflict',
+      reason: 'not_riding',
+      message: `Rider is already marked as Not Riding. ${actionLabel} is not allowed.`,
+    };
+  }
+
+  if (latestStatus === CheckInStatus.QUIT_RIDING) {
+    return {
+      kind: 'info_conflict',
+      reason: 'quit_riding',
+      message: `Rider is already marked as Quit Riding. ${actionLabel} is not allowed.`,
+    };
+  }
+
+  return null;
+}
+
+async function listRiderCheckInsForValidation(
+  tourId: string,
+  rideId: string,
+  riderId: string,
+): Promise<CheckIn[]> {
+  try {
+    return await listCheckIns(tourId, {
+      rideId,
+      riderId,
+    });
+  } catch (error) {
+    // Some backend deployments return 404 when no check-ins exist for rider/ride yet.
+    if (error instanceof ApiError && error.statusCode === 404) {
+      return [];
+    }
+    throw error;
+  }
+}
+
 /**
  * Create a check-in for the interactive screen flow.
  *
@@ -89,27 +160,17 @@ export async function createInteractiveCheckIn(
   checkIn: CheckInRequest,
 ): Promise<InteractiveCheckInOutcome> {
   try {
-    if (checkIn.isQuitRiding) {
-      let riderCheckIns: CheckIn[] = [];
-      try {
-        riderCheckIns = await listCheckIns(tourId, {
-          rideId: checkIn.rideId,
-          riderId: checkIn.riderId,
-        });
-      } catch (error) {
-        // Some backend deployments return 404 when no check-ins exist for rider/ride yet.
-        if (!(error instanceof ApiError && error.statusCode === 404)) {
-          throw error;
-        }
-      }
-      const hasNotRidingEntry = riderCheckIns.some((ci) => ci.isNotRiding);
-      if (hasNotRidingEntry) {
-        return {
-          kind: 'info_conflict',
-          reason: 'not_riding',
-          message: 'Rider is already marked as Not Riding for this ride. Quit Riding check-in is not allowed.',
-        };
-      }
+    // Interactive online mode must validate against backend-latest rider status
+    // before final create/write to avoid stale local-state decisions.
+    const riderCheckIns = await listRiderCheckInsForValidation(
+      tourId,
+      checkIn.rideId,
+      checkIn.riderId,
+    );
+    const latestStatus = getLatestRiderStatus(riderCheckIns);
+    const statusConflict = getStatusConflictOutcome(checkIn, latestStatus);
+    if (statusConflict) {
+      return statusConflict;
     }
 
     const createdCheckIn = await createCheckIn(tourId, checkIn);
