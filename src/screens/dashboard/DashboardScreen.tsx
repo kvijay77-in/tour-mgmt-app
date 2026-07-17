@@ -750,7 +750,7 @@ export default function DashboardScreen() {
             >
               {showSkippedIndicator && (
                 <View style={styles.skippedBadge} pointerEvents="none">
-                  <MaterialIcons name="warning" size={12} color={COLORS.warning} />
+                  <Text style={styles.skippedBadgeMark}>!</Text>
                 </View>
               )}
               <View style={styles.riderIconContent}>
@@ -1315,6 +1315,12 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 0.3,
+    color: '#92400E',
+  },
+  skippedBadgeMark: {
+    fontSize: 14,
+    lineHeight: 14,
+    fontWeight: '900',
     color: '#92400E',
   },
   riderIconContent: {
