@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  useWindowDimensions,
 } from 'react-native';
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -34,9 +35,7 @@ import { hasPermission } from '../../utils/permissions';
 import CheckInScreen from '../checkin/CheckInScreen';
 import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
 
-const { width } = Dimensions.get('window');
-const GRID_COLUMNS = 6;
-const RIDER_ICON_SIZE = (width - 32) / GRID_COLUMNS - 6;
+const { width: WINDOW_WIDTH } = Dimensions.get('window');
 
 /**
  * Build RiderStatus[] from dashboard API response data.
@@ -96,6 +95,7 @@ function compareRiderIdsNatural(a: string, b: string): number {
 }
 
 export default function DashboardScreen() {
+  const { width, height } = useWindowDimensions();
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
   const {
     user,
@@ -614,19 +614,9 @@ export default function DashboardScreen() {
     const isWhite = bgColor === COLORS.white;
     
     // Calculate icon size based on zoom level
-    let iconSize = RIDER_ICON_SIZE;
-    let columns = GRID_COLUMNS;
-    
-    if (zoomLevel === 2) {
-      columns = 4;
-      iconSize = (width - 32) / columns - 6;
-    } else if (zoomLevel === 3) {
-      columns = 3;
-      iconSize = (width - 32) / columns - 6;
-    } else if (zoomLevel === 4) {
-      columns = 2;
-      iconSize = (width - 32) / columns - 6;
-    }
+    const columns = getGridColumns(zoomLevel);
+    const gridBaseWidth = width >= 768 ? Math.min(width, height) : width;
+    const iconSize = Math.floor((gridBaseWidth - 32 - (columns - 1) * 6) / columns);
     
     return [
       styles.riderIcon,
@@ -654,6 +644,40 @@ export default function DashboardScreen() {
       }
     ];
   };
+
+  const getGridColumns = useCallback((currentZoomLevel: 1 | 2 | 3 | 4) => {
+    const isTablet = width >= 768;
+
+    if (isTablet) {
+      if (currentZoomLevel === 1) return 10;
+      if (currentZoomLevel === 2) return 8;
+      if (currentZoomLevel === 3) return 6;
+      return 4;
+    }
+
+    if (currentZoomLevel === 1) return 6;
+    if (currentZoomLevel === 2) return 4;
+    if (currentZoomLevel === 3) return 3;
+    return 2;
+  }, [width]);
+
+  const getRiderTextSizes = useCallback((currentZoomLevel: 1 | 2 | 3 | 4) => {
+    const isTablet = width >= 768;
+
+    if (currentZoomLevel === 1) {
+      return { id: isTablet ? 11 : 12, name: 0, contact: 0, icon: 0 };
+    }
+
+    if (currentZoomLevel === 2) {
+      return { id: 10, name: isTablet ? 10 : 9, contact: 0, icon: 0 };
+    }
+
+    if (currentZoomLevel === 3) {
+      return { id: 10, name: 9, contact: isTablet ? 9 : 8, icon: 0 };
+    }
+
+    return { id: 10, name: 9, contact: isTablet ? 9 : 8, icon: isTablet ? 34 : 40 };
+  }, [width]);
 
   // Loading / error / no-data guards
   if (isTourLoading || isLoading) {
@@ -739,78 +763,82 @@ export default function DashboardScreen() {
       {/* Rider Grid - Maximum space with Pinch Zoom */}
       <GestureDetector gesture={pinchGesture}>
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.gridContainer}>
-        {filteredRiders.map((riderStatus) => {
-          const isWhiteBg = getRiderColor(riderStatus) === COLORS.white;
-          const showSkippedIndicator = shouldShowSkippedIndicator(riderStatus);
-          return (
-            <TouchableOpacity
-              key={riderStatus.rider.riderId}
-              style={getRiderIconStyle(riderStatus)}
-              onPress={() => handleRiderTap(riderStatus)}
-            >
-              {showSkippedIndicator && (
-                <View style={styles.skippedBadge} pointerEvents="none">
-                  <Text style={styles.skippedBadgeMark}>!</Text>
+        {(() => {
+          const textSizes = getRiderTextSizes(zoomLevel);
+
+          return filteredRiders.map((riderStatus) => {
+            const isWhiteBg = getRiderColor(riderStatus) === COLORS.white;
+            const showSkippedIndicator = shouldShowSkippedIndicator(riderStatus);
+            return (
+              <TouchableOpacity
+                key={riderStatus.rider.riderId}
+                style={getRiderIconStyle(riderStatus)}
+                onPress={() => handleRiderTap(riderStatus)}
+              >
+                {showSkippedIndicator && (
+                  <View style={styles.skippedBadge} pointerEvents="none">
+                    <Text style={styles.skippedBadgeMark}>!</Text>
+                  </View>
+                )}
+                <View style={styles.riderIconContent}>
+                  {/* Level 1: Rider ID only */}
+                  {zoomLevel === 1 && (
+                    <Text style={[styles.riderIdText, { fontSize: textSizes.id }, isWhiteBg && { color: COLORS.textPrimary }]}>
+                      {riderStatus.rider.riderId}
+                    </Text>
+                  )}
+                  
+                  {/* Level 2: Rider ID + Name */}
+                  {zoomLevel === 2 && (
+                    <>
+                      <Text style={[styles.riderIdTextZoom, { fontSize: textSizes.id }, isWhiteBg && { color: COLORS.textPrimary }]}>
+                        {riderStatus.rider.riderId}
+                      </Text>
+                      <Text style={[styles.riderNameText, { fontSize: textSizes.name }, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={2}>
+                        {riderStatus.rider.name}
+                      </Text>
+                    </>
+                  )}
+                  
+                  {/* Level 3: Rider ID + Name + Contact */}
+                  {zoomLevel === 3 && (
+                    <>
+                      <Text style={[styles.riderIdTextZoom, { fontSize: textSizes.id }, isWhiteBg && { color: COLORS.textPrimary }]}>
+                        {riderStatus.rider.riderId}
+                      </Text>
+                      <Text style={[styles.riderNameText, { fontSize: textSizes.name }, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                        {riderStatus.rider.name}
+                      </Text>
+                      <Text style={[styles.riderContactText, { fontSize: textSizes.contact }, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                        {riderStatus.rider.phone || 'N/A'}
+                      </Text>
+                    </>
+                  )}
+                  
+                  {/* Level 4: Rider ID + Name + Photo + Contact */}
+                  {zoomLevel === 4 && (
+                    <>
+                      <MaterialIcons 
+                        name="account-circle" 
+                        size={textSizes.icon} 
+                        color={isWhiteBg ? COLORS.gray[400] : COLORS.white} 
+                      />
+                      <Text style={[styles.riderIdTextZoom, { fontSize: textSizes.id }, isWhiteBg && { color: COLORS.textPrimary }]}>
+                        {riderStatus.rider.riderId}
+                      </Text>
+                      <Text style={[styles.riderNameText, { fontSize: textSizes.name }, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                        {riderStatus.rider.name}
+                      </Text>
+                      <Text style={[styles.riderContactText, { fontSize: textSizes.contact }, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
+                        {riderStatus.rider.phone || 'N/A'}
+                      </Text>
+                    </>
+                  )}
                 </View>
-              )}
-              <View style={styles.riderIconContent}>
-                {/* Level 1: Rider ID only */}
-                {zoomLevel === 1 && (
-                  <Text style={[styles.riderIdText, isWhiteBg && { color: COLORS.textPrimary }]}>
-                    {riderStatus.rider.riderId}
-                  </Text>
-                )}
-                
-                {/* Level 2: Rider ID + Name */}
-                {zoomLevel === 2 && (
-                  <>
-                    <Text style={[styles.riderIdTextZoom, isWhiteBg && { color: COLORS.textPrimary }]}>
-                      {riderStatus.rider.riderId}
-                    </Text>
-                    <Text style={[styles.riderNameText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={2}>
-                      {riderStatus.rider.name}
-                    </Text>
-                  </>
-                )}
-                
-                {/* Level 3: Rider ID + Name + Contact */}
-                {zoomLevel === 3 && (
-                  <>
-                    <Text style={[styles.riderIdTextZoom, isWhiteBg && { color: COLORS.textPrimary }]}>
-                      {riderStatus.rider.riderId}
-                    </Text>
-                    <Text style={[styles.riderNameText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
-                      {riderStatus.rider.name}
-                    </Text>
-                    <Text style={[styles.riderContactText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
-                      {riderStatus.rider.phone || 'N/A'}
-                    </Text>
-                  </>
-                )}
-                
-                {/* Level 4: Rider ID + Name + Photo + Contact */}
-                {zoomLevel === 4 && (
-                  <>
-                    <MaterialIcons 
-                      name="account-circle" 
-                      size={40} 
-                      color={isWhiteBg ? COLORS.gray[400] : COLORS.white} 
-                    />
-                    <Text style={[styles.riderIdTextZoom, isWhiteBg && { color: COLORS.textPrimary }]}>
-                      {riderStatus.rider.riderId}
-                    </Text>
-                    <Text style={[styles.riderNameText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
-                      {riderStatus.rider.name}
-                    </Text>
-                    <Text style={[styles.riderContactText, isWhiteBg && { color: COLORS.textSecondary }]} numberOfLines={1}>
-                      {riderStatus.rider.phone || 'N/A'}
-                    </Text>
-                  </>
-                )}
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+              </TouchableOpacity>
+            );
+          });
+        })()}
         </ScrollView>
       </GestureDetector>
 
@@ -1277,8 +1305,8 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   riderIcon: {
-    width: RIDER_ICON_SIZE,
-    height: RIDER_ICON_SIZE,
+    width: 1,
+    height: 1,
     margin: 3,
     borderRadius: 6,
     justifyContent: 'center',
@@ -1361,7 +1389,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 16,
     padding: 24,
-    width: width * 0.8,
+    width: WINDOW_WIDTH * 0.8,
     maxWidth: 300,
     alignItems: 'center',
     elevation: 8,
@@ -1411,7 +1439,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 10,
     minWidth: 260,
-    maxWidth: width * 0.86,
+    maxWidth: WINDOW_WIDTH * 0.86,
     paddingVertical: 8,
     elevation: 8,
     shadowColor: '#000',
@@ -1456,7 +1484,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 14,
     padding: 16,
-    width: width * 0.9,
+    width: WINDOW_WIDTH * 0.9,
     maxWidth: 420,
   },
   changePasswordHeader: {
