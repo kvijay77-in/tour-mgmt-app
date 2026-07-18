@@ -10,6 +10,10 @@
 import { AppRole, UserRole, Permission } from '../types/models';
 import { PIT_STOP_USER_PERMISSIONS, PIT_STOP_USER_ROLE_REGEX, ROLES_MAP } from '../constants/roles';
 
+interface ResolvePrimaryRoleOptions {
+  preferredPitStopStageNumber?: number | null;
+}
+
 /**
  * Returns true when the role matches PS_x_USER format.
  */
@@ -42,13 +46,30 @@ export function getPitStopStageNumbersFromRoles(roles: readonly string[]): numbe
  * Resolve the effective/primary role using required precedence.
  * Order: ADMINISTRATOR > SUPER_USER > PS_x_USER > HOTEL_STAFF > GUEST
  */
-export function resolvePrimaryRole(roles: readonly string[]): AppRole | null {
+export function resolvePrimaryRole(
+  roles: readonly string[],
+  options?: ResolvePrimaryRoleOptions,
+): AppRole | null {
   if (roles.includes(UserRole.ADMINISTRATOR)) return UserRole.ADMINISTRATOR;
   if (roles.includes(UserRole.SUPER_USER)) return UserRole.SUPER_USER;
 
-  const pitStopRole = roles.find((r) => isPitStopUserRole(r));
-  if (pitStopRole) {
-    return pitStopRole;
+  const pitStopRoles = roles.filter((r): r is AppRole => isPitStopUserRole(r));
+  if (pitStopRoles.length > 0) {
+    const preferredPitStopStageNumber = options?.preferredPitStopStageNumber;
+
+    if (typeof preferredPitStopStageNumber === 'number') {
+      const preferredPitStopRole = pitStopRoles.find(
+        (role) => getStageNumberFromPitStopRole(role) === preferredPitStopStageNumber,
+      );
+
+      if (preferredPitStopRole) {
+        return preferredPitStopRole;
+      }
+    }
+
+    // When multiple pit-stop roles are assigned and no valid context is found,
+    // keep selection deterministic by using the first role from token group order.
+    return pitStopRoles[0];
   }
 
   if (roles.includes(UserRole.HOTEL_STAFF)) return UserRole.HOTEL_STAFF;

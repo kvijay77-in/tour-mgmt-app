@@ -19,6 +19,7 @@ import {
 import { setAuthTokenProvider, setAuthInvalidatedCallback } from '../services/api/apiClient';
 import { AppRole } from '../types/models';
 import { isSupportedRoleGroup, resolvePrimaryRole } from '../utils/permissions';
+import { loadPitStopContextStageNumber } from '../services/config/pitStopContextService';
 import { logger } from '../utils/logger';
 
 const TAG = 'AuthContext';
@@ -121,6 +122,31 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
+  /**
+   * Resolve effective role with deterministic precedence and optional
+   * pit-stop context fallback for users assigned multiple PS_x_USER roles.
+   */
+  const resolveEffectiveRole = useCallback(async (userRoles: AppRole[]): Promise<AppRole | null> => {
+    let preferredPitStopStageNumber: number | null = null;
+
+    try {
+      preferredPitStopStageNumber = await loadPitStopContextStageNumber();
+    } catch (err) {
+      logger.warn(TAG, 'Failed to load pit-stop context while resolving role', err);
+    }
+
+    const effectiveRole = resolvePrimaryRole(userRoles, {
+      preferredPitStopStageNumber,
+    });
+
+    logger.info(
+      TAG,
+      `Resolved effective role: ${effectiveRole ?? 'NONE'} (preferredPitStopStage=${preferredPitStopStageNumber ?? 'none'})`,
+    );
+
+    return effectiveRole;
+  }, []);
+
   /** Sign out and optionally show a "no role assigned" error. */
   const handleNoRole = useCallback(async (showErrorMessage = true) => {
     logger.warn(TAG, 'User has no role assigned — signing out');
@@ -165,7 +191,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUser(null);
         } else {
           const userRoles = await resolveUserRoles(session);
-          const primaryRole = resolvePrimaryRole(userRoles);
+          const primaryRole = await resolveEffectiveRole(userRoles);
           if (!primaryRole) {
             await handleNoRole();
           } else {
@@ -186,7 +212,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setIsLoading(false);
       }
     })();
-  }, [resolveUserRoles, handleNoRole]);
+  }, [resolveUserRoles, resolveEffectiveRole, handleNoRole]);
 
   const login = useCallback(async (username: string, password: string): Promise<'DONE' | 'NEW_PASSWORD_REQUIRED'> => {
     setIsAuthenticating(true);
@@ -206,7 +232,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.isSignedIn) {
         const currentUser = await getCurrentUser();
         const userRoles = await resolveUserRoles();
-        const primaryRole = resolvePrimaryRole(userRoles);
+        const primaryRole = await resolveEffectiveRole(userRoles);
         if (!primaryRole) {
           await handleNoRole();
           return 'DONE';
@@ -230,7 +256,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [resolveUserRoles, handleNoRole]);
+  }, [resolveUserRoles, resolveEffectiveRole, handleNoRole]);
 
   const completeNewPassword = useCallback(async (newPassword: string): Promise<'SIGNED_IN' | 'NO_ROLE'> => {
     setIsAuthenticating(true);
@@ -240,7 +266,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (result.isSignedIn) {
         const currentUser = await getCurrentUser();
         const userRoles = await resolveUserRoles();
-        const primaryRole = resolvePrimaryRole(userRoles);
+        const primaryRole = await resolveEffectiveRole(userRoles);
         if (!primaryRole) {
           await handleNoRole(false);
           return 'NO_ROLE';
@@ -261,7 +287,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [resolveUserRoles, handleNoRole]);
+  }, [resolveUserRoles, resolveEffectiveRole, handleNoRole]);
 
   const logout = useCallback(async (): Promise<void> => {
     try {
