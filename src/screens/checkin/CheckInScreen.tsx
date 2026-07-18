@@ -10,7 +10,7 @@
  * See docs/Requirements.md § Check-In and docs/SolutionDesign.md § Check-In Flow.
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -31,7 +31,7 @@ import { createInteractiveCheckIn } from '../../services/api/checkInApi';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
 import { CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
-import { hasPermission } from '../../utils/permissions';
+import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
 
 const TAG = 'CheckInScreen';
@@ -56,6 +56,8 @@ type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
 
 interface CheckInScreenProps {
   ride: Ride;
+  /** Optional persisted pit-stop stage context chosen by the user */
+  managedPitStopStageNumber?: number;
   /** Called when check-in completes successfully — dashboard should refresh */
   onCheckInComplete: () => void;
   /** Called when user closes the screen */
@@ -72,12 +74,14 @@ function StageSelector({
   onSelect,
   checkInType,
   rideStatus,
+  allowedRegularStageNumbers,
 }: {
   stages: Stage[];
   selectedStage: Stage | null;
   onSelect: (stage: Stage) => void;
   checkInType: CheckInType;
   rideStatus: RideStatus;
+  allowedRegularStageNumbers?: number[];
 }) {
   // For Not Riding, always use the Start stage
   const filteredStages = checkInType === 'not_riding'
@@ -87,6 +91,15 @@ function StageSelector({
   const isStageEnabled = (stage: Stage): boolean => {
     if (checkInType === 'not_riding') {
       return rideStatus === RideStatus.OPEN;
+    }
+
+    if (checkInType === 'regular' && allowedRegularStageNumbers && allowedRegularStageNumbers.length > 0) {
+      if (stage.type !== StageType.PIT_STOP) {
+        return false;
+      }
+      if (!allowedRegularStageNumbers.includes(stage.stageNumber)) {
+        return false;
+      }
     }
 
     if (stage.type === StageType.START) {
@@ -157,7 +170,7 @@ const stageStyles = StyleSheet.create({
 type Phase = 'type_select' | 'stage_select' | 'scanning' | 'manual_entry' | 'confirming' | 'success' | 'error';
 type ErrorPresentation = 'error' | 'info' | 'warning';
 
-export default function CheckInScreen({ ride, onCheckInComplete, onClose }: CheckInScreenProps) {
+export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheckInComplete, onClose }: CheckInScreenProps) {
   const { user } = useAuth();
   const { tour } = useTour();
   const [permission, requestPermission] = useCameraPermissions();
@@ -173,12 +186,36 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [errorPresentation, setErrorPresentation] = useState<ErrorPresentation>('error');
   const processingRef = useRef(false);
+  const autoStartAppliedRef = useRef(false);
 
   // Determine available check-in types based on role
-  const canCheckInRegular = hasPermission(user!.userRole, Permission.CHECKIN_RIDER);
-  const canCheckInNR = hasPermission(user!.userRole, Permission.CHECKIN_NOT_RIDING);
-  const canCheckInQR = hasPermission(user!.userRole, Permission.CHECKIN_QUIT_RIDING);
-  const canManualCheckIn = hasPermission(user!.userRole, Permission.MANUAL_CHECKIN);
+  const canCheckInRegular = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
+  const canCheckInNR = user ? hasPermission(user.userRole, Permission.CHECKIN_NOT_RIDING) : false;
+  const canCheckInQR = user ? hasPermission(user.userRole, Permission.CHECKIN_QUIT_RIDING) : false;
+  const canManualCheckIn = user ? hasPermission(user.userRole, Permission.MANUAL_CHECKIN) : false;
+
+  const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
+
+  const pitStopRoleStageNumbers = useMemo(
+    () => getPitStopStageNumbersFromRoles(user?.userRoles ?? []),
+    [user?.userRoles],
+  );
+
+  const allowedRegularStageNumbers = useMemo(() => {
+    if (!isPitStopPrimaryRole) return [] as number[];
+
+    const ridePitStopStages = ride.stages
+      .filter((s) => s.type === StageType.PIT_STOP)
+      .map((s) => s.stageNumber);
+
+    const roleAllowedStages = ridePitStopStages.filter((n) => pitStopRoleStageNumbers.includes(n));
+    if (managedPitStopStageNumber !== undefined && roleAllowedStages.includes(managedPitStopStageNumber)) {
+      return [managedPitStopStageNumber];
+    }
+    return roleAllowedStages;
+  }, [isPitStopPrimaryRole, ride.stages, pitStopRoleStageNumbers, managedPitStopStageNumber]);
+
+  const hasSingleRegularPitStopStage = isPitStopPrimaryRole && allowedRegularStageNumbers.length === 1;
 
   // Auto-select Start stage for NR
   useEffect(() => {
@@ -187,6 +224,29 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
       if (startStage) setSelectedStage(startStage);
     }
   }, [checkInType, ride.stages]);
+
+  // Fast path for pit-stop users with only one allowed regular stage.
+  useEffect(() => {
+    if (phase !== 'type_select') return;
+    if (autoStartAppliedRef.current) return;
+    if (!hasSingleRegularPitStopStage) return;
+
+    const stage = ride.stages.find(
+      (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
+    );
+    if (!stage) return;
+
+    const validationError = getValidationMessage('regular', stage);
+    if (validationError) return;
+
+    setCheckInType('regular');
+    setSelectedStage(stage);
+    setPhase('scanning');
+    setScanAttempts(0);
+    setScannedRiderId('');
+    processingRef.current = false;
+    autoStartAppliedRef.current = true;
+  }, [phase, hasSingleRegularPitStopStage, ride.stages, allowedRegularStageNumbers, getValidationMessage]);
 
   // -----------------------------------------------------------------------
   // Check-in type selection
@@ -211,6 +271,15 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
       return 'Please select a stage before continuing.';
     }
 
+    if (type === 'regular' && isPitStopPrimaryRole) {
+      if (stage.type !== StageType.PIT_STOP) {
+        return 'Your role allows regular check-in only at an assigned Pit Stop stage.';
+      }
+      if (!allowedRegularStageNumbers.includes(stage.stageNumber)) {
+        return 'Selected stage is not permitted for your pit-stop role mapping.';
+      }
+    }
+
     if (stage.type === StageType.START && ride.status !== RideStatus.OPEN) {
       return `Start stage check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
     }
@@ -220,7 +289,7 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
     }
 
     return null;
-  }, [ride.status]);
+  }, [ride.status, isPitStopPrimaryRole, allowedRegularStageNumbers]);
 
   const blockWithValidationMessage = useCallback((message: string) => {
     setErrorMessage(message);
@@ -413,15 +482,32 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
 
   // Reset to type selection
   const resetToStart = () => {
-    setPhase('type_select');
-    setCheckInType('regular');
-    setSelectedStage(null);
     setScannedRiderId('');
     setManualRiderId('');
     setScanAttempts(0);
     setErrorMessage('');
     setErrorPresentation('error');
     processingRef.current = false;
+
+    if (hasSingleRegularPitStopStage) {
+      const stage = ride.stages.find(
+        (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
+      );
+
+      if (stage) {
+        const validationError = getValidationMessage('regular', stage);
+        if (!validationError) {
+          setCheckInType('regular');
+          setSelectedStage(stage);
+          setPhase('scanning');
+          return;
+        }
+      }
+    }
+
+    setPhase('type_select');
+    setCheckInType('regular');
+    setSelectedStage(null);
   };
 
   // -----------------------------------------------------------------------
@@ -504,7 +590,16 @@ export default function CheckInScreen({ ride, onCheckInComplete, onClose }: Chec
         onSelect={selectStageAndScan}
         checkInType={checkInType}
         rideStatus={ride.status}
+        allowedRegularStageNumbers={isPitStopPrimaryRole ? allowedRegularStageNumbers : undefined}
       />
+      {checkInType === 'regular' && isPitStopPrimaryRole && allowedRegularStageNumbers.length === 0 && (
+        <View style={styles.infoBanner}>
+          <MaterialIcons name="warning-amber" size={18} color={COLORS.warning} />
+          <Text style={styles.infoBannerText}>
+            No valid pit-stop stage is available for your role in this ride. Please contact your administrator.
+          </Text>
+        </View>
+      )}
       {checkInType === 'not_riding' && selectedStage && (
         <TouchableOpacity
           style={styles.primaryButton}

@@ -84,10 +84,20 @@ export enum TourRiderStatus {
 export enum UserRole {
   ADMINISTRATOR = 'ADMINISTRATOR',
   SUPER_USER = 'SUPER_USER',
-  PIT_STOP_CREW = 'PIT_STOP_CREW',
   HOTEL_STAFF = 'HOTEL_STAFF',
   GUEST = 'GUEST',
 }
+
+/**
+ * Dynamic pit-stop role format from Cognito groups.
+ * Examples: PS_1_USER, PS_2_USER, PS_10_USER
+ */
+export type PitStopUserRole = `PS_${number}_USER`;
+
+/**
+ * Any role that can be assigned via Cognito groups.
+ */
+export type AppRole = UserRole | PitStopUserRole;
 
 // ============================================================================
 // TOUR
@@ -405,7 +415,7 @@ export interface Role {
   roleId: string;
   
   /** Role type */
-  role: UserRole;
+  role: AppRole;
   
   /** Role display name */
   name: string;

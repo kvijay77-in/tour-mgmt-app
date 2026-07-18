@@ -50,7 +50,8 @@ tour-mgmt-app/
 │   │   │   ├── dashboardApi.ts     # Dashboard composite endpoint
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 │   │   ├── config/                 # Runtime org configuration service
-│   │   │   └── orgConfigService.ts # HMAC verification, expo-secure-store persistence
+│   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence
+│   │   │   └── pitStopContextService.ts # Persist/clear selected pit-stop stage context
 │   │   ├── auth/                   # AWS Cognito authentication
 │   │   ├── database/               # SQLite for offline support
 │   │   ├── sync/                   # Data synchronization service

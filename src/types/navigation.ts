@@ -2,7 +2,7 @@
  * Navigation types for React Navigation
  */
 
-import { UserRole } from './models';
+import { AppRole } from './models';
 
 // ============================================================================
 // AUTH STACK
@@ -47,6 +47,6 @@ export type RootStackParamList = {
 // ============================================================================
 
 export type NavigationProps = {
-  userRole: UserRole;
+  userRole: AppRole;
   isAuthenticated: boolean;
 };

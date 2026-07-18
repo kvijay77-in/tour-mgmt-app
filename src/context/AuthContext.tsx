@@ -17,7 +17,8 @@ import {
   updatePassword,
 } from 'aws-amplify/auth';
 import { setAuthTokenProvider, setAuthInvalidatedCallback } from '../services/api/apiClient';
-import { UserRole } from '../types/models';
+import { AppRole } from '../types/models';
+import { isSupportedRoleGroup, resolvePrimaryRole } from '../utils/permissions';
 import { logger } from '../utils/logger';
 
 const TAG = 'AuthContext';
@@ -29,8 +30,10 @@ const TAG = 'AuthContext';
 export interface AuthUser {
   username: string;
   userId: string;
-  /** Role resolved from Cognito User Group membership */
-  userRole: UserRole;
+  /** Primary/effective role resolved by precedence from Cognito groups */
+  userRole: AppRole;
+  /** All recognised app roles from Cognito groups */
+  userRoles: AppRole[];
 }
 
 interface AuthContextValue {
@@ -89,33 +92,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Resolve the user's role from Cognito User Group membership.
+  * Resolve the user's app roles from Cognito User Group membership.
    *
    * Reads `cognito:groups` from the ID token payload. If the user belongs
-   * to multiple groups, the first matching UserRole (by enum order) wins.
-   * Returns `null` if no recognised role group is found.
+  * Supports static roles and dynamic PS_x_USER roles.
+  * Returns an empty array if no recognised role group is found.
    *
    * Accepts an optional pre-fetched session to avoid a redundant
    * fetchAuthSession() call when the caller already has one.
    */
-  const resolveUserRole = useCallback(async (
+  const resolveUserRoles = useCallback(async (
     existingSession?: Awaited<ReturnType<typeof fetchAuthSession>>,
-  ): Promise<UserRole | null> => {
+  ): Promise<AppRole[]> => {
     try {
       const session = existingSession ?? await fetchAuthSession();
       const payload = session.tokens?.idToken?.payload;
       const groups: string[] = (payload?.['cognito:groups'] as string[] | undefined) ?? [];
-      const validRoles = Object.values(UserRole) as string[];
-      const matchedRole = groups.find((g) => validRoles.includes(g));
-      if (matchedRole) {
-        logger.info(TAG, `Resolved role from group: ${matchedRole}`);
-        return matchedRole as UserRole;
+      const matchedRoles = groups.filter((g): g is AppRole => isSupportedRoleGroup(g));
+      if (matchedRoles.length === 0) {
+        logger.warn(TAG, `No recognised app role group found (groups: ${JSON.stringify(groups)})`);
+        return [];
       }
-      logger.warn(TAG, `No recognised UserRole group found (groups: ${JSON.stringify(groups)})`);
-      return null;
+      logger.info(TAG, `Resolved role groups: ${JSON.stringify(matchedRoles)}`);
+      return matchedRoles;
     } catch (err) {
       logger.warn(TAG, 'Failed to resolve user role from token', err);
-      return null;
+      return [];
     }
   }, []);
 
@@ -162,14 +164,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
           await signOut().catch(() => {});
           setUser(null);
         } else {
-          const userRole = await resolveUserRole(session);
-          if (!userRole) {
+          const userRoles = await resolveUserRoles(session);
+          const primaryRole = resolvePrimaryRole(userRoles);
+          if (!primaryRole) {
             await handleNoRole();
           } else {
             setUser({
               username: currentUser.username,
               userId: currentUser.userId,
-              userRole,
+              userRole: primaryRole,
+              userRoles,
             });
           }
         }
@@ -182,7 +186,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setIsLoading(false);
       }
     })();
-  }, [resolveUserRole, handleNoRole]);
+  }, [resolveUserRoles, handleNoRole]);
 
   const login = useCallback(async (username: string, password: string): Promise<'DONE' | 'NEW_PASSWORD_REQUIRED'> => {
     setIsAuthenticating(true);
@@ -201,15 +205,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (result.isSignedIn) {
         const currentUser = await getCurrentUser();
-        const userRole = await resolveUserRole();
-        if (!userRole) {
+        const userRoles = await resolveUserRoles();
+        const primaryRole = resolvePrimaryRole(userRoles);
+        if (!primaryRole) {
           await handleNoRole();
           return 'DONE';
         }
         setUser({
           username: currentUser.username,
           userId: currentUser.userId,
-          userRole,
+          userRole: primaryRole,
+          userRoles,
         });
         return 'DONE';
       }
@@ -224,7 +230,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [resolveUserRole, handleNoRole]);
+  }, [resolveUserRoles, handleNoRole]);
 
   const completeNewPassword = useCallback(async (newPassword: string): Promise<'SIGNED_IN' | 'NO_ROLE'> => {
     setIsAuthenticating(true);
@@ -233,15 +239,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const result = await confirmSignIn({ challengeResponse: newPassword });
       if (result.isSignedIn) {
         const currentUser = await getCurrentUser();
-        const userRole = await resolveUserRole();
-        if (!userRole) {
+        const userRoles = await resolveUserRoles();
+        const primaryRole = resolvePrimaryRole(userRoles);
+        if (!primaryRole) {
           await handleNoRole(false);
           return 'NO_ROLE';
         }
         setUser({
           username: currentUser.username,
           userId: currentUser.userId,
-          userRole,
+          userRole: primaryRole,
+          userRoles,
         });
         return 'SIGNED_IN';
       }
@@ -253,7 +261,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [resolveUserRole, handleNoRole]);
+  }, [resolveUserRoles, handleNoRole]);
 
   const logout = useCallback(async (): Promise<void> => {
     try {

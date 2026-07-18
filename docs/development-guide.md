@@ -102,18 +102,30 @@ The ID token's `cognito:groups` claim is read at login / session restore — no 
    ```
    ADMINISTRATOR
    SUPER_USER
-   PIT_STOP_CREW
+  PS_1_USER
+  PS_2_USER
+  PS_3_USER
+  PS_4_USER
+  PS_5_USER
    HOTEL_STAFF
    GUEST
    ```
-   Group names must match the `UserRole` enum values exactly (case-sensitive).
+  Static role group names must match `UserRole` values exactly (case-sensitive).
+  Pit-stop role groups must follow the format `PS_<stageNumber>_USER`.
 
 2. **Assign users to a group** via the Cognito Console → User Pool → Users → select user → Group memberships → Add to group.
-   Each user should belong to exactly **one** role group. If a user is in multiple groups, the first matching `UserRole` (by enum declaration order) is used.
+  Users can belong to multiple groups.
+  Effective role precedence is:
+  - `ADMINISTRATOR`
+  - `SUPER_USER`
+  - `PS_x_USER`
+  - `HOTEL_STAFF`
+  - `GUEST`
+  When multiple `PS_x_USER` groups exist for a user, all mapped pit-stop stages are available for regular check-in stage mapping.
 
 3. **Ensure the App Client** is configured to include `cognito:groups` in the ID token (this is the default for new app clients).
 
-If the user belongs to no recognised group, the app defaults to `GUEST` (read-only dashboard).
+If the user belongs to no recognised group, sign-in is blocked and the user is asked to contact an administrator for role assignment.
 
 These values come from the [tour-data-api](https://github.com/kvijay77-in/tour-data-api) deployment. See the tour-data-api [Deployment Guide](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/deployment-guide.md#after-deployment-getting-your-api-url) for how to retrieve API URLs and Cognito configuration.
 

@@ -45,22 +45,19 @@ export const SUPER_USER_ROLE: Role = {
 };
 
 /**
- * Pit Stop Crew role - Check-in and dashboard access for assigned pit stop
+ * Dynamic PS_x_USER role pattern.
  */
-export const PIT_STOP_CREW_ROLE: Role = {
-  roleId: 'role_pit_stop_crew',
-  role: UserRole.PIT_STOP_CREW,
-  name: 'Pit Stop Crew',
-  description: 'Check-in access for assigned pit stop with dashboard view',
-  permissions: [
-    Permission.VIEW_DASHBOARD,
-    Permission.CHECKIN_RIDER,
-    Permission.CHECKIN_NOT_RIDING,
-    Permission.CHECKIN_QUIT_RIDING,
-    // Note: MANUAL_CHECKIN not included per requirements
-  ],
-  assignedStage: undefined, // Set when assigning to user
-};
+export const PIT_STOP_USER_ROLE_REGEX = /^PS_(\d+)_USER$/;
+
+/**
+ * Base permissions for dynamic PS_x_USER roles.
+ * PS roles allow regular and quit-riding check-ins, but not Not Riding.
+ */
+export const PIT_STOP_USER_PERMISSIONS: Permission[] = [
+  Permission.VIEW_DASHBOARD,
+  Permission.CHECKIN_RIDER,
+  Permission.CHECKIN_QUIT_RIDING,
+];
 
 /**
  * Hotel Staff role - Finish check-in only, no dashboard access
@@ -96,7 +93,6 @@ export const GUEST_ROLE: Role = {
 export const ROLES_MAP: Record<UserRole, Role> = {
   [UserRole.ADMINISTRATOR]: ADMINISTRATOR_ROLE,
   [UserRole.SUPER_USER]: SUPER_USER_ROLE,
-  [UserRole.PIT_STOP_CREW]: PIT_STOP_CREW_ROLE,
   [UserRole.HOTEL_STAFF]: HOTEL_STAFF_ROLE,
   [UserRole.GUEST]: GUEST_ROLE,
 };
@@ -109,13 +105,15 @@ export const getRoleByType = (roleType: UserRole): Role => {
 };
 
 /**
- * Create Pit Stop Crew role with assigned stage
+ * Create dynamic pit-stop role definition for a PS_x_USER group.
  */
-export const createPitStopCrewRole = (stageNumber: number): Role => {
+export const createPitStopUserRole = (stageNumber: number): Role => {
   return {
-    ...PIT_STOP_CREW_ROLE,
-    roleId: `role_pit_stop_crew_stage_${stageNumber}`,
-    name: `Pit Stop Crew - Stage ${stageNumber}`,
+    roleId: `role_ps_${stageNumber}_user`,
+    role: `PS_${stageNumber}_USER`,
+    name: `PS_${stageNumber}_USER`,
+    description: `Pit stop regular check-in role for stage ${stageNumber}`,
+    permissions: PIT_STOP_USER_PERMISSIONS,
     assignedStage: stageNumber,
   };
 };

@@ -24,7 +24,7 @@ Detailed functional requirements, use cases, and feature specifications for the 
 - [Role Based App Access](#role-based-app-access)
   - [Administrator](#administrator)
   - [Super User](#super-user)
-  - [Pit Stop Crew](#pit-stop-crew)
+  - [Pit Stop Stage User (PS_x_USER)](#pit-stop-stage-user-ps_x_user)
   - [Hotel Staff](#hotel-staff)
   - [Guest](#guest)
 - [Offline Capability](#offline-capability)
@@ -122,7 +122,7 @@ On each day of the tour, before the ride is Started/Flagged off all riders must 
 Tour Director will use the dashboard to view the check-in progress and only when all check-ins are completed she/he will give go ahead to start the ride.
 
 ## Pit Stops  
-Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop. Pit Stop Crew will have the control on to flag the assigned pit stop as 'Open' and 'Closed'. This will help to a tracking view for Pit Stops. In future this status can even be used for Rider App (not scope for this project) to let riders know Pit Stop as been opend and closed.
+Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop. Assigned pit-stop stage users (`PS_x_USER`) will have the control on to flag the assigned pit stop as 'Open' and 'Closed'. This will help to a tracking view for Pit Stops. In future this status can even be used for Rider App (not scope for this project) to let riders know Pit Stop as been opend and closed.
 
 No. of pit stops may vary as per the day's ride plan and distance. Dashboard should dynamically adapt to the corresponding ride and no. of pit stops automatically.
 
@@ -137,7 +137,7 @@ In multi-user scenarios (multiple crew users and rider self check-in channels), 
 ## Quit Riding  
 A rider can decide to quit the ride or call it a day at any point in the ride after starting the ride. A Rider can decide to 'Quit Riding' at a pit stop or any location between stages.  
 
-If Rider decides at a pit stop, pit stop crew user should register the Rider as 'Quit Riding'. This can be done before or after pit stop check in is completed.
+If Rider decides at a pit stop, the assigned pit-stop stage user should register the Rider as 'Quit Riding'. This can be done before or after pit stop check in is completed.
 
 If a Rider decides to Quit Riding in between any stage, QR Code scanning is not possible as there is no user around to do it. In this scenario usually Rider inform/post in the WhatsApp Group Chat monitored by Tour Director or user with Super User role and one of them can perform a manual check in using the Rider ID, remotely.
 
@@ -182,7 +182,7 @@ Function can be disabled or should not appear in the app if it not permitted to 
 Possible Roles expected:
 - Administrator
 - Super User
-- Pit Stop Crew
+- Pit Stop Stage User (`PS_x_USER`)
 - Hotel Staff
 - Guest
 
@@ -192,16 +192,25 @@ This role will have unrestricted full access to all features and functions avail
 ## Super User
 This role will have access to all features and functions except Add/Modify and Close Ride features.
 
-## Pit Stop Crew
-This role will have access to all check in features including the 2 special cases. For clarity purpose manual check in feature will not be available for this role - Not Riding can be registered before the start of the ride and if Rider decides to Quit Riding at Pit Stop, this can be captured by scanning the QR Code.
+## Pit Stop Stage User (PS_x_USER)
+Pit-stop roles are stage-specific Cognito groups in the format `PS_x_USER` where `x` maps to the ride stage number and Start is always stage `0`.
 
-This role will have the ability to mark assigned pit stop as 'Opened' and 'Closed' to allow good control on Pit Stop status.
+Default deployed pit-stop role groups are:
+- `PS_1_USER`
+- `PS_2_USER`
+- `PS_3_USER`
+- `PS_4_USER`
+- `PS_5_USER`
 
-There can be more than 1 pit stops hence this role assignment should include the pit stop (stage) no as well.  
+Rules:
+- These roles apply only to stages with type `PIT_STOP`.
+- Last stage is always `FINISH` and must never be mapped to a pit-stop role.
+- Regular check-in is allowed only for the exact pit-stop stage(s) mapped by the role(s).
+- Quit Riding check-in is allowed for all `PS_x_USER` roles.
+- Not Riding check-in is not allowed for `PS_x_USER` roles.
+- Manual check-in is not allowed for `PS_x_USER` roles.
 
-Fallback feature should be considered as part of standard check in and not as manual check in feature.
-
-Dashboard view should be fully available with option to switch to user's pit stop filter view.
+Multiple pit-stop role assignments for one user are valid (example: `PS_1_USER` and `PS_3_USER`). In this case the app must provide a stage-context selector so the user can choose the active pit-stop context for regular check-ins.
 
 ## Hotel Staff
 This should be flagged as a special role where Dashboard access should not be available. User with this role can only scan QR code to mark a Rider as finished the ride. There is a future functionality linked to this role. To be taken up at a later stage.  
@@ -214,11 +223,11 @@ Sometime pit stop can be in a very remote location where cellular reception may 
 
 All check in should be captured in mobile device local database/storage and asynchronously updated in the main cloud based database table. If network is not available the async update process should be put on hold until network is available.
 
-Dashboard view should use the check in data available in the local database for display in offline mode. This means Dashboard view should automatically switch to filter by stage view using the respective stage to which the pit stop crew user is assigned. Sorting within this filter should be possible.
+Dashboard view should use the check in data available in the local database for display in offline mode. For `PS_x_USER`, the Dashboard should use the selected pit-stop context stage. If the user has multiple pit-stop roles, they must be able to select and persist the active pit-stop context.
 
-TODO: Define this use case: If pit stop crew user is assigned manage more than 1 pit stop stage, how the offline mode should work?
+Persisted pit-stop context must be validated at login/day-start against the current ride stages. If no longer valid for that ride (for example fewer stages, or no matching PIT_STOP stage), the context must be invalidated and the user informed.
 
-Since 'Not Riding' status is records before the ride starts, this data should be synced to local offline database and used in the offline mode Dashboard view. This is to ensure pit stop crew is made aware of riders who won't be checking in for the day at their pit stop location.
+Since 'Not Riding' status is records before the ride starts, this data should be synced to local offline database and used in the offline mode Dashboard view. This is to ensure pit-stop stage users are made aware of riders who won't be checking in for the day at their pit stop location.
 
 # Administrator Features  
 

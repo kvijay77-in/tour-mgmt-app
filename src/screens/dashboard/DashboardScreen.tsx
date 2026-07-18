@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  Alert,
   useWindowDimensions,
 } from 'react-native';
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -28,12 +29,17 @@ import { getActiveRide, listRides } from '../../services/api/rideApi';
 import { getDashboardData } from '../../services/api/dashboardApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole } from '../../types/models';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
-import { hasPermission } from '../../utils/permissions';
+import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import CheckInScreen from '../checkin/CheckInScreen';
 import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
+import {
+  clearPitStopContextStageNumber,
+  loadPitStopContextStageNumber,
+  savePitStopContextStageNumber,
+} from '../../services/config/pitStopContextService';
 
 const { width: WINDOW_WIDTH } = Dimensions.get('window');
 
@@ -121,6 +127,8 @@ export default function DashboardScreen() {
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showRideStatusManagement, setShowRideStatusManagement] = useState(false);
+  const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
+  const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -130,6 +138,69 @@ export default function DashboardScreen() {
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
   const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
+  const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
+
+  const pitStopRoleStageNumbers = useMemo(
+    () => getPitStopStageNumbersFromRoles(user?.userRoles ?? []),
+    [user?.userRoles],
+  );
+
+  const availablePitStopStagesForUser = useMemo(() => {
+    if (!ride || !isPitStopPrimaryRole) return [] as Array<{ stageNumber: number; name: string }>;
+
+    return ride.stages
+      .filter((s) => s.type === StageType.PIT_STOP && pitStopRoleStageNumbers.includes(s.stageNumber))
+      .map((s) => ({ stageNumber: s.stageNumber, name: s.name }));
+  }, [ride, isPitStopPrimaryRole, pitStopRoleStageNumbers]);
+
+  const availablePitStopStageNumbers = useMemo(
+    () => availablePitStopStagesForUser.map((s) => s.stageNumber),
+    [availablePitStopStagesForUser],
+  );
+
+  useEffect(() => {
+    if (!ride || !isPitStopPrimaryRole) {
+      setManagedPitStopStageNumber(null);
+      return;
+    }
+
+    let active = true;
+
+    const loadAndValidateContext = async () => {
+      const storedStageNumber = await loadPitStopContextStageNumber();
+      if (!active) return;
+
+      if (storedStageNumber === null) {
+        setManagedPitStopStageNumber(null);
+        return;
+      }
+
+      if (!availablePitStopStageNumbers.includes(storedStageNumber)) {
+        await clearPitStopContextStageNumber();
+        if (!active) return;
+        setManagedPitStopStageNumber(null);
+        Alert.alert(
+          'Pit Stop Context Reset',
+          'Previously selected pit stop context is not valid for this ride. Please set it again from the menu.',
+        );
+        return;
+      }
+
+      setManagedPitStopStageNumber(storedStageNumber);
+    };
+
+    void loadAndValidateContext();
+
+    return () => {
+      active = false;
+    };
+  }, [ride, ride?.rideId, isPitStopPrimaryRole, availablePitStopStageNumbers]);
+
+  const handleSelectPitStopContext = useCallback(async (stageNumber: number) => {
+    await savePitStopContextStageNumber(stageNumber);
+    setManagedPitStopStageNumber(stageNumber);
+    setShowPitStopContextPicker(false);
+  }, []);
 
   // Load a specific ride's dashboard data
   const loadRideDashboard = useCallback(async (
@@ -913,6 +984,21 @@ export default function DashboardScreen() {
                 <Text style={styles.menuItemText}>Ride status management</Text>
               </TouchableOpacity>
             )}
+            {isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1 && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowHeaderMenu(false);
+                  setShowPitStopContextPicker(true);
+                }}
+              >
+                <MaterialIcons name="tune" size={18} color={COLORS.textPrimary} />
+                <Text style={styles.menuItemText}>
+                  Set pit stop context
+                  {managedPitStopStageNumber !== null ? ` (PS${managedPitStopStageNumber})` : ''}
+                </Text>
+              </TouchableOpacity>
+            )}
             {selectedStage && (
               <View style={styles.menuSwitchItem}>
                 <View style={styles.menuSwitchLabelWrap}>
@@ -1110,6 +1196,7 @@ export default function DashboardScreen() {
         >
           <CheckInScreen
             ride={ride}
+            managedPitStopStageNumber={managedPitStopStageNumber ?? undefined}
             onCheckInComplete={() => {
               // Refresh dashboard data after a check-in
               if (tour && ride) {
@@ -1176,6 +1263,51 @@ export default function DashboardScreen() {
                       </Text>
                     </View>
                     <Text style={styles.ridePickerItemStatus}>{r.status}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Pit Stop Context Picker */}
+      <Modal
+        visible={showPitStopContextPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPitStopContextPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowPitStopContextPicker(false)}
+        >
+          <View style={styles.ridePickerContainer}>
+            <View style={styles.ridePickerHeader}>
+              <Text style={styles.ridePickerTitle}>Set Pit Stop Context</Text>
+              <TouchableOpacity onPress={() => setShowPitStopContextPicker(false)}>
+                <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.ridePickerList}>
+              {availablePitStopStagesForUser.map((stage) => {
+                const isSelected = managedPitStopStageNumber === stage.stageNumber;
+                return (
+                  <TouchableOpacity
+                    key={`pit-stop-context-${stage.stageNumber}`}
+                    style={[styles.ridePickerItem, isSelected && styles.ridePickerItemSelected]}
+                    onPress={() => {
+                      void handleSelectPitStopContext(stage.stageNumber);
+                    }}
+                  >
+                    <View>
+                      <Text style={[styles.ridePickerItemName, isSelected && styles.ridePickerItemNameSelected]}>
+                        PS{stage.stageNumber}
+                      </Text>
+                      <Text style={styles.ridePickerItemDate}>{stage.name}</Text>
+                    </View>
+                    {isSelected && <MaterialIcons name="check-circle" size={20} color={COLORS.primary} />}
                   </TouchableOpacity>
                 );
               })}

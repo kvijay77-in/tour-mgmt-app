@@ -256,7 +256,7 @@ The backend returns camelCase JSON (as stored in DynamoDB). The frontend types s
 
 ### 4.1 Overview
 
-Offline support is critical for Pit Stop Crew users at remote locations. The design uses SQLite (via `expo-sqlite`) as the local database for caching and offline check-in capture.
+Offline support is critical for pit-stop stage users (`PS_x_USER`) at remote locations. The design uses SQLite (via `expo-sqlite`) as the local database for caching and offline check-in capture.
 
 ### 4.2 SQLite Schema
 
@@ -483,7 +483,7 @@ A separate background process polls the backend API and writes updated data into
 
 When offline (manual toggle or auto-detected):
 - Dashboard reads from SQLite cache (same as online — single source of truth)
-- For Pit Stop Crew: automatically switch to their assigned stage context view
+- For `PS_x_USER`: use the currently selected pit-stop context stage for regular check-in workflows
 - "Not Riding" and "Quit Riding" statuses synced before going offline are visible
 - Locally captured check-ins are visible immediately
 
@@ -522,7 +522,7 @@ Per requirements, "Not Riding" and "Quit Riding" data captured before a pit stop
 
 1. **On app launch / when online:** Fetch and cache the complete dashboard data in SQLite
 2. **Inbound sync while online:** The 5-second polling keeps the SQLite cache updated with the latest "Not Riding" and "Quit Riding" statuses
-3. **Before going to pit stop:** Pit stop crew should have the app open with a recent sync. The 5-second refresh ensures the cache is current when connectivity is lost (or when the user manually switches to offline mode)
+3. **Before going to pit stop:** `PS_x_USER` should have the app open with a recent sync. The 5-second refresh ensures the cache is current when connectivity is lost (or when the user manually switches to offline mode)
 4. **Manual refresh:** A pull-to-refresh gesture is available on the dashboard for on-demand data sync
 
 ### 4.5 Conflict Resolution
@@ -548,7 +548,7 @@ Consider:
 
 #### Scenario: Ride CLOSED with Valid Offline Check-Ins
 
-A ride may be closed by an administrator while pit stop crew at a remote location still have pending offline check-ins. These check-ins were captured **while the ride was active** and are valid data.
+A ride may be closed by an administrator while pit-stop stage users at a remote location still have pending offline check-ins. These check-ins were captured **while the ride was active** and are valid data.
 
 **Resolution:** Check-ins captured before `closedAt` are valid and should be accepted by the backend (requires enhancement per §9.2). The sync process sends the original capture `timestamp`, and the backend validates:
 - If `check-in timestamp < ride closedAt` → **accept** (valid late-synced check-in)
@@ -675,7 +675,7 @@ When `EXPO_PUBLIC_USE_MOCK_DATA` is set to `true`, the API service functions (`g
 
 1. **Tour selection:** Currently assumes a single active tour per organisation. This is confirmed as the current use case. A TODO issue should be created for handling concurrent multiple active tours as a future enhancement.
 
-2. **Multi-stage pit stop crew offline:** When a pit stop crew user is assigned to multiple stages, the app will provide a **stage context selector** allowing the user to choose which stage is their active context for the dashboard. This avoids confusion since the pit stop crew's main objective is the currently active pit stop. The selector will be prominent in the dashboard header when the user has multiple stage assignments.
+2. **Multi-stage `PS_x_USER` offline:** When a user is assigned multiple `PS_x_USER` groups, the app provides a **pit-stop context selector** for selecting the active stage context. This context is persisted and validated against the current ride at login/day-start; if invalid for that ride, it is cleared and the user is prompted to set it again.
 
 3. **Dashboard refresh interval:** 5-second polling during active rides is confirmed as acceptable. Live-feed enhancement (WebSocket) tracked in issue #7. The SQLite-as-source architecture ensures any future live-feed mechanism (WebSocket, push notifications) can be adopted without changing the Dashboard UI — only the inbound sync process needs updating.
 

@@ -262,6 +262,14 @@ Amplify.configure({
 
 > **Note**: All environment variables must use the `EXPO_PUBLIC_` prefix. This is an Expo requirement — Metro only bundles variables with this prefix. See [Development Guide → Environment Configuration](development-guide.md#environment-configuration) for details.
 
+### Role Resolution from Cognito Groups
+
+- The app resolves roles directly from `cognito:groups` in the ID token.
+- Supported groups include static roles (`ADMINISTRATOR`, `SUPER_USER`, `HOTEL_STAFF`, `GUEST`) and dynamic pit-stop roles in the format `PS_<stageNumber>_USER`.
+- Effective role precedence is: `ADMINISTRATOR` > `SUPER_USER` > `PS_x_USER` > `HOTEL_STAFF` > `GUEST`.
+- When a user has multiple `PS_x_USER` groups, all mapped pit-stop stages are considered for regular check-in authorization.
+- Pit-stop context selection is persisted locally and revalidated against the currently loaded ride; invalid context is automatically cleared and the user is informed.
+
 ---
 
 ## Backend Integration
@@ -359,6 +367,7 @@ AppNavigator
 - The Dashboard hamburger menu includes account actions for all authenticated users.
 - The "Ride status management" entry is shown only to `ADMINISTRATOR` users.
 - The entry opens an admin-only full-screen flow for controlled ride status transitions.
+- For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins.
 
 ---
 
