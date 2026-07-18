@@ -59,32 +59,32 @@ export const MOCK_RIDERS: Rider[] = generateRiders(90);
 
 export const MOCK_STAGES: Stage[] = [
   {
-    stageId: 'S001',
-    stageNumber: 1,
+    stageId: 'S000',
+    stageNumber: 0,
     type: StageType.START,
     name: 'Start - City Center',
     distanceFromStart: 0,
     estimatedTimeFromStart: 0,
   },
   {
-    stageId: 'S002',
-    stageNumber: 2,
+    stageId: 'S001',
+    stageNumber: 1,
     type: StageType.PIT_STOP,
     name: 'Pit Stop 1 - Riverside Park',
     distanceFromStart: 25,
     estimatedTimeFromStart: 90,
   },
   {
-    stageId: 'S003',
-    stageNumber: 3,
+    stageId: 'S002',
+    stageNumber: 2,
     type: StageType.PIT_STOP,
     name: 'Pit Stop 2 - Mountain View',
     distanceFromStart: 50,
     estimatedTimeFromStart: 180,
   },
   {
-    stageId: 'S004',
-    stageNumber: 4,
+    stageId: 'S003',
+    stageNumber: 3,
     type: StageType.FINISH,
     name: 'Finish - Coastal Resort',
     distanceFromStart: 75,
@@ -130,7 +130,7 @@ const generateCheckIns = (): CheckIn[] => {
   const addCheckInsForRider = (riderId: string, upToStage: number, isQuitting: boolean = false) => {
     const riderNum = parseInt(riderId.substring(1));
     
-    for (let stageNum = 1; stageNum <= upToStage; stageNum++) {
+    for (let stageNum = 0; stageNum <= upToStage; stageNum++) {
       checkIns.push({
         checkInId: `CI${String(checkInCounter++).padStart(3, '0')}`,
         riderId,
@@ -140,13 +140,13 @@ const generateCheckIns = (): CheckIn[] => {
         isNotRiding: false,
         isQuitRiding: false,
         timestamp: `2026-02-01T${String(7 + stageNum).padStart(2, '0')}:${String((riderNum % 60)).padStart(2, '0')}:00Z`,
-        checkedInBy: stageNum === 1 ? 'admin' : `crew${stageNum - 1}`,
+        checkedInBy: stageNum === 0 ? 'admin' : `crew${stageNum}`,
         method: CheckInMethod.QR_SCAN,
       });
     }
     
     // If quitting, add a QUIT_RIDING check-in at the next stage
-    if (isQuitting && upToStage < 4) {
+    if (isQuitting && upToStage < 3) {
       checkIns.push({
         checkInId: `CI${String(checkInCounter++).padStart(3, '0')}`,
         riderId,
@@ -156,23 +156,23 @@ const generateCheckIns = (): CheckIn[] => {
         isNotRiding: false,
         isQuitRiding: true,
         timestamp: `2026-02-01T${String(8 + upToStage).padStart(2, '0')}:${String((riderNum % 60)).padStart(2, '0')}:00Z`,
-        checkedInBy: `crew${upToStage}`,
+        checkedInBy: `crew${upToStage + 1}`,
         method: CheckInMethod.MANUAL,
       });
     }
   };
   
-  // Finish riders (completed all 4 stages)
-  finishRiders.forEach(riderId => addCheckInsForRider(riderId, 4, false));
+  // Finish riders (completed all 4 stages, zero-based 0..3)
+  finishRiders.forEach(riderId => addCheckInsForRider(riderId, 3, false));
   
-  // PS2 riders (reached stage 3)
-  ps2Riders.forEach(riderId => addCheckInsForRider(riderId, 3, false));
+  // PS2 riders (reached stage 2)
+  ps2Riders.forEach(riderId => addCheckInsForRider(riderId, 2, false));
   
-  // PS1 riders (reached stage 2)
-  ps1Riders.forEach(riderId => addCheckInsForRider(riderId, 2, false));
+  // PS1 riders (reached stage 1)
+  ps1Riders.forEach(riderId => addCheckInsForRider(riderId, 1, false));
   
   // Start riders - first 27 checked in at start, last 8 have no check-ins yet
-  startRiders.slice(0, 27).forEach(riderId => addCheckInsForRider(riderId, 1, false));
+  startRiders.slice(0, 27).forEach(riderId => addCheckInsForRider(riderId, 0, false));
   
   // NR riders - marked as NOT_RIDING
   nrRiders.forEach(riderId => {
@@ -181,8 +181,8 @@ const generateCheckIns = (): CheckIn[] => {
       checkInId: `CI${String(checkInCounter++).padStart(3, '0')}`,
       riderId,
       rideId: 'RIDE001',
-      stageNumber: 1,
-      stageId: 'S001',
+      stageNumber: 0,
+      stageId: 'S000',
       isNotRiding: true,
       isQuitRiding: false,
       timestamp: `2026-02-01T07:${String((riderNum % 60)).padStart(2, '0')}:00Z`,
@@ -193,11 +193,11 @@ const generateCheckIns = (): CheckIn[] => {
   
   // QR riders - quit at different stages for variety
   // R080 quits after Start
-  addCheckInsForRider('R080', 1, true);
+  addCheckInsForRider('R080', 0, true);
   // R082 quits after PS1
-  addCheckInsForRider('R082', 2, true);
+  addCheckInsForRider('R082', 1, true);
   // R083 quits after PS2
-  addCheckInsForRider('R083', 3, true);
+  addCheckInsForRider('R083', 2, true);
   
   return checkIns;
 };

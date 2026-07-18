@@ -235,10 +235,10 @@ export interface Rider {
  * Stage information within a ride
  */
 export interface Stage {
-  /** Stage ID (e.g., S001) */
+  /** Stage ID aligned with zero-based sequence (e.g., S000, S001) */
   stageId: string;
   
-  /** Stage number (1-based) */
+  /** Stage number (zero-based: Start is 0) */
   stageNumber: number;
   
   /** Stage type */
@@ -335,7 +335,7 @@ export interface CheckIn {
   /** Ride ID */
   rideId: string;
 
-  /** Stage number (1-based) */
+  /** Stage number (zero-based: Start is 0) */
   stageNumber: number;
   
   /** Stage ID reference */

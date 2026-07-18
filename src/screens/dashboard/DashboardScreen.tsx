@@ -603,9 +603,9 @@ export default function DashboardScreen() {
   };
 
   const getStageLabel = (stageNumber: number, totalStages: number): string => {
-    if (stageNumber === 1) return 'Start';
-    if (stageNumber === totalStages) return 'Finish';
-    return `PS${stageNumber - 1}`;
+    if (stageNumber === 0) return 'Start';
+    if (stageNumber === totalStages - 1) return 'Finish';
+    return `PS${stageNumber}`;
   };
 
   // Style helpers for dynamic colors and sizes

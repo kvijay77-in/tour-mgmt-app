@@ -160,6 +160,8 @@ The frontend types in `src/types/models.ts` need updates to align with the backe
 | `Stage` | Add `location` field |
 | `CheckIn` | Replace `status` enum with `isNotRiding`/`isQuitRiding` boolean flags (status is derived); add `stageNumber`; `checkInId` format is `<riderId>#<stageNumber>#<timestamp>` |
 
+> Stage numbering is zero-based in frontend and backend contracts: Start is `stageNumber = 0`, first pit stop is `1`, and so on. `stageId` follows the same sequence (for example `S000`, `S001`, ...).
+
 #### Key Differences to Note
 
 1. **Check-in status**: Backend does not store a `status` field. Status is derived from `isNotRiding` and `isQuitRiding` flags. The frontend `CheckInStatus` enum remains for UI purposes but the mapping function handles derivation.
@@ -212,10 +214,10 @@ The backend returns camelCase JSON (as stored in DynamoDB). The frontend types s
     "checkIns": [
       {
         "rideId": "RIDE001",
-        "checkInId": "R1#001#2026-02-10T08:00:00Z",
+        "checkInId": "R1#000#2026-02-10T08:00:00Z",
         "riderId": "R1",
-        "stageNumber": 1,
-        "stageId": "S001",
+        "stageNumber": 0,
+        "stageId": "S000",
         "isNotRiding": false,
         "isQuitRiding": false,
         "method": "QR_SCAN",
@@ -240,7 +242,7 @@ The backend returns camelCase JSON (as stored in DynamoDB). The frontend types s
 {
   "riderId": "R57",
   "rideId": "RIDE001",
-  "stageNumber": 2,
+  "stageNumber": 1,
   "method": "QR_SCAN",
   "isNotRiding": false,
   "isQuitRiding": false,

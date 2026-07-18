@@ -88,8 +88,8 @@ export const DASHBOARD_STAGE_COLORS = {
  * Get color for stage number (for pit stops)
  */
 export const getStageColor = (stageNumber: number, totalStages: number): string => {
-  if (stageNumber === 1) return DASHBOARD_STAGE_COLORS.start;
-  if (stageNumber === totalStages) return DASHBOARD_STAGE_COLORS.finish;
+  if (stageNumber === 0) return DASHBOARD_STAGE_COLORS.start;
+  if (stageNumber === totalStages - 1) return DASHBOARD_STAGE_COLORS.finish;
   
   // For pit stops, cycle through available colors
   const pitStopColors = [
@@ -98,7 +98,7 @@ export const getStageColor = (stageNumber: number, totalStages: number): string 
     DASHBOARD_STAGE_COLORS.pitStop3,
   ];
   
-  const pitStopIndex = stageNumber - 2; // Adjust for start (stage 1)
+  const pitStopIndex = stageNumber - 1; // Adjust for start (stage 0)
   return pitStopColors[pitStopIndex % pitStopColors.length];
 };
 
