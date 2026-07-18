@@ -45,6 +45,17 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
   const code = (error.errorCode || '').toUpperCase();
   const message = (error.message || '').toLowerCase();
 
+  const isNotRidingConflict =
+    code === 'RIDER_NOT_RIDING' ||
+    code.includes('NOT_RIDING') ||
+    message.includes('already not riding') ||
+    (message.includes('not riding') && message.includes('already'));
+
+  const isQuitRidingConflict =
+    code.includes('QUIT') ||
+    message.includes('quit riding') ||
+    message.includes('already quit');
+
   if (code === 'DUPLICATE_CHECKIN' || code.includes('DUPLICATE') || message.includes('duplicate') || message.includes('already checked')) {
     return {
       kind: 'info_conflict',
@@ -53,7 +64,7 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
     };
   }
 
-  if (code.includes('QUIT') || message.includes('quit riding') || message.includes('already quit')) {
+  if (isQuitRidingConflict) {
     return {
       kind: 'info_conflict',
       reason: 'quit_riding',
@@ -61,12 +72,7 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
     };
   }
 
-  if (
-    code === 'RIDER_NOT_RIDING' ||
-    code.includes('NOT_RIDING') ||
-    message.includes('already not riding') ||
-    (message.includes('not riding') && message.includes('already'))
-  ) {
+  if (isNotRidingConflict) {
     return {
       kind: 'info_conflict',
       reason: 'not_riding',
@@ -114,7 +120,7 @@ function getStatusConflictOutcome(
     return {
       kind: 'info_conflict',
       reason: 'not_riding',
-      message: `Rider is already marked as Not Riding. ${actionLabel} is not allowed.`,
+      message: `Rider is already marked as Not Riding in the latest backend status. ${actionLabel} is not allowed.`,
     };
   }
 
@@ -122,7 +128,7 @@ function getStatusConflictOutcome(
     return {
       kind: 'info_conflict',
       reason: 'quit_riding',
-      message: `Rider is already marked as Quit Riding. ${actionLabel} is not allowed.`,
+      message: `Rider is already marked as Quit Riding in the latest backend status. ${actionLabel} is not allowed.`,
     };
   }
 
