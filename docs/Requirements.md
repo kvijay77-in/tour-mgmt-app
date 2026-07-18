@@ -30,6 +30,10 @@ Detailed functional requirements, use cases, and feature specifications for the 
 - [Offline Capability](#offline-capability)
 - [Administrator Features](#administrator-features)
   - [Ride Status Management](#ride-status-management)
+  - [User Management](#user-management)
+    - [New User Onboarding](#new-user-onboarding)
+    - [Enable/Disable Existing User](#enabledisable-existing-user)
+    - [Modify User](#modify-user)
 - [Backend](#backend)
 - [Others](#others)
 
@@ -260,6 +264,40 @@ Access control:
 
 1. Only users with `ADMINISTRATOR` role should see the "Ride status management" menu option.
 2. Only `ADMINISTRATOR` role should be able to use this feature.
+
+## User Management
+
+User Management is available from the Dashboard hamburger menu as an Administrator-only menu item with sub-menu options.
+
+Access control:
+
+1. Only users with `ADMINISTRATOR` role should see the "User Management" menu option.
+2. Only `ADMINISTRATOR` role should be able to use User Management screens and actions.
+
+### New User Onboarding
+
+1. Launches a dedicated screen.
+2. Required field: Email ID.
+3. Optional fields: Phone no and Name.
+4. Role assignment must be loaded from Cognito groups and support multi-select.
+5. On submit, create the user in Cognito using standard Cognito API.
+6. Phone validation should be lightweight and accept international format. UI defaults phone input to `+91`.
+
+### Enable/Disable Existing User
+
+1. Launches a dedicated screen with registered users list.
+2. User list displays Name, Email ID and Roles.
+3. Selecting a user prompts confirmation for enable/disable depending on current Cognito state.
+4. On confirmation, call standard Cognito API to enable/disable the selected user.
+5. Cognito User ID (`sub`) must be used as the key from UI selection through action execution.
+
+### Modify User
+
+1. Launches a dedicated screen with registered users list.
+2. Selecting a user opens editable fields with existing values: Email ID, Phone no, Name.
+3. Update/Save writes modified values to Cognito via standard Cognito API.
+4. Cognito User ID (`sub`) must be used as the key from UI selection through update execution.
+5. Phone validation should be lightweight and accept international format. UI defaults phone input to `+91` when missing.
 
 Data model and fields to be determined as part of design and development stage.
 

@@ -35,6 +35,9 @@ import { SortIcon } from '../../components/common/SortIcon';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import CheckInScreen from '../checkin/CheckInScreen';
 import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
+import UserOnboardingScreen from '../admin/UserOnboardingScreen';
+import UserEnableDisableScreen from '../admin/UserEnableDisableScreen';
+import UserModifyScreen from '../admin/UserModifyScreen';
 import {
   clearPitStopContextStageNumber,
   loadPitStopContextStageNumber,
@@ -127,6 +130,10 @@ export default function DashboardScreen() {
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showRideStatusManagement, setShowRideStatusManagement] = useState(false);
+  const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
+  const [showUserOnboarding, setShowUserOnboarding] = useState(false);
+  const [showUserEnableDisable, setShowUserEnableDisable] = useState(false);
+  const [showUserModify, setShowUserModify] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -977,12 +984,71 @@ export default function DashboardScreen() {
                 style={styles.menuItem}
                 onPress={() => {
                   setShowHeaderMenu(false);
+                  setShowUserManagementSubmenu(false);
                   setShowRideStatusManagement(true);
                 }}
               >
                 <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
                 <Text style={styles.menuItemText}>Ride status management</Text>
               </TouchableOpacity>
+            )}
+            {isAdministrator && (
+              <View style={styles.menuSectionWrap}>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => setShowUserManagementSubmenu((prev) => !prev)}
+                >
+                  <MaterialIcons name="manage-accounts" size={18} color={COLORS.textPrimary} />
+                  <Text style={styles.menuItemText}>User Management</Text>
+                  <View style={styles.menuItemRightIconWrap}>
+                    <MaterialIcons
+                      name={showUserManagementSubmenu ? 'expand-less' : 'expand-more'}
+                      size={18}
+                      color={COLORS.textSecondary}
+                    />
+                  </View>
+                </TouchableOpacity>
+
+                {showUserManagementSubmenu && (
+                  <View style={styles.menuSubmenuWrap}>
+                    <TouchableOpacity
+                      style={styles.menuSubItem}
+                      onPress={() => {
+                        setShowHeaderMenu(false);
+                        setShowUserManagementSubmenu(false);
+                        setShowUserOnboarding(true);
+                      }}
+                    >
+                      <MaterialIcons name="person-add" size={16} color={COLORS.textPrimary} />
+                      <Text style={styles.menuSubItemText}>New user onboarding</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.menuSubItem}
+                      onPress={() => {
+                        setShowHeaderMenu(false);
+                        setShowUserManagementSubmenu(false);
+                        setShowUserEnableDisable(true);
+                      }}
+                    >
+                      <MaterialIcons name="toggle-on" size={16} color={COLORS.textPrimary} />
+                      <Text style={styles.menuSubItemText}>Enable / Disable user</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.menuSubItem}
+                      onPress={() => {
+                        setShowHeaderMenu(false);
+                        setShowUserManagementSubmenu(false);
+                        setShowUserModify(true);
+                      }}
+                    >
+                      <MaterialIcons name="edit" size={16} color={COLORS.textPrimary} />
+                      <Text style={styles.menuSubItemText}>Modify user</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
             )}
             {isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1 && (
               <TouchableOpacity
@@ -1221,6 +1287,39 @@ export default function DashboardScreen() {
             onClose={() => setShowRideStatusManagement(false)}
             onStatusChanged={fetchDashboard}
           />
+        </Modal>
+      )}
+
+      {isAdministrator && (
+        <Modal
+          visible={showUserOnboarding}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowUserOnboarding(false)}
+        >
+          <UserOnboardingScreen onClose={() => setShowUserOnboarding(false)} />
+        </Modal>
+      )}
+
+      {isAdministrator && (
+        <Modal
+          visible={showUserEnableDisable}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowUserEnableDisable(false)}
+        >
+          <UserEnableDisableScreen onClose={() => setShowUserEnableDisable(false)} />
+        </Modal>
+      )}
+
+      {isAdministrator && (
+        <Modal
+          visible={showUserModify}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowUserModify(false)}
+        >
+          <UserModifyScreen onClose={() => setShowUserModify(false)} />
         </Modal>
       )}
 
@@ -1592,6 +1691,31 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 11,
+  },
+  menuSectionWrap: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  menuItemRightIconWrap: {
+    marginLeft: 'auto',
+  },
+  menuSubmenuWrap: {
+    paddingBottom: 6,
+    backgroundColor: COLORS.gray[50],
+  },
+  menuSubItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 28,
+    paddingVertical: 9,
+  },
+  menuSubItemText: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
   },
   menuSwitchItem: {
     flexDirection: 'row',

@@ -161,7 +161,11 @@ src/screens/
 ├── dashboard/
 │   └── DashboardScreen.tsx      # Main dashboard with rider grid
 ├── checkin/                      # QR scanning, check-in flow
-├── admin/                        # Ride management (add/modify/close)
+├── admin/                        # Administrator-only management screens
+│   ├── RideStatusManagementScreen.tsx
+│   ├── UserOnboardingScreen.tsx
+│   ├── UserEnableDisableScreen.tsx
+│   └── UserModifyScreen.tsx
 └── auth/                         # Login, authentication screens
 ```
 
@@ -287,6 +291,13 @@ All communication with the tour-data-api is through the service layer at `src/se
 | `checkInApi.ts` | `POST /v1/tours/{tourId}/checkins`, GET | Check-in operations |
 | `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard` | Composite dashboard data |
 
+Administrator user-management flows use `src/services/auth/cognitoUserManagementService.ts` and standard Cognito Identity Provider APIs for:
+- Cognito group listing for role selection
+- User listing with group membership resolution
+- User creation with role assignment
+- User enable/disable
+- User attribute updates
+
 ### API Client Features
 
 - **Base URL**: Configured from environment variable (`TOUR_DATA_API_BASE_URL`)
@@ -367,7 +378,14 @@ AppNavigator
 - The Dashboard hamburger menu includes account actions for all authenticated users.
 - The "Ride status management" entry is shown only to `ADMINISTRATOR` users.
 - The entry opens an admin-only full-screen flow for controlled ride status transitions.
+- The "User Management" entry is shown only to `ADMINISTRATOR` users and contains sub-menu entries for New User Onboarding, Enable/Disable User, and Modify User.
 - For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins.
+
+### User Management Input Validation
+
+- User onboarding and modify-user flows apply lightweight client-side validation for Email and Phone.
+- Phone input defaults to `+91` in these admin forms.
+- Phone is optional; when provided, it must follow international format (`+` prefix and digits).
 
 ---
 
