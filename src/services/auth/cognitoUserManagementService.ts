@@ -136,7 +136,16 @@ function getObjectKeys(value: unknown): string[] {
   return Object.keys(value).sort((a, b) => a.localeCompare(b, 'en'));
 }
 
-// Backend validates UUIDs strictly for path param `cognitoUserId`.
+function toUserIdPathSegment(cognitoUserId: string): string {
+  const normalized = cognitoUserId.trim();
+  if (!normalized) {
+    throw new Error('Selected user does not have a valid Cognito user identifier. Please refresh the list and try again.');
+  }
+
+  return encodeURIComponent(normalized);
+}
+
+// Prefer canonical UUID-like identifiers when available, but support non-UUID IDs.
 function isStrictUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -448,24 +457,19 @@ export async function setCognitoUserEnabled(
   cognitoUserId: string,
   enabled: boolean,
 ): Promise<void> {
-  if (!isStrictUuid(cognitoUserId)) {
-    throw new Error('Selected user does not have a backend-compatible Cognito UUID. Please refresh the list and try again.');
-  }
-
+  const userIdPathSegment = toUserIdPathSegment(cognitoUserId);
   const actionPath = enabled ? 'enable' : 'disable';
 
-  await apiClient.post(`/v1/admin/usermgmt/users/${cognitoUserId}/${actionPath}`, {});
+  await apiClient.post(`/v1/admin/usermgmt/users/${userIdPathSegment}/${actionPath}`, {});
 }
 
 export async function updateCognitoUserProfile(
   cognitoUserId: string,
   updates: UpdateCognitoUserProfileInput,
 ): Promise<void> {
-  if (!isStrictUuid(cognitoUserId)) {
-    throw new Error('Selected user does not have a backend-compatible Cognito UUID. Please refresh the list and choose a user with valid identifier.');
-  }
+  const userIdPathSegment = toUserIdPathSegment(cognitoUserId);
 
-  await apiClient.put(`/v1/admin/usermgmt/users/${cognitoUserId}`, {
+  await apiClient.put(`/v1/admin/usermgmt/users/${userIdPathSegment}`, {
     email: updates.email,
     phoneNumber: updates.phoneNumber,
     name: updates.name,
