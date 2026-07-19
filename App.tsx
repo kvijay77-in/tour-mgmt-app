@@ -18,6 +18,7 @@ import { ErrorBoundary } from './src/components/common/ErrorBoundary';
 import { TourProvider } from './src/context/TourContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { configureAmplify } from './src/config/amplify';
+import { initBackendRouting } from './src/config/reviewAccess';
 import { COLORS } from './src/constants/colors';
 import { OrgConfig } from './src/types/config';
 import { loadOrgConfig } from './src/services/config/orgConfigService';
@@ -50,6 +51,7 @@ type AuthScreen =
 function applyOrgConfig(config: OrgConfig): void {
   configureAmplify(config);
   setApiBaseUrl(config.apiBaseUrl);
+  initBackendRouting(config);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +174,7 @@ export default function App() {
           if (envBaseUrl && envPoolId) {
             logger.info(TAG, 'No stored org config — using env-var fallback (dev mode)');
             configureAmplify();
+            initBackendRouting();
             setState({ phase: 'ready' });
           } else {
             logger.info(TAG, 'No org config found — showing setup screen');

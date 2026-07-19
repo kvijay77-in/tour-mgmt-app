@@ -266,6 +266,24 @@ Amplify.configure({
 
 > **Note**: All environment variables must use the `EXPO_PUBLIC_` prefix. This is an Expo requirement — Metro only bundles variables with this prefix. See [Development Guide → Environment Configuration](development-guide.md#environment-configuration) for details.
 
+### Google Play Review Account Routing
+
+A single production build is published to Google Play, but Google requires a
+full-access `ADMINISTRATOR` account for app review. To keep production data
+isolated from the reviewer, one env-configured username (`EXPO_PUBLIC_REVIEW_USERNAME`)
+is routed to a separate **Dev** backend — its own Cognito User Pool, App Client,
+Identity Pool, and tour-data-api — configured via the `EXPO_PUBLIC_REVIEW_*`
+variables. The reviewer account exists only in the Dev pool.
+
+- The routing decision is made at **login time** (`src/config/reviewAccess.ts`),
+  because the username is only known when the user signs in, before `signIn()`.
+- The primary (production) backend is applied once at startup and is the default,
+  so real-user logins incur **no reconfiguration**. The backend is only switched
+  on an actual transition to/from review mode, tracked internally.
+- With `EXPO_PUBLIC_REVIEW_USERNAME` unset the switch is disabled (fail-safe), and
+  no non-reviewer username can reach the Dev backend.
+- See [Release Guide → §3.1.1](release-guide.md#311-google-play-review-account-dev-backend-routing).
+
 ### Role Resolution from Cognito Groups
 
 - The app resolves roles directly from `cognito:groups` in the ID token.

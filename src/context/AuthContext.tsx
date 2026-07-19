@@ -17,6 +17,7 @@ import {
   updatePassword,
 } from 'aws-amplify/auth';
 import { setAuthTokenProvider, setAuthInvalidatedCallback } from '../services/api/apiClient';
+import { routeBackendForLogin } from '../config/reviewAccess';
 import { AppRole } from '../types/models';
 import { isSupportedRoleGroup, resolvePrimaryRole } from '../utils/permissions';
 import { loadPitStopContextStageNumber } from '../services/config/pitStopContextService';
@@ -218,11 +219,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsAuthenticating(true);
     setError(null);
     try {
-      const result = await signIn({
-        username,
-        password,
-        options: { authFlowType: 'USER_PASSWORD_AUTH' },
-      });
+      // Route to the correct backend before authenticating. Primary (production)
+      // is the default; this only reconfigures when the reviewer account signs in
+      // (or when switching back after a reviewer session in the same app run).
+      routeBackendForLogin(username);
+
+      let result;
+      try {
+        result = await signIn({
+          username,
+          password,
+          options: { authFlowType: 'USER_PASSWORD_AUTH' },
+        });
+      } catch (signInErr) {
+        // A lingering session on the previously-configured pool can block sign-in
+        // after a backend switch. Clear it and retry once.
+        if (signInErr instanceof Error && signInErr.name === 'UserAlreadyAuthenticatedException') {
+          await signOut().catch(() => {});
+          result = await signIn({
+            username,
+            password,
+            options: { authFlowType: 'USER_PASSWORD_AUTH' },
+          });
+        } else {
+          throw signInErr;
+        }
+      }
 
       if (result.nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
         // User must set a new password (first login with temp password)

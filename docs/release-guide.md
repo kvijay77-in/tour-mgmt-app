@@ -111,6 +111,29 @@ committed to git.
 > profile in `eas.json` and should **not** be duplicated as EAS environment
 > variables.
 
+### 3.1.1 Google Play review account (Dev backend routing)
+
+Google Play review requires a full-access ADMINISTRATOR account. To keep
+production data isolated, one env-configured username is routed to the **Dev**
+backend (separate Cognito User Pool + App Client + Identity Pool + tour-data-api)
+while all real users stay on production. The switch happens at login time and
+only for this exact username; leaving `EXPO_PUBLIC_REVIEW_USERNAME` empty disables
+routing entirely.
+
+| Variable | Example value | Where to find it |
+|----------|---------------|------------------|
+| `EXPO_PUBLIC_REVIEW_USERNAME` | `google-reviewer@someusefulapps.com` | The account shared with Google (must exist in the Dev pool). |
+| `EXPO_PUBLIC_REVIEW_AWS_REGION` | `ap-south-1` | Dev AWS region. |
+| `EXPO_PUBLIC_REVIEW_AWS_USER_POOL_ID` | `ap-south-1_XXXXXXXXX` | Dev Cognito Console → User Pool → General settings. |
+| `EXPO_PUBLIC_REVIEW_AWS_USER_POOL_WEB_CLIENT_ID` | `xxxxxxxxxxxxxxxxxxxxxxxxxx` | Dev Cognito Console → App client. |
+| `EXPO_PUBLIC_REVIEW_AWS_IDENTITY_POOL_ID` | `ap-south-1:xxxxxxxx-...` | Dev Cognito Console → Federated Identities (if used). |
+| `EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL` | `https://dev-api.tot.example.com/dev` | Dev tour-data-api API Gateway invoke URL. |
+
+> Register these as EAS project environment variables for `preview` and
+> `production` alongside the primary variables above (§3.2). The reviewer account
+> must be created in the **Dev** Cognito pool, added to the `ADMINISTRATOR` group,
+> and given a permanent password.
+
 ### 3.2 Register environment variables in EAS
 
 For each variable above:
