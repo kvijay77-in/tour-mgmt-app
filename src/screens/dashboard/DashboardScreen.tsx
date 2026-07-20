@@ -23,6 +23,8 @@ import {
 } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
 import { getActiveRide, listRides } from '../../services/api/rideApi';
@@ -33,12 +35,7 @@ import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole,
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
-import CheckInScreen from '../checkin/CheckInScreen';
-import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
-import UserOnboardingScreen from '../admin/UserOnboardingScreen';
-import UserEnableDisableScreen from '../admin/UserEnableDisableScreen';
-import UserDeleteScreen from '../admin/UserDeleteScreen';
-import UserModifyScreen from '../admin/UserModifyScreen';
+import { AppStackParamList } from '../../types/navigation';
 import {
   clearPitStopContextStageNumber,
   loadPitStopContextStageNumber,
@@ -105,6 +102,7 @@ function compareRiderIdsNatural(a: string, b: string): number {
 }
 
 export default function DashboardScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
   const { width, height } = useWindowDimensions();
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
   const {
@@ -119,7 +117,6 @@ export default function DashboardScreen() {
   const [allRides, setAllRides] = useState<Ride[]>([]);
   const [isHistorical, setIsHistorical] = useState(false);
   const [showRidePicker, setShowRidePicker] = useState(false);
-  const [showCheckIn, setShowCheckIn] = useState(false);
   const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,12 +127,7 @@ export default function DashboardScreen() {
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [showRideStatusManagement, setShowRideStatusManagement] = useState(false);
   const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
-  const [showUserOnboarding, setShowUserOnboarding] = useState(false);
-  const [showUserEnableDisable, setShowUserEnableDisable] = useState(false);
-  const [showUserDelete, setShowUserDelete] = useState(false);
-  const [showUserModify, setShowUserModify] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -372,6 +364,23 @@ export default function DashboardScreen() {
       setIsLoading(false);
     }
   }, [isTourLoading, tour, fetchDashboard]);
+
+  // Refresh dashboard data whenever this screen regains focus (e.g. returning
+  // from Check-In or an admin screen). Skip the very first focus since the
+  // effect above already loads data on mount.
+  const isInitialFocusRef = useRef(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isInitialFocusRef.current) {
+        isInitialFocusRef.current = false;
+        return;
+      }
+      if (tour) {
+        fetchDashboard();
+      }
+    }, [tour, fetchDashboard])
+  );
 
   // Pinch gesture for zoom
   const baseScale = useRef(1);
@@ -987,7 +996,7 @@ export default function DashboardScreen() {
                 onPress={() => {
                   setShowHeaderMenu(false);
                   setShowUserManagementSubmenu(false);
-                  setShowRideStatusManagement(true);
+                  navigation.navigate('RideStatusManagement');
                 }}
               >
                 <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
@@ -1018,7 +1027,7 @@ export default function DashboardScreen() {
                       onPress={() => {
                         setShowHeaderMenu(false);
                         setShowUserManagementSubmenu(false);
-                        setShowUserOnboarding(true);
+                        navigation.navigate('UserOnboarding');
                       }}
                     >
                       <MaterialIcons name="person-add" size={16} color={COLORS.textPrimary} />
@@ -1030,7 +1039,7 @@ export default function DashboardScreen() {
                       onPress={() => {
                         setShowHeaderMenu(false);
                         setShowUserManagementSubmenu(false);
-                        setShowUserEnableDisable(true);
+                        navigation.navigate('UserEnableDisable');
                       }}
                     >
                       <MaterialIcons name="toggle-on" size={16} color={COLORS.textPrimary} />
@@ -1042,7 +1051,7 @@ export default function DashboardScreen() {
                       onPress={() => {
                         setShowHeaderMenu(false);
                         setShowUserManagementSubmenu(false);
-                        setShowUserDelete(true);
+                        navigation.navigate('UserDelete');
                       }}
                     >
                       <MaterialIcons name="delete-outline" size={16} color={COLORS.danger} />
@@ -1054,7 +1063,7 @@ export default function DashboardScreen() {
                       onPress={() => {
                         setShowHeaderMenu(false);
                         setShowUserManagementSubmenu(false);
-                        setShowUserModify(true);
+                        navigation.navigate('UserModify');
                       }}
                     >
                       <MaterialIcons name="edit" size={16} color={COLORS.textPrimary} />
@@ -1257,95 +1266,16 @@ export default function DashboardScreen() {
             disabled={isDragging}
             onPress={() => {
               if (!isDragging) {
-                setShowCheckIn(true);
+                navigation.navigate('CheckIn', {
+                  ride,
+                  managedPitStopStageNumber: managedPitStopStageNumber ?? undefined,
+                });
               }
             }}
           >
             <MaterialIcons name="qr-code-scanner" size={28} color={COLORS.white} />
           </TouchableOpacity>
         </Animated.View>
-      )}
-
-      {/* Check-In Screen Modal */}
-      {ride && (
-        <Modal
-          visible={showCheckIn}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowCheckIn(false)}
-        >
-          <CheckInScreen
-            ride={ride}
-            managedPitStopStageNumber={managedPitStopStageNumber ?? undefined}
-            onCheckInComplete={() => {
-              // Refresh dashboard data after a check-in
-              if (tour && ride) {
-                loadRideDashboard(ride, false, { background: true });
-              }
-            }}
-            onClose={() => setShowCheckIn(false)}
-          />
-        </Modal>
-      )}
-
-      {/* Ride Status Management Screen Modal (Admin only) */}
-      {tour && isAdministrator && (
-        <Modal
-          visible={showRideStatusManagement}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowRideStatusManagement(false)}
-        >
-          <RideStatusManagementScreen
-            tourId={tour.tourId}
-            onClose={() => setShowRideStatusManagement(false)}
-            onStatusChanged={fetchDashboard}
-          />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserOnboarding}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserOnboarding(false)}
-        >
-          <UserOnboardingScreen onClose={() => setShowUserOnboarding(false)} />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserEnableDisable}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserEnableDisable(false)}
-        >
-          <UserEnableDisableScreen onClose={() => setShowUserEnableDisable(false)} />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserDelete}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserDelete(false)}
-        >
-          <UserDeleteScreen onClose={() => setShowUserDelete(false)} />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserModify}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserModify(false)}
-        >
-          <UserModifyScreen onClose={() => setShowUserModify(false)} />
-        </Modal>
       )}
 
       {/* Ride Picker Modal */}
