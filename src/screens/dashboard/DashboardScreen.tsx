@@ -21,7 +21,7 @@ import {
   Alert,
   useWindowDimensions,
 } from 'react-native';
-import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
@@ -794,7 +794,7 @@ export default function DashboardScreen() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <View style={styles.container}>
       {/* Compact Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
@@ -1439,7 +1439,7 @@ export default function DashboardScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
