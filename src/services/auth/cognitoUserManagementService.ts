@@ -463,6 +463,12 @@ export async function setCognitoUserEnabled(
   await apiClient.post(`/v1/admin/usermgmt/users/${userIdPathSegment}/${actionPath}`, {});
 }
 
+export async function deleteCognitoUser(cognitoUserId: string): Promise<void> {
+  const userIdPathSegment = toUserIdPathSegment(cognitoUserId);
+
+  await apiClient.delete(`/v1/admin/usermgmt/users/${userIdPathSegment}`);
+}
+
 export async function updateCognitoUserProfile(
   cognitoUserId: string,
   updates: UpdateCognitoUserProfileInput,

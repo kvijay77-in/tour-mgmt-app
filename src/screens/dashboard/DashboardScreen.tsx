@@ -37,6 +37,7 @@ import CheckInScreen from '../checkin/CheckInScreen';
 import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
 import UserOnboardingScreen from '../admin/UserOnboardingScreen';
 import UserEnableDisableScreen from '../admin/UserEnableDisableScreen';
+import UserDeleteScreen from '../admin/UserDeleteScreen';
 import UserModifyScreen from '../admin/UserModifyScreen';
 import {
   clearPitStopContextStageNumber,
@@ -133,6 +134,7 @@ export default function DashboardScreen() {
   const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
   const [showUserOnboarding, setShowUserOnboarding] = useState(false);
   const [showUserEnableDisable, setShowUserEnableDisable] = useState(false);
+  const [showUserDelete, setShowUserDelete] = useState(false);
   const [showUserModify, setShowUserModify] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
@@ -1040,6 +1042,18 @@ export default function DashboardScreen() {
                       onPress={() => {
                         setShowHeaderMenu(false);
                         setShowUserManagementSubmenu(false);
+                        setShowUserDelete(true);
+                      }}
+                    >
+                      <MaterialIcons name="delete-outline" size={16} color={COLORS.danger} />
+                      <Text style={styles.menuSubItemDangerText}>Delete user</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.menuSubItem}
+                      onPress={() => {
+                        setShowHeaderMenu(false);
+                        setShowUserManagementSubmenu(false);
                         setShowUserModify(true);
                       }}
                     >
@@ -1309,6 +1323,17 @@ export default function DashboardScreen() {
           onRequestClose={() => setShowUserEnableDisable(false)}
         >
           <UserEnableDisableScreen onClose={() => setShowUserEnableDisable(false)} />
+        </Modal>
+      )}
+
+      {isAdministrator && (
+        <Modal
+          visible={showUserDelete}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setShowUserDelete(false)}
+        >
+          <UserDeleteScreen onClose={() => setShowUserDelete(false)} />
         </Modal>
       )}
 
@@ -1715,6 +1740,11 @@ const styles = StyleSheet.create({
   menuSubItemText: {
     fontSize: 13,
     color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  menuSubItemDangerText: {
+    fontSize: 13,
+    color: COLORS.danger,
     fontWeight: '500',
   },
   menuSwitchItem: {

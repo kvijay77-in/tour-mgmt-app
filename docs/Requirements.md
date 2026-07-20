@@ -33,6 +33,7 @@ Detailed functional requirements, use cases, and feature specifications for the 
   - [User Management](#user-management)
     - [New User Onboarding](#new-user-onboarding)
     - [Enable/Disable Existing User](#enabledisable-existing-user)
+    - [Delete User](#delete-user)
     - [Modify User](#modify-user)
 - [Backend](#backend)
 - [Others](#others)
@@ -298,6 +299,14 @@ Access control:
 3. Update/Save writes modified values to Cognito via standard Cognito API.
 4. Cognito User ID (`sub`) must be used as the key from UI selection through update execution.
 5. Phone validation should be lightweight and accept international format. UI defaults phone input to `+91` when missing.
+
+### Delete User
+
+1. Launches a dedicated screen with registered users list.
+2. User list displays Name, Email ID and Roles.
+3. Selecting delete for a user must show an extra destructive confirmation prompt stating that delete is permanent and cannot be undone.
+4. Only after confirmation should the app call the standard Cognito delete user API.
+5. Cognito User ID (`sub`) must be used as the key from UI selection through delete execution.
 
 Data model and fields to be determined as part of design and development stage.
 

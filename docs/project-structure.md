@@ -31,6 +31,7 @@ tour-mgmt-app/
 │   │   │   ├── RideStatusManagementScreen.tsx  # Administrator-only ride status transitions
 │   │   │   ├── UserOnboardingScreen.tsx        # Administrator-only new user onboarding
 │   │   │   ├── UserEnableDisableScreen.tsx     # Administrator-only user enable/disable
+│   │   │   ├── UserDeleteScreen.tsx            # Administrator-only user delete
 │   │   │   └── UserModifyScreen.tsx            # Administrator-only user profile modify
 │   │   └── auth/                   # Authentication screens
 │   │
@@ -56,7 +57,7 @@ tour-mgmt-app/
 │   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence
 │   │   │   └── pitStopContextService.ts # Persist/clear selected pit-stop stage context
 │   │   ├── auth/                   # AWS Cognito authentication and user management
-│   │   │   └── cognitoUserManagementService.ts # Admin create/list/enable/disable/update via Cognito APIs
+│   │   │   └── cognitoUserManagementService.ts # Admin create/list/enable/disable/delete/update via Cognito APIs
 │   │   ├── database/               # SQLite for offline support
 │   │   ├── sync/                   # Data synchronization service
 │   │   └── qrcode/                 # QR code scanning service
