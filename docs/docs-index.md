@@ -16,6 +16,7 @@ This page provides a guide to all project documentation.
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
 | [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md) | Feasibility analysis for distributing a single generic app across multiple organizer AWS subscriptions |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
+| [Migration Cleanup](migration-cleanup.md) | Obsolete/superseded code from the SPA→multi-screen navigation migration, pending user sign-off before removal |
 
 ## Quick Navigation
 

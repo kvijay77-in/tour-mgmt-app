@@ -72,7 +72,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 | **Framework** | React Native | 0.81.x | Cross-platform mobile |
 | **Platform Tooling** | Expo (managed workflow) | SDK 54 | Build, deploy, native APIs |
 | **Language** | TypeScript | ~5.x | Type safety |
-| **Navigation** | React Navigation | 7.x | Screen navigation (native stack + bottom tabs) |
+| **Navigation** | React Navigation | 7.x | Screen navigation (native stack only — no bottom tabs, no drawer) |
 | **Authentication** | AWS Amplify Auth | 6.x | Cognito integration, JWT management |
 | **HTTP Client** | fetch (built-in) | N/A | API calls to tour-data-api |
 | **Local Database** | expo-sqlite | 16.x | SQLite for offline and caching |
@@ -371,33 +371,55 @@ For detailed sync flow, conflict resolution, and refresh strategy, see [Data Int
 
 ## Navigation Structure
 
+> Implemented via a phased SPA→multi-screen migration. See
+> `/memories/repo/spa-to-multiscreen-migration-plan.md` (repo memory) for the
+> phase-by-phase implementation log. No bottom tabs and no drawer navigator
+> are used — the app is a single native-stack per auth state, with a custom
+> slide-in menu component for account/admin actions.
+
 ### Navigation Hierarchy
 
 ```
-AppNavigator
-├── AuthNavigator (unauthenticated)
-│   └── LoginScreen
-└── MainNavigator (authenticated)
-    ├── DashboardScreen (Home / default tab)
-    ├── CheckInScreen (QR scanner + check-in flow)
-    └── AdminScreen (Ride management — role-restricted)
+App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
+          > AuthProvider > NavigationContainer)
+└── RootNavigator                         # src/navigation/RootNavigator.tsx
+    ├── (loading)  → spinner
+    ├── (no user)  → AuthNavigator         # src/navigation/AuthNavigator.tsx (native stack)
+    │   ├── LoginScreen
+    │   ├── ForgotPasswordScreen
+    │   └── NewPasswordScreen
+    └── (user)     → TourProvider > AppNavigator   # src/navigation/AppNavigator.tsx (native stack)
+        ├── DashboardScreen           (headerShown: false, custom header + AppMenu)
+        ├── CheckInScreen             (fullScreenModal, params: ride, managedPitStopStageNumber)
+        ├── ChangePasswordScreen      (fullScreenModal — all authenticated roles)
+        ├── RideStatusManagementScreen (fullScreenModal — ADMINISTRATOR only)
+        ├── UserOnboardingScreen       (fullScreenModal — ADMINISTRATOR only)
+        ├── UserEnableDisableScreen    (fullScreenModal — ADMINISTRATOR only)
+        ├── UserDeleteScreen           (fullScreenModal — ADMINISTRATOR only)
+        └── UserModifyScreen           (fullScreenModal — ADMINISTRATOR only)
 ```
+
+- `RootNavigator` reads `useAuth()` and swaps the whole Auth/App subtree on sign-in/sign-out (so the Auth stack always remounts fresh at Login on logout — no leftover navigation state).
+- Admin-only screens are registered **conditionally** on the stack (`isAdministrator` check in `AppNavigator`), not just hidden behind a role check inside the screen — an unauthorized user cannot navigate to them at all.
+- All non-Dashboard app screens keep their pre-migration prop-based API (`onClose`, etc.); thin wrapper components in `AppNavigator.tsx` adapt `navigation`/`route` to those props, so the screen components themselves stay framework-API-agnostic.
+- `GestureHandlerRootView` lives once at the app root (required by react-native-gesture-handler for the Dashboard's pinch-zoom gesture); it is not duplicated per-screen.
 
 ### Navigation Rules
 
-- **Unauthenticated users** are restricted to the AuthNavigator
-- **Authenticated users** are routed based on their role
-- **Hotel Staff** role skips Dashboard and goes directly to check-in
-- **Guest** role has read-only Dashboard with no check-in access
-- **Deep links** are not currently required
+- Unauthenticated users only ever see the Auth stack (Login/ForgotPassword/NewPassword).
+- Dashboard is the single landing screen for all authenticated roles; role-based restrictions are enforced as **feature gates within Dashboard/menu**, not as separate landing routes:
+  - The check-in FAB is shown only when the user has the `CHECKIN_RIDER` permission and the ride is not historical.
+  - Admin menu entries (Ride status management, User Management) and their routes are shown/registered only for `ADMINISTRATOR`.
+  - `Guest`/read-only roles see the Dashboard grid without check-in capability (no FAB).
+- Deep links are not currently required/supported.
 
-### Dashboard Header Menu
+### Dashboard Header Menu (AppMenu)
 
-- The Dashboard hamburger menu includes account actions for all authenticated users.
-- The "Ride status management" entry is shown only to `ADMINISTRATOR` users.
-- The entry opens an admin-only full-screen flow for controlled ride status transitions.
-- The "User Management" entry is shown only to `ADMINISTRATOR` users and contains sub-menu entries for New User Onboarding, Enable/Disable User, and Modify User.
-- For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins.
+- `src/components/common/AppMenu.tsx` is a custom slide-in panel (full height, right edge, RN `Animated`-driven — no drawer/reanimated dependency) opened from the Dashboard header hamburger icon.
+- Menu items call `navigation.navigate(...)` on the `AppNavigator` stack, then close the menu.
+- "Ride status management" and "User Management" (with New User Onboarding / Enable-Disable / Delete / Modify sub-items) are shown only to `ADMINISTRATOR` users.
+- For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins (opens the Pit Stop Context Picker, which — like the Rider Card and Ride Picker — intentionally remains a `Modal` popup rather than a stack route, since it is a transient selection, not a navigable screen).
+- "Change password", the skipped-check-in visibility toggle, and "Logout" are available to all authenticated roles.
 
 ### User Management Input Validation
 

@@ -34,15 +34,24 @@ tour-mgmt-app/
 │   │   │   ├── UserDeleteScreen.tsx            # Administrator-only user delete
 │   │   │   └── UserModifyScreen.tsx            # Administrator-only user profile modify
 │   │   └── auth/                   # Authentication screens
+│   │       ├── LoginScreen.tsx
+│   │       ├── ForgotPasswordScreen.tsx
+│   │       ├── NewPasswordScreen.tsx
+│   │       ├── ChangePasswordScreen.tsx        # Full stack screen (all authenticated roles)
+│   │       └── OrgSetupScreen.tsx              # Pre-auth runtime OrgConfig setup
 │   │
 │   ├── components/                 # Reusable UI components
 │   │   ├── common/                 # Common components (buttons, inputs, etc.)
+│   │   │   ├── AppMenu.tsx         # Custom slide-in Dashboard header menu (no drawer/reanimated dep)
+│   │   │   ├── ErrorBoundary.tsx
+│   │   │   └── SortIcon.tsx
 │   │   ├── dashboard/              # Dashboard specific components
 │   │   └── checkin/                # Check-in specific components
 │   │
-│   ├── navigation/                 # Navigation configuration
-│   │   ├── AppNavigator.tsx        # Main app navigation
-│   │   └── AuthNavigator.tsx       # Authentication navigation
+│   ├── navigation/                 # Navigation configuration (native stack only — no tabs/drawer)
+│   │   ├── RootNavigator.tsx       # Switches Auth stack vs (TourProvider > App stack) on auth state
+│   │   ├── AuthNavigator.tsx       # Unauthenticated stack: Login, ForgotPassword, NewPassword
+│   │   └── AppNavigator.tsx        # Authenticated stack: Dashboard, CheckIn, ChangePassword, admin screens
 │   │
 │   ├── services/                   # Business logic & API integration
 │   │   ├── api/                    # tour-data-api RESTful HTTP calls
@@ -119,6 +128,7 @@ tour-mgmt-app/
 ### Source Code (`src/`)
 - **`screens/`**: Page-level components organized by feature domain (dashboard, check-in, admin, auth). Each screen connects to context providers and services.
 - **`components/`**: Reusable UI components. `common/` for shared components, feature-specific folders for domain components.
+- **`navigation/`**: React Navigation stack configuration — `RootNavigator` (auth-state switch), `AuthNavigator`, `AppNavigator` (native stack only; no bottom tabs or drawer). See [SolutionDesign.md § Navigation Structure](SolutionDesign.md#navigation-structure).
 - **`services/`**: Business logic layer isolated from UI. Contains API client, org configuration service, SQLite database, and sync service.
 - **`context/`**: React Context providers for global state — authentication, active tour, offline mode, RBAC roles.
 - **`types/`**: TypeScript type definitions and interfaces for data models, API responses, and navigation.
