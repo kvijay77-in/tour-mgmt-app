@@ -1,11 +1,11 @@
 /**
  * App Navigator — authenticated stack.
  *
- * Phase 1 adds CheckIn + admin screens as stack routes (Modal→stack
+ * Phase 1 added CheckIn + admin screens as stack routes (Modal→stack
  * migration). Admin routes are registered conditionally on isAdministrator.
- * ChangePassword remains a Dashboard modal until Phase 2.
+ * Phase 2 adds ChangePassword as a stack route.
  *
- * See /memories/repo/spa-to-multiscreen-migration-plan.md (Phase 1).
+ * See /memories/repo/spa-to-multiscreen-migration-plan.md (Phase 1, Phase 2).
  */
 
 import React from 'react';
@@ -16,6 +16,7 @@ import { useTour } from '../context/TourContext';
 import { UserRole } from '../types/models';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import CheckInScreen from '../screens/checkin/CheckInScreen';
+import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
 import RideStatusManagementScreen from '../screens/admin/RideStatusManagementScreen';
 import UserOnboardingScreen from '../screens/admin/UserOnboardingScreen';
 import UserEnableDisableScreen from '../screens/admin/UserEnableDisableScreen';
@@ -33,6 +34,10 @@ function CheckInRoute({ route, navigation }: NativeStackScreenProps<AppStackPara
       onClose={() => navigation.goBack()}
     />
   );
+}
+
+function ChangePasswordRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'ChangePassword'>) {
+  return <ChangePasswordScreen onClose={() => navigation.goBack()} />;
 }
 
 function RideStatusManagementRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'RideStatusManagement'>) {
@@ -72,6 +77,11 @@ export default function AppNavigator() {
       <Stack.Screen
         name="CheckIn"
         component={CheckInRoute}
+        options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="ChangePassword"
+        component={ChangePasswordRoute}
         options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
       />
       {isAdministrator && (

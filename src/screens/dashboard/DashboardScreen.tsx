@@ -14,9 +14,6 @@ import {
   PanResponder,
   Modal,
   ActivityIndicator,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
   Switch,
   Alert,
   useWindowDimensions,
@@ -108,9 +105,6 @@ export default function DashboardScreen() {
   const {
     user,
     logout,
-    changePassword,
-    isAuthenticating: isAuthBusy,
-    error: authError,
   } = useAuth();
 
   const [ride, setRide] = useState<Ride | null>(null);
@@ -126,14 +120,9 @@ export default function DashboardScreen() {
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
   const [isSkippedHighlightEnabled, setIsSkippedHighlightEnabled] = useState(true);
 
   // RBAC: can this user perform check-ins?
@@ -491,55 +480,6 @@ export default function DashboardScreen() {
     if (zoomLevel === 1 || zoomLevel === 2) {
       setSelectedRider(riderStatus);
       setIsRiderCardVisible(true);
-    }
-  };
-
-  const resetChangePasswordForm = () => {
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setPasswordFormError(null);
-  };
-
-  const handleOpenChangePassword = () => {
-    setShowHeaderMenu(false);
-    resetChangePasswordForm();
-    setShowChangePasswordModal(true);
-  };
-
-  const handleCloseChangePassword = () => {
-    setShowChangePasswordModal(false);
-    resetChangePasswordForm();
-  };
-
-  const handleSubmitChangePassword = async () => {
-    setPasswordFormError(null);
-
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordFormError('Please fill in all password fields.');
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setPasswordFormError('New password must be at least 8 characters.');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setPasswordFormError('New password and confirm password do not match.');
-      return;
-    }
-
-    if (currentPassword === newPassword) {
-      setPasswordFormError('New password must be different from current password.');
-      return;
-    }
-
-    try {
-      await changePassword(currentPassword, newPassword);
-      handleCloseChangePassword();
-    } catch {
-      // AuthContext already sets a user-friendly error message.
     }
   };
 
@@ -986,7 +926,13 @@ export default function DashboardScreen() {
             >
               <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={handleOpenChangePassword}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                setShowHeaderMenu(false);
+                navigation.navigate('ChangePassword');
+              }}
+            >
               <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
               <Text style={styles.menuItemText}>Change password</Text>
             </TouchableOpacity>
@@ -1114,108 +1060,6 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
-      </Modal>
-
-      {/* Change Password Popup */}
-      <Modal
-        visible={showChangePasswordModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCloseChangePassword}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <TouchableOpacity
-            style={styles.modalOverlay}
-            activeOpacity={1}
-            onPress={handleCloseChangePassword}
-          >
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.changePasswordCard}>
-              <View style={styles.changePasswordHeader}>
-                <Text style={styles.changePasswordTitle}>Change Password</Text>
-                <TouchableOpacity onPress={handleCloseChangePassword}>
-                  <MaterialIcons name="close" size={22} color={COLORS.textSecondary} />
-                </TouchableOpacity>
-              </View>
-
-              {(passwordFormError || authError) && (
-                <View style={styles.changePasswordErrorBanner}>
-                  <MaterialIcons name="error-outline" size={18} color={COLORS.danger} />
-                  <Text style={styles.changePasswordErrorText}>{passwordFormError || authError}</Text>
-                </View>
-              )}
-
-              <View style={styles.changePasswordFieldGroup}>
-                <Text style={styles.changePasswordLabel}>Current password</Text>
-                <TextInput
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType="password"
-                  placeholder="Enter current password"
-                  placeholderTextColor={COLORS.textDisabled}
-                  style={styles.changePasswordInput}
-                  editable={!isAuthBusy}
-                />
-              </View>
-
-              <View style={styles.changePasswordFieldGroup}>
-                <Text style={styles.changePasswordLabel}>New password</Text>
-                <TextInput
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType="newPassword"
-                  placeholder="Enter new password"
-                  placeholderTextColor={COLORS.textDisabled}
-                  style={styles.changePasswordInput}
-                  editable={!isAuthBusy}
-                />
-              </View>
-
-              <View style={styles.changePasswordFieldGroup}>
-                <Text style={styles.changePasswordLabel}>Confirm new password</Text>
-                <TextInput
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType="newPassword"
-                  placeholder="Re-enter new password"
-                  placeholderTextColor={COLORS.textDisabled}
-                  style={styles.changePasswordInput}
-                  editable={!isAuthBusy}
-                  onSubmitEditing={handleSubmitChangePassword}
-                />
-              </View>
-
-              <View style={styles.changePasswordActions}>
-                <TouchableOpacity
-                  style={styles.changePasswordCancelButton}
-                  onPress={handleCloseChangePassword}
-                  disabled={isAuthBusy}
-                >
-                  <Text style={styles.changePasswordCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.changePasswordSaveButton, isAuthBusy && styles.changePasswordSaveButtonDisabled]}
-                  onPress={handleSubmitChangePassword}
-                  disabled={isAuthBusy}
-                >
-                  {isAuthBusy ? (
-                    <ActivityIndicator size="small" color={COLORS.white} />
-                  ) : (
-                    <Text style={styles.changePasswordSaveButtonText}>Update</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </KeyboardAvoidingView>
       </Modal>
 
       {/* Footer with Sort and Stage View Toggles */}
@@ -1695,92 +1539,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textPrimary,
     fontWeight: '500',
-  },
-  changePasswordCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 14,
-    padding: 16,
-    width: WINDOW_WIDTH * 0.9,
-    maxWidth: 420,
-  },
-  changePasswordHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  changePasswordTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  changePasswordErrorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
-    padding: 10,
-    gap: 6,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  changePasswordErrorText: {
-    fontSize: 13,
-    color: COLORS.danger,
-    flex: 1,
-  },
-  changePasswordFieldGroup: {
-    marginTop: 12,
-  },
-  changePasswordLabel: {
-    fontSize: 13,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  changePasswordInput: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  changePasswordActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-    marginTop: 18,
-  },
-  changePasswordCancelButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: COLORS.gray[100],
-  },
-  changePasswordCancelButtonText: {
-    color: COLORS.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  changePasswordSaveButton: {
-    minWidth: 90,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: COLORS.primary,
-  },
-  changePasswordSaveButtonDisabled: {
-    opacity: 0.7,
-  },
-  changePasswordSaveButtonText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '700',
   },
   footer: {
     backgroundColor: COLORS.white,

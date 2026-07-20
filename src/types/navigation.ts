@@ -20,13 +20,14 @@ export type AuthStackParamList = {
 // ============================================================================
 // APP STACK (authenticated) — rendered by src/navigation/AppNavigator.tsx
 //
-// Phase 1 adds CheckIn + admin routes (admin routes registered conditionally
-// on isAdministrator). ChangePassword is added in Phase 2.
+// Phase 1 added CheckIn + admin routes (admin routes registered conditionally
+// on isAdministrator). Phase 2 adds ChangePassword.
 // ============================================================================
 
 export type AppStackParamList = {
   Dashboard: undefined;
   CheckIn: { ride: Ride; managedPitStopStageNumber?: number };
+  ChangePassword: undefined;
   RideStatusManagement: undefined;
   UserOnboarding: undefined;
   UserEnableDisable: undefined;
