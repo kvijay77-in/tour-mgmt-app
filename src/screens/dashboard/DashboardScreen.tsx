@@ -14,7 +14,6 @@ import {
   PanResponder,
   Modal,
   ActivityIndicator,
-  Switch,
   Alert,
   useWindowDimensions,
 } from 'react-native';
@@ -31,6 +30,7 @@ import { logger } from '../../utils/logger';
 import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
+import { AppMenu } from '../../components/common/AppMenu';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { AppStackParamList } from '../../types/navigation';
 import {
@@ -120,7 +120,6 @@ export default function DashboardScreen() {
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
-  const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [isSkippedHighlightEnabled, setIsSkippedHighlightEnabled] = useState(true);
@@ -907,160 +906,19 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Header Floating Menu */}
-      <Modal
+      {/* Header Menu (slide-in) */}
+      <AppMenu
         visible={showHeaderMenu}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowHeaderMenu(false)}
-      >
-        <TouchableOpacity
-          style={styles.menuOverlay}
-          activeOpacity={1}
-          onPress={() => setShowHeaderMenu(false)}
-        >
-          <View style={styles.menuPanel}>
-            <TouchableOpacity
-              style={styles.menuCloseButton}
-              onPress={() => setShowHeaderMenu(false)}
-            >
-              <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                setShowHeaderMenu(false);
-                navigation.navigate('ChangePassword');
-              }}
-            >
-              <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Change password</Text>
-            </TouchableOpacity>
-            {isAdministrator && (
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowHeaderMenu(false);
-                  setShowUserManagementSubmenu(false);
-                  navigation.navigate('RideStatusManagement');
-                }}
-              >
-                <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
-                <Text style={styles.menuItemText}>Ride status management</Text>
-              </TouchableOpacity>
-            )}
-            {isAdministrator && (
-              <View style={styles.menuSectionWrap}>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={() => setShowUserManagementSubmenu((prev) => !prev)}
-                >
-                  <MaterialIcons name="manage-accounts" size={18} color={COLORS.textPrimary} />
-                  <Text style={styles.menuItemText}>User Management</Text>
-                  <View style={styles.menuItemRightIconWrap}>
-                    <MaterialIcons
-                      name={showUserManagementSubmenu ? 'expand-less' : 'expand-more'}
-                      size={18}
-                      color={COLORS.textSecondary}
-                    />
-                  </View>
-                </TouchableOpacity>
-
-                {showUserManagementSubmenu && (
-                  <View style={styles.menuSubmenuWrap}>
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        navigation.navigate('UserOnboarding');
-                      }}
-                    >
-                      <MaterialIcons name="person-add" size={16} color={COLORS.textPrimary} />
-                      <Text style={styles.menuSubItemText}>New user onboarding</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        navigation.navigate('UserEnableDisable');
-                      }}
-                    >
-                      <MaterialIcons name="toggle-on" size={16} color={COLORS.textPrimary} />
-                      <Text style={styles.menuSubItemText}>Enable / Disable user</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        navigation.navigate('UserDelete');
-                      }}
-                    >
-                      <MaterialIcons name="delete-outline" size={16} color={COLORS.danger} />
-                      <Text style={styles.menuSubItemDangerText}>Delete user</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        navigation.navigate('UserModify');
-                      }}
-                    >
-                      <MaterialIcons name="edit" size={16} color={COLORS.textPrimary} />
-                      <Text style={styles.menuSubItemText}>Modify user</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            )}
-            {isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1 && (
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowHeaderMenu(false);
-                  setShowPitStopContextPicker(true);
-                }}
-              >
-                <MaterialIcons name="tune" size={18} color={COLORS.textPrimary} />
-                <Text style={styles.menuItemText}>
-                  Set pit stop context
-                  {managedPitStopStageNumber !== null ? ` (PS${managedPitStopStageNumber})` : ''}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {selectedStage && (
-              <View style={styles.menuSwitchItem}>
-                <View style={styles.menuSwitchLabelWrap}>
-                  <MaterialIcons name="warning-amber" size={18} color={COLORS.warning} />
-                  <Text style={styles.menuItemText}>Show skipped Check-In</Text>
-                </View>
-                <Switch
-                  value={isSkippedHighlightEnabled}
-                  onValueChange={setIsSkippedHighlightEnabled}
-                  thumbColor={COLORS.white}
-                  trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
-                />
-              </View>
-            )}
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={async () => {
-                setShowHeaderMenu(false);
-                await logout();
-              }}
-            >
-              <MaterialIcons name="logout" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Logout</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        onClose={() => setShowHeaderMenu(false)}
+        isAdministrator={isAdministrator}
+        showPitStopContextOption={isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1}
+        managedPitStopStageNumber={managedPitStopStageNumber}
+        onOpenPitStopContextPicker={() => setShowPitStopContextPicker(true)}
+        showSkippedToggle={!!selectedStage}
+        isSkippedHighlightEnabled={isSkippedHighlightEnabled}
+        onToggleSkippedHighlight={setIsSkippedHighlightEnabled}
+        onLogout={logout}
+      />
 
       {/* Footer with Sort and Stage View Toggles */}
       <View style={styles.footer}>
@@ -1457,88 +1315,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 14,
     fontWeight: 'bold',
-  },
-  menuOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-  },
-  menuPanel: {
-    position: 'absolute',
-    top: 84,
-    right: 12,
-    backgroundColor: COLORS.white,
-    borderRadius: 10,
-    minWidth: 260,
-    maxWidth: WINDOW_WIDTH * 0.86,
-    paddingVertical: 8,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-  },
-  menuCloseButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 4,
-    zIndex: 2,
-  },
-  menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  menuSectionWrap: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
-  },
-  menuItemRightIconWrap: {
-    marginLeft: 'auto',
-  },
-  menuSubmenuWrap: {
-    paddingBottom: 6,
-    backgroundColor: COLORS.gray[50],
-  },
-  menuSubItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 28,
-    paddingVertical: 9,
-  },
-  menuSubItemText: {
-    fontSize: 13,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
-  },
-  menuSubItemDangerText: {
-    fontSize: 13,
-    color: COLORS.danger,
-    fontWeight: '500',
-  },
-  menuSwitchItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  menuSwitchLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-    marginRight: 8,
-  },
-  menuItemText: {
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
   },
   footer: {
     backgroundColor: COLORS.white,
