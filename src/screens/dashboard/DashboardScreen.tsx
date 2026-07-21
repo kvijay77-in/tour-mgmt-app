@@ -750,6 +750,54 @@ export default function DashboardScreen() {
     return parsed.toLocaleString();
   };
 
+  const getLatestCheckInForStage = useCallback((riderStatus: RiderStatus, stageNumber: number): CheckIn | undefined => {
+    let latestCheckIn: CheckIn | undefined;
+
+    riderStatus.checkInHistory.forEach((checkIn) => {
+      if (checkIn.stageNumber !== stageNumber) return;
+
+      if (!latestCheckIn) {
+        latestCheckIn = checkIn;
+        return;
+      }
+
+      if (new Date(checkIn.timestamp).getTime() > new Date(latestCheckIn.timestamp).getTime()) {
+        latestCheckIn = checkIn;
+      }
+    });
+
+    return latestCheckIn;
+  }, []);
+
+  const getLatestSpecialCheckIn = useCallback(
+    (riderStatus: RiderStatus, kind: 'NR' | 'QR'): CheckIn | undefined => {
+      let latestCheckIn: CheckIn | undefined;
+
+      riderStatus.checkInHistory.forEach((checkIn) => {
+        const matches = kind === 'NR' ? checkIn.isNotRiding : checkIn.isQuitRiding;
+        if (!matches) return;
+
+        if (!latestCheckIn) {
+          latestCheckIn = checkIn;
+          return;
+        }
+
+        if (new Date(checkIn.timestamp).getTime() > new Date(latestCheckIn.timestamp).getTime()) {
+          latestCheckIn = checkIn;
+        }
+      });
+
+      return latestCheckIn;
+    },
+    []
+  );
+
+  const getStageDisplayName = useCallback((stage: Stage, totalStages: number): string => {
+    const name = stage.name?.trim();
+    if (name) return name;
+    return getStageLabel(stage.stageNumber, totalStages);
+  }, []);
+
   const isRideCompletedOrClosed = ride?.status === RideStatus.COMPLETED || ride?.status === RideStatus.CLOSED;
   const showPitStopManagementOption = !isHistorical
     && !isRideCompletedOrClosed
@@ -1004,27 +1052,146 @@ export default function DashboardScreen() {
           activeOpacity={1}
           onPress={() => setIsRiderCardVisible(false)}
         >
-          <View style={styles.riderCard}>
+          <TouchableOpacity
+            style={[
+              styles.riderCard,
+              {
+                width: Math.min(width * 0.92, 460),
+                maxHeight: height * 0.9,
+              },
+            ]}
+            activeOpacity={1}
+            onPress={() => {
+              // Keep modal open while interacting inside the rider card.
+            }}
+          >
             {selectedRider && (
-              <>
-                <MaterialIcons 
-                  name="account-circle" 
-                  size={80} 
-                  color={COLORS.gray[400]} 
-                  style={styles.riderCardIcon}
-                />
-                <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
-                <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
-                <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
+              <ScrollView
+                style={styles.riderCardScroll}
+                contentContainerStyle={styles.riderCardScrollContent}
+                showsVerticalScrollIndicator={true}
+              >
+                <View style={styles.riderCardHeader}>
+                  <MaterialIcons
+                    name="account-circle"
+                    size={80}
+                    color={COLORS.gray[400]}
+                    style={styles.riderCardIcon}
+                  />
+                  <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
+                  <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
+                  <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
+                </View>
+
+                <View style={styles.riderCardSection}>
+                  {selectedRider.overallStatus === CheckInStatus.NOT_RIDING ? (
+                    (() => {
+                      const notRidingCheckIn = getLatestSpecialCheckIn(selectedRider, 'NR');
+                      return (
+                        <>
+                          <Text style={styles.riderCardSectionTitle}>Not Riding</Text>
+                          <Text style={styles.riderSpecialStatusTime}>
+                            {notRidingCheckIn
+                              ? `Marked at ${formatDateTimeForDisplay(notRidingCheckIn.timestamp)}`
+                              : 'Marked as Not Riding'}
+                          </Text>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <Text style={styles.riderCardSectionTitle}>Stage Check-ins</Text>
+                      {(() => {
+                        const sortedStages = [...selectedRider.ride.stages].sort((a, b) => a.stageNumber - b.stageNumber);
+
+                        if (selectedRider.overallStatus === CheckInStatus.QUIT_RIDING) {
+                          const quitCheckIn = getLatestSpecialCheckIn(selectedRider, 'QR');
+                          const quitTime = quitCheckIn
+                            ? new Date(quitCheckIn.timestamp).getTime()
+                            : Number.POSITIVE_INFINITY;
+
+                          const regularStages = sortedStages.filter((stage) => {
+                            const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
+                            if (!checkIn || checkIn.isNotRiding || checkIn.isQuitRiding) return false;
+                            return new Date(checkIn.timestamp).getTime() <= quitTime;
+                          });
+
+                          return (
+                            <>
+                              {regularStages.map((stage) => {
+                                const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
+                                const stageColor = getStageColor(stage.stageNumber, selectedRider.ride.stages.length);
+
+                                return (
+                                  <View key={stage.stageId} style={styles.riderStageRow}>
+                                    <View style={styles.riderStageHeaderRow}>
+                                      <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}>
+                                        <Text style={styles.riderStageNameChipText}>
+                                          {getStageDisplayName(stage, selectedRider.ride.stages.length)}
+                                        </Text>
+                                      </View>
+                                    </View>
+                                    <Text style={styles.riderStageTime}>{formatDateTimeForDisplay(checkIn?.timestamp)}</Text>
+                                  </View>
+                                );
+                              })}
+
+                              <View style={styles.riderStageRow}>
+                                <View style={styles.riderStageHeaderRow}>
+                                  <View style={[styles.riderStageNameChip, styles.riderQuitChip]}>
+                                    <Text style={styles.riderStageNameChipText}>Quit Riding</Text>
+                                  </View>
+                                </View>
+                                <Text style={styles.riderStageTime}>
+                                  {quitCheckIn
+                                    ? formatDateTimeForDisplay(quitCheckIn.timestamp)
+                                    : 'Marked as Quit Riding'}
+                                </Text>
+                              </View>
+                            </>
+                          );
+                        }
+
+                        return sortedStages.map((stage) => {
+                          const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
+                          const stageColor = getStageColor(stage.stageNumber, selectedRider.ride.stages.length);
+                          const isSkippedStage = hasRegularCheckInAfterStage(selectedRider, stage.stageNumber)
+                            && !hasRegularCheckInAtStage(selectedRider, stage.stageNumber);
+
+                          return (
+                            <View key={stage.stageId} style={styles.riderStageRow}>
+                              <View style={styles.riderStageHeaderRow}>
+                                <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}> 
+                                  <Text style={styles.riderStageNameChipText}>
+                                    {getStageDisplayName(stage, selectedRider.ride.stages.length)}
+                                  </Text>
+                                </View>
+                                {isSkippedStage && (
+                                  <View style={styles.riderStageWarningBadge}>
+                                    <Text style={styles.riderStageWarningMark}>!</Text>
+                                  </View>
+                                )}
+                              </View>
+                              <Text style={styles.riderStageTime}>
+                                {checkIn ? formatDateTimeForDisplay(checkIn.timestamp) : 'Not checked in'}
+                              </Text>
+                            </View>
+                          );
+                        });
+                      })()}
+                    </>
+                  )}
+                </View>
+
                 <TouchableOpacity 
                   style={styles.closeButton}
                   onPress={() => setIsRiderCardVisible(false)}
                 >
                   <Text style={styles.closeButtonText}>Close</Text>
                 </TouchableOpacity>
-              </>
+              </ScrollView>
             )}
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
@@ -1617,40 +1784,118 @@ const styles = StyleSheet.create({
   riderCard: {
     backgroundColor: COLORS.white,
     borderRadius: 16,
-    padding: 24,
-    width: WINDOW_WIDTH * 0.8,
-    maxWidth: 300,
-    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 14,
+    width: WINDOW_WIDTH * 0.88,
+    maxWidth: 420,
+    maxHeight: '80%',
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
+  riderCardScroll: {
+    flexGrow: 0,
+  },
+  riderCardScrollContent: {
+    paddingBottom: 4,
+  },
+  riderCardHeader: {
+    alignItems: 'center',
+  },
   riderCardIcon: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   riderCardId: {
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.textPrimary,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   riderCardName: {
     fontSize: 16,
     color: COLORS.textPrimary,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   riderCardContact: {
     fontSize: 14,
     color: COLORS.textSecondary,
-    marginBottom: 20,
+    marginBottom: 12,
+  },
+  riderCardSection: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 14,
+  },
+  riderCardSectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  riderStageRow: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  riderStageHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  riderStageNameChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+  },
+  riderQuitChip: {
+    backgroundColor: COLORS.danger,
+  },
+  riderStageNameChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.white,
+  },
+  riderStageTime: {
+    marginTop: 4,
+    fontSize: 11,
+    color: COLORS.textSecondary,
+  },
+  riderStageWarningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 22,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    backgroundColor: '#FFF8E1',
+  },
+  riderStageWarningMark: {
+    fontSize: 14,
+    lineHeight: 14,
+    fontWeight: '900',
+    color: '#92400E',
+  },
+  riderSpecialStatusTime: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
   closeButton: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 8,
+    alignSelf: 'center',
   },
   closeButtonText: {
     color: COLORS.white,
