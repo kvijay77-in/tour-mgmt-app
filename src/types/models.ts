@@ -262,6 +262,21 @@ export interface Stage {
   
   /** Distance from start (in km) */
   distanceFromStart?: number;
+
+  /** Planned pit stop opening offset (in minutes) */
+  estimatedOpenTime?: number;
+
+  /** Planned pit stop window duration (in minutes) */
+  pitStopDuration?: number;
+
+  /** Runtime pit stop status (OPEN/CLOSED) */
+  pitStopStatus?: 'OPEN' | 'CLOSED';
+
+  /** Runtime timestamp when pit stop is opened */
+  openedAt?: string;
+
+  /** Runtime timestamp when pit stop is closed */
+  closedAt?: string;
   
   /** Estimated time from start (in minutes) */
   estimatedTimeFromStart?: number;
@@ -303,6 +318,9 @@ export interface Ride {
   
   /** Ride status */
   status: RideStatus;
+
+  /** Timestamp when ride was opened */
+  openedAt?: string;
   
   /** Timestamp when ride was started */
   startedAt?: string;
