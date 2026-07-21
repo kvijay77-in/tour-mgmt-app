@@ -305,7 +305,7 @@ All communication with the tour-data-api is through the service layer at `src/se
 | `apiClient.ts` | — | Base HTTP client with auth, retry, error handling |
 | `tourApi.ts` | `GET /v1/tours/active`, `GET /v1/tours` | Tour resolution and listing |
 | `riderApi.ts` | `GET /v1/tours/{tourId}/riders` | Rider data for dashboard |
-| `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, `POST /v1/tours/{tourId}/rides/open`, `POST /v1/tours/{tourId}/rides/start`, `POST /v1/tours/{tourId}/rides/{rideId}/close`, CRUD | Ride management and status transitions |
+| `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, `POST /v1/tours/{tourId}/rides/open`, `POST /v1/tours/{tourId}/rides/start`, `POST /v1/tours/{tourId}/rides/{rideId}/close`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/open`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/close`, CRUD | Ride management, status transitions, and pit-stop runtime state updates |
 | `checkInApi.ts` | `POST /v1/tours/{tourId}/checkins`, GET | Check-in operations |
 | `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard` | Composite dashboard data |
 
@@ -419,6 +419,11 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 - Menu items call `navigation.navigate(...)` on the `AppNavigator` stack, then close the menu.
 - "Ride status management" and "User Management" (with New User Onboarding / Enable-Disable / Delete / Modify sub-items) are shown only to `ADMINISTRATOR` users.
 - For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins (opens the Pit Stop Context Picker, which — like the Rider Card and Ride Picker — intentionally remains a `Modal` popup rather than a stack route, since it is a transient selection, not a navigable screen).
+- For users with pit-stop management access (`ADMINISTRATOR`, `SUPER_USER`, mapped `PS_x_USER`), the menu includes "Pit Stop management" with pit-stop stage submenu items.
+  - `ADMINISTRATOR` and `SUPER_USER` see all current ride `PIT_STOP` stages.
+  - `PS_x_USER` sees only mapped `PIT_STOP` stages.
+  - Selecting a stage opens a popup modal where actions are state-gated (`OPEN` only when status is null, `CLOSE` only when status is `OPEN`) and API calls are sent to backend pit-stop open/close endpoints.
+  - This menu item is hidden when viewing historical rides and when current ride status is `COMPLETED` or `CLOSED`.
 - "Change password", the skipped-check-in visibility toggle, and "Logout" are available to all authenticated roles.
 
 ### User Management Input Validation

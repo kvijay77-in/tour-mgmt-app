@@ -52,6 +52,9 @@ export interface AppMenuProps {
   showPitStopContextOption: boolean;
   managedPitStopStageNumber: number | null;
   onOpenPitStopContextPicker: () => void;
+  showPitStopManagementOption: boolean;
+  pitStopManagementStages: Array<{ stageNumber: number; name: string }>;
+  onOpenPitStopManagement: (stageNumber: number) => void;
   showSkippedToggle: boolean;
   isSkippedHighlightEnabled: boolean;
   onToggleSkippedHighlight: (value: boolean) => void;
@@ -68,6 +71,9 @@ export function AppMenu({
   showPitStopContextOption,
   managedPitStopStageNumber,
   onOpenPitStopContextPicker,
+  showPitStopManagementOption,
+  pitStopManagementStages,
+  onOpenPitStopManagement,
   showSkippedToggle,
   isSkippedHighlightEnabled,
   onToggleSkippedHighlight,
@@ -82,6 +88,7 @@ export function AppMenu({
   const [isMounted, setIsMounted] = useState(visible);
   const [showAllRidesSubmenu, setShowAllRidesSubmenu] = useState(false);
   const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
+  const [showPitStopManagementSubmenu, setShowPitStopManagementSubmenu] = useState(false);
 
   useEffect(() => {
     if (visible) {
@@ -105,6 +112,7 @@ export function AppMenu({
           setIsMounted(false);
           setShowAllRidesSubmenu(false);
           setShowUserManagementSubmenu(false);
+          setShowPitStopManagementSubmenu(false);
         }
       });
     }
@@ -271,6 +279,43 @@ export function AppMenu({
                 {managedPitStopStageNumber !== null ? ` (PS${managedPitStopStageNumber})` : ''}
               </Text>
             </TouchableOpacity>
+          )}
+
+          {showPitStopManagementOption && (
+            <View style={styles.sectionWrap}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => setShowPitStopManagementSubmenu((prev) => !prev)}
+              >
+                <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
+                <Text style={styles.menuItemText}>Pit Stop management</Text>
+                <View style={styles.menuItemRightIconWrap}>
+                  <MaterialIcons
+                    name={showPitStopManagementSubmenu ? 'expand-less' : 'expand-more'}
+                    size={18}
+                    color={COLORS.textSecondary}
+                  />
+                </View>
+              </TouchableOpacity>
+
+              {showPitStopManagementSubmenu && (
+                <View style={styles.submenuWrap}>
+                  {pitStopManagementStages.map((stage) => (
+                    <TouchableOpacity
+                      key={`pit-stop-management-${stage.stageNumber}`}
+                      style={styles.subItem}
+                      onPress={() => {
+                        onClose();
+                        onOpenPitStopManagement(stage.stageNumber);
+                      }}
+                    >
+                      <MaterialIcons name="place" size={16} color={COLORS.textPrimary} />
+                      <Text style={styles.subItemText}>PS{stage.stageNumber} - {stage.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
           )}
 
           {showSkippedToggle && (

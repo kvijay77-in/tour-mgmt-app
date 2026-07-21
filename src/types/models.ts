@@ -270,7 +270,7 @@ export interface Stage {
   pitStopDuration?: number;
 
   /** Runtime pit stop status (OPEN/CLOSED) */
-  pitStopStatus?: 'OPEN' | 'CLOSED';
+  pitStopStatus?: 'OPEN' | 'CLOSED' | null;
 
   /** Runtime timestamp when pit stop is opened */
   openedAt?: string;
@@ -278,8 +278,6 @@ export interface Stage {
   /** Runtime timestamp when pit stop is closed */
   closedAt?: string;
   
-  /** Estimated time from start (in minutes) */
-  estimatedTimeFromStart?: number;
 }
 
 /**
@@ -312,6 +310,12 @@ export interface Ride {
 
   /** Planned flag-off time */
   flagOffTime?: string;
+
+  /** Planned ride opening time (HH:MM) */
+  openTime?: string;
+
+  /** Planned ride closing time (HH:MM) */
+  closeTime?: string;
   
   /** List of stages (Start, Pit Stops, Finish) */
   stages: Stage[];

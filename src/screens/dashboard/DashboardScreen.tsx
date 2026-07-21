@@ -23,11 +23,11 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
-import { getActiveRide, listRides } from '../../services/api/rideApi';
+import { closePitStopStage, getActiveRide, listRides, openPitStopStage } from '../../services/api/rideApi';
 import { getDashboardData } from '../../services/api/dashboardApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType } from '../../types/models';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType, Stage, RideStatus } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
 import { AppMenu } from '../../components/common/AppMenu';
@@ -121,12 +121,16 @@ export default function DashboardScreen() {
   const [isRideInfoVisible, setIsRideInfoVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
+  const [showPitStopManagementModal, setShowPitStopManagementModal] = useState(false);
+  const [selectedPitStopStageNumber, setSelectedPitStopStageNumber] = useState<number | null>(null);
+  const [isPitStopActionSubmitting, setIsPitStopActionSubmitting] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [isSkippedHighlightEnabled, setIsSkippedHighlightEnabled] = useState(true);
 
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
   const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
+  const isSuperUser = user?.userRole === UserRole.SUPER_USER;
   const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
 
   const pitStopRoleStageNumbers = useMemo(
@@ -146,6 +150,31 @@ export default function DashboardScreen() {
     () => availablePitStopStagesForUser.map((s) => s.stageNumber),
     [availablePitStopStagesForUser],
   );
+
+  const availablePitStopStagesForManagement = useMemo(() => {
+    if (!ride) return [] as Stage[];
+
+    const pitStopStages = ride.stages
+      .filter((stage) => stage.type === StageType.PIT_STOP)
+      .sort((a, b) => a.stageNumber - b.stageNumber);
+
+    if (isAdministrator || isSuperUser) {
+      return pitStopStages;
+    }
+
+    if (pitStopRoleStageNumbers.length > 0) {
+      return pitStopStages.filter((stage) => pitStopRoleStageNumbers.includes(stage.stageNumber));
+    }
+
+    return [] as Stage[];
+  }, [ride, isAdministrator, isSuperUser, pitStopRoleStageNumbers]);
+
+  const selectedPitStopStageForManagement = useMemo(() => {
+    if (!ride || selectedPitStopStageNumber === null) return null;
+    return ride.stages.find(
+      (stage) => stage.type === StageType.PIT_STOP && stage.stageNumber === selectedPitStopStageNumber,
+    ) ?? null;
+  }, [ride, selectedPitStopStageNumber]);
 
   useEffect(() => {
     if (!ride || !isPitStopPrimaryRole) {
@@ -190,6 +219,77 @@ export default function DashboardScreen() {
     setManagedPitStopStageNumber(stageNumber);
     setShowPitStopContextPicker(false);
   }, []);
+
+  const handleOpenPitStopManagement = useCallback((stageNumber: number) => {
+    setSelectedPitStopStageNumber(stageNumber);
+    setShowPitStopManagementModal(true);
+  }, []);
+
+  const getPitStopActionErrorMessage = useCallback((err: unknown): string => {
+    const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
+    if (isApiError) {
+      const apiErr = err as ApiError;
+      if (apiErr.statusCode === 0) {
+        return 'Unable to reach the server. Please check your internet connection and try again.';
+      }
+      return apiErr.message || 'Unable to update pit stop status. Please try again.';
+    }
+    if (isNetworkError(err)) {
+      return 'Unable to reach the server. Please check your internet connection and try again.';
+    }
+    return 'An unexpected error occurred. Please try again.';
+  }, []);
+
+  const applyUpdatedRideFromPitStopAction = useCallback((updatedRide: Ride) => {
+    setRide(updatedRide);
+
+    const updatedSelectedStage = updatedRide.stages.find(
+      (stage) => stage.type === StageType.PIT_STOP && stage.stageNumber === selectedPitStopStageNumber,
+    );
+
+    if (!updatedSelectedStage) {
+      setShowPitStopManagementModal(false);
+      setSelectedPitStopStageNumber(null);
+    }
+  }, [selectedPitStopStageNumber]);
+
+  const handleOpenPitStop = useCallback(async () => {
+    if (!tour || !ride || !selectedPitStopStageForManagement) return;
+
+    setIsPitStopActionSubmitting(true);
+    try {
+      const updatedRide = await openPitStopStage(
+        tour.tourId,
+        ride.rideId,
+        selectedPitStopStageForManagement.stageNumber,
+      );
+      applyUpdatedRideFromPitStopAction(updatedRide);
+    } catch (err) {
+      logger.error('Dashboard', 'handleOpenPitStop failed', err);
+      Alert.alert('Unable to open pit stop', getPitStopActionErrorMessage(err));
+    } finally {
+      setIsPitStopActionSubmitting(false);
+    }
+  }, [tour, ride, selectedPitStopStageForManagement, applyUpdatedRideFromPitStopAction, getPitStopActionErrorMessage]);
+
+  const handleClosePitStop = useCallback(async () => {
+    if (!tour || !ride || !selectedPitStopStageForManagement) return;
+
+    setIsPitStopActionSubmitting(true);
+    try {
+      const updatedRide = await closePitStopStage(
+        tour.tourId,
+        ride.rideId,
+        selectedPitStopStageForManagement.stageNumber,
+      );
+      applyUpdatedRideFromPitStopAction(updatedRide);
+    } catch (err) {
+      logger.error('Dashboard', 'handleClosePitStop failed', err);
+      Alert.alert('Unable to close pit stop', getPitStopActionErrorMessage(err));
+    } finally {
+      setIsPitStopActionSubmitting(false);
+    }
+  }, [tour, ride, selectedPitStopStageForManagement, applyUpdatedRideFromPitStopAction, getPitStopActionErrorMessage]);
 
   // Load a specific ride's dashboard data
   const loadRideDashboard = useCallback(async (
@@ -650,6 +750,15 @@ export default function DashboardScreen() {
     return parsed.toLocaleString();
   };
 
+  const isRideCompletedOrClosed = ride?.status === RideStatus.COMPLETED || ride?.status === RideStatus.CLOSED;
+  const showPitStopManagementOption = !isHistorical
+    && !isRideCompletedOrClosed
+    && availablePitStopStagesForManagement.length > 0;
+
+  const selectedPitStopStatus = selectedPitStopStageForManagement?.pitStopStatus ?? null;
+  const canOpenSelectedPitStop = selectedPitStopStatus === null;
+  const canCloseSelectedPitStop = selectedPitStopStatus === 'OPEN';
+
   // Style helpers for dynamic colors and sizes
   const getRiderIconStyle = (riderStatus: RiderStatus) => {
     const bgColor = getRiderColor(riderStatus);
@@ -1042,11 +1151,143 @@ export default function DashboardScreen() {
         showPitStopContextOption={isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1}
         managedPitStopStageNumber={managedPitStopStageNumber}
         onOpenPitStopContextPicker={() => setShowPitStopContextPicker(true)}
+        showPitStopManagementOption={showPitStopManagementOption}
+        pitStopManagementStages={availablePitStopStagesForManagement.map((stage) => ({
+          stageNumber: stage.stageNumber,
+          name: stage.name,
+        }))}
+        onOpenPitStopManagement={handleOpenPitStopManagement}
         showSkippedToggle={!!selectedStage}
         isSkippedHighlightEnabled={isSkippedHighlightEnabled}
         onToggleSkippedHighlight={setIsSkippedHighlightEnabled}
         onLogout={logout}
       />
+
+      {/* Pit Stop Management Modal */}
+      <Modal
+        visible={showPitStopManagementModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isPitStopActionSubmitting) {
+            setShowPitStopManagementModal(false);
+          }
+        }}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isPitStopActionSubmitting) {
+              setShowPitStopManagementModal(false);
+            }
+          }}
+        >
+          <TouchableOpacity
+            style={styles.pitStopManagementCard}
+            activeOpacity={1}
+            onPress={() => {
+              // Prevent close when interacting inside modal card.
+            }}
+          >
+            <View style={styles.pitStopManagementHeader}>
+              <View style={styles.pitStopManagementTitleWrap}>
+                <Text style={styles.pitStopManagementTitle}>Pit Stop management</Text>
+                <Text style={styles.pitStopManagementSubtitle}>
+                  {selectedPitStopStageForManagement
+                    ? `PS${selectedPitStopStageForManagement.stageNumber} - ${selectedPitStopStageForManagement.name}`
+                    : 'Select a pit stop from menu'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.pitStopManagementCloseButton}
+                onPress={() => {
+                  if (!isPitStopActionSubmitting) {
+                    setShowPitStopManagementModal(false);
+                  }
+                }}
+                disabled={isPitStopActionSubmitting}
+              >
+                <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.pitStopManagementBody}>
+              <View style={styles.pitStopManagementInfoRow}>
+                <Text style={styles.pitStopManagementLabel}>Pit stop</Text>
+                <Text style={styles.pitStopManagementValue}>{selectedPitStopStageForManagement?.name ?? 'N/A'}</Text>
+              </View>
+              <View style={styles.pitStopManagementInfoRow}>
+                <Text style={styles.pitStopManagementLabel}>Duration</Text>
+                <Text style={styles.pitStopManagementValue}>
+                  {typeof selectedPitStopStageForManagement?.pitStopDuration === 'number'
+                    ? `${selectedPitStopStageForManagement.pitStopDuration} min`
+                    : 'N/A'}
+                </Text>
+              </View>
+              <View style={styles.pitStopManagementInfoRow}>
+                <Text style={styles.pitStopManagementLabel}>Status</Text>
+                <Text style={styles.pitStopManagementValue}>{selectedPitStopStatus ?? 'Not opened'}</Text>
+              </View>
+
+              {selectedPitStopStageForManagement?.openedAt && (
+                <View style={styles.pitStopManagementInfoRow}>
+                  <Text style={styles.pitStopManagementLabel}>Opened At</Text>
+                  <Text style={styles.pitStopManagementValue}>
+                    {formatDateTimeForDisplay(selectedPitStopStageForManagement.openedAt)}
+                  </Text>
+                </View>
+              )}
+
+              {selectedPitStopStageForManagement?.closedAt && (
+                <View style={styles.pitStopManagementInfoRow}>
+                  <Text style={styles.pitStopManagementLabel}>Closed At</Text>
+                  <Text style={styles.pitStopManagementValue}>
+                    {formatDateTimeForDisplay(selectedPitStopStageForManagement.closedAt)}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.pitStopManagementActionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.pitStopManagementActionButton,
+                    styles.pitStopManagementOpenButton,
+                    (!canOpenSelectedPitStop || isPitStopActionSubmitting) && styles.pitStopManagementActionButtonDisabled,
+                  ]}
+                  disabled={!canOpenSelectedPitStop || isPitStopActionSubmitting}
+                  onPress={() => {
+                    void handleOpenPitStop();
+                  }}
+                >
+                  <Text style={styles.pitStopManagementActionButtonText}>OPEN</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.pitStopManagementActionButton,
+                    styles.pitStopManagementCloseActionButton,
+                    (!canCloseSelectedPitStop || isPitStopActionSubmitting) && styles.pitStopManagementActionButtonDisabled,
+                  ]}
+                  disabled={!canCloseSelectedPitStop || isPitStopActionSubmitting}
+                  onPress={() => {
+                    void handleClosePitStop();
+                  }}
+                >
+                  <Text style={styles.pitStopManagementActionButtonText}>CLOSE</Text>
+                </TouchableOpacity>
+              </View>
+
+              {isPitStopActionSubmitting && (
+                <View style={styles.pitStopManagementSubmittingRow}>
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                  <Text style={styles.pitStopManagementSubmittingText}>Updating pit stop status...</Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Footer with Sort and Stage View Toggles */}
       <View style={styles.footer}>
@@ -1572,6 +1813,157 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: COLORS.primary,
+  },
+  ridePickerContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    width: WINDOW_WIDTH * 0.88,
+    maxWidth: 420,
+    maxHeight: '72%',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    overflow: 'hidden',
+  },
+  ridePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  ridePickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  ridePickerList: {
+    maxHeight: 360,
+  },
+  ridePickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  ridePickerItemSelected: {
+    backgroundColor: COLORS.primary + '12',
+  },
+  ridePickerItemName: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  ridePickerItemNameSelected: {
+    color: COLORS.primary,
+  },
+  ridePickerItemDate: {
+    marginTop: 2,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  pitStopManagementCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    width: WINDOW_WIDTH * 0.88,
+    maxWidth: 420,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    overflow: 'hidden',
+  },
+  pitStopManagementHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  pitStopManagementTitleWrap: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  pitStopManagementTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  pitStopManagementSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+  pitStopManagementCloseButton: {
+    padding: 4,
+  },
+  pitStopManagementBody: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  pitStopManagementInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+  },
+  pitStopManagementLabel: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  pitStopManagementValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  pitStopManagementActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  pitStopManagementActionButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  pitStopManagementOpenButton: {
+    backgroundColor: COLORS.primary,
+  },
+  pitStopManagementCloseActionButton: {
+    backgroundColor: COLORS.warning,
+  },
+  pitStopManagementActionButtonDisabled: {
+    backgroundColor: COLORS.gray[300],
+  },
+  pitStopManagementActionButtonText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pitStopManagementSubmittingRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pitStopManagementSubmittingText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
   },
   footer: {
     backgroundColor: COLORS.white,

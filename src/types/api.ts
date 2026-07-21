@@ -46,8 +46,14 @@ export interface CreateRideRequest {
     name: string;
     location?: string;
     distanceFromStart?: number;
-    estimatedTimeFromStart?: number;
+    estimatedOpenTime?: number;
+    pitStopDuration?: number;
+    pitStopStatus?: 'OPEN' | 'CLOSED' | null;
+    openedAt?: string;
+    closedAt?: string;
   }>;
+  openTime?: string;
+  closeTime?: string;
   description?: string;
 }
 

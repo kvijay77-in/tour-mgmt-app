@@ -156,8 +156,8 @@ The frontend types in `src/types/models.ts` need updates to align with the backe
 | Frontend Type | Changes Needed |
 |--------------|---------------|
 | `Rider` | Add `profileId`, `photoS3Key`; remove `qrCodeData` (moved to TourRider) |
-| `Ride` | Add `rideNo`, `flagOffTime`, `description`; align status values to `PLANNED | OPEN | STARTED | COMPLETED | CLOSED` |
-| `Stage` | Add `location` field |
+| `Ride` | Add `rideNo`, `flagOffTime`, `openTime`, `closeTime`, `description`; align status values to `PLANNED | OPEN | STARTED | COMPLETED | CLOSED` |
+| `Stage` | Add `location`, `estimatedOpenTime`, `pitStopDuration`, `pitStopStatus`, `openedAt`, `closedAt`; remove deprecated `estimatedTimeFromStart` |
 | `CheckIn` | Replace `status` enum with `isNotRiding`/`isQuitRiding` boolean flags (status is derived); add `stageNumber`; `checkInId` format is `<riderId>#<stageNumber>#<timestamp>` |
 
 > Stage numbering is zero-based in frontend and backend contracts: Start is `stageNumber = 0`, first pit stop is `1`, and so on. `stageId` follows the same sequence (for example `S000`, `S001`, ...).
@@ -171,6 +171,8 @@ The frontend types in `src/types/models.ts` need updates to align with the backe
 3. **Rider ID format**: Backend uses `R1`, `R57` (no zero-padding). Frontend mock data uses `R001`, `R025` (3-digit padded). Frontend should align with backend format.
 
 4. **Tour-scoping**: Backend API paths include `tourId` (e.g., `/v1/tours/{tourId}/rides`). The service layer abstracts this by using the active tour context.
+
+5. **Pit-stop runtime state**: `pitStopStatus`, `openedAt`, and `closedAt` are managed via dedicated pit-stop action APIs and returned in ride/stage payloads.
 
 ### 3.3 Ride Status Transition API Usage
 
@@ -190,6 +192,25 @@ Frontend ride status transition calls must follow backend contracts:
   - Endpoint: `POST /v1/tours/{tourId}/rides/{rideId}/close`
   - Applies to rides dated today or in the past
   - Frontend determines and sends `rideId`
+
+### 3.4 Pit Stop Management API Usage
+
+Pit stop status updates are stage-scoped actions and apply only to stages where `type = PIT_STOP`.
+
+1. Open pit stop stage
+  - Endpoint: `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/open`
+  - Effect: sets `pitStopStatus=OPEN` and `openedAt`
+  - UI behavior: enable only when `pitStopStatus` is null
+
+2. Close pit stop stage
+  - Endpoint: `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/close`
+  - Effect: sets `pitStopStatus=CLOSED` and `closedAt`
+  - UI behavior: enable only when `pitStopStatus` is `OPEN`
+
+3. Access model in frontend
+  - `ADMINISTRATOR` and `SUPER_USER`: all pit-stop stages in current ride
+  - `PS_x_USER`: only mapped pit-stop stage(s)
+  - Hide pit-stop management actions for historical rides and for rides already `COMPLETED`/`CLOSED`
 
 ### 3.2 API Response Mapping
 
