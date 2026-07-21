@@ -25,6 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { COLORS } from '../../constants/colors';
+import { Ride, RideStatus } from '../../types/models';
 import { AppStackParamList } from '../../types/navigation';
 
 const ANIMATION_DURATION_MS = 220;
@@ -39,10 +40,15 @@ type MenuRouteName =
   | 'UserDelete'
   | 'UserModify';
 
+const formatRideStatus = (status: RideStatus): string => status.replaceAll('_', ' ');
+
 export interface AppMenuProps {
   visible: boolean;
   onClose: () => void;
   isAdministrator: boolean;
+  rides: Ride[];
+  currentRideId: string | null;
+  onSelectRide: (ride: Ride) => void;
   showPitStopContextOption: boolean;
   managedPitStopStageNumber: number | null;
   onOpenPitStopContextPicker: () => void;
@@ -56,6 +62,9 @@ export function AppMenu({
   visible,
   onClose,
   isAdministrator,
+  rides,
+  currentRideId,
+  onSelectRide,
   showPitStopContextOption,
   managedPitStopStageNumber,
   onOpenPitStopContextPicker,
@@ -71,6 +80,7 @@ export function AppMenu({
 
   const translateX = useRef(new Animated.Value(panelWidth)).current;
   const [isMounted, setIsMounted] = useState(visible);
+  const [showAllRidesSubmenu, setShowAllRidesSubmenu] = useState(false);
   const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
 
   useEffect(() => {
@@ -93,6 +103,7 @@ export function AppMenu({
       }).start(({ finished }) => {
         if (finished) {
           setIsMounted(false);
+          setShowAllRidesSubmenu(false);
           setShowUserManagementSubmenu(false);
         }
       });
@@ -104,6 +115,11 @@ export function AppMenu({
   const navigateTo = (routeName: MenuRouteName) => {
     onClose();
     navigation.navigate(routeName);
+  };
+
+  const handleSelectRide = (ride: Ride) => {
+    onClose();
+    onSelectRide(ride);
   };
 
   if (!isMounted) {
@@ -133,6 +149,63 @@ export function AppMenu({
             <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
             <Text style={styles.menuItemText}>Change password</Text>
           </TouchableOpacity>
+
+          <View style={styles.sectionWrap}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setShowAllRidesSubmenu((prev) => !prev)}
+            >
+              <MaterialIcons name="view-agenda" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>All Rides</Text>
+              <View style={styles.menuItemRightIconWrap}>
+                <MaterialIcons
+                  name={showAllRidesSubmenu ? 'expand-less' : 'expand-more'}
+                  size={18}
+                  color={COLORS.textSecondary}
+                />
+              </View>
+            </TouchableOpacity>
+
+            {showAllRidesSubmenu && (
+              <View style={styles.submenuWrap}>
+                {rides.length === 0 ? (
+                  <View style={styles.emptySubmenuState}>
+                    <Text style={styles.emptySubmenuText}>No rides available.</Text>
+                  </View>
+                ) : (
+                  rides.map((ride) => {
+                    const isSelected = ride.rideId === currentRideId;
+                    const isDisabled = ride.status === RideStatus.PLANNED;
+
+                    return (
+                      <TouchableOpacity
+                        key={ride.rideId}
+                        style={[
+                          styles.rideSubItem,
+                          isSelected && styles.rideSubItemSelected,
+                          isDisabled && styles.rideSubItemDisabled,
+                        ]}
+                        disabled={isDisabled}
+                        onPress={() => handleSelectRide(ride)}
+                      >
+                        <View style={styles.rideSubItemTextWrap}>
+                          <Text style={[styles.rideSubItemText, isSelected && styles.rideSubItemTextSelected]}>
+                            {ride.name}
+                          </Text>
+                          <Text style={styles.rideSubItemMeta}>{ride.date}</Text>
+                        </View>
+                        <View style={styles.rideSubItemStatusWrap}>
+                          <Text style={styles.rideSubItemStatus}>{formatRideStatus(ride.status)}</Text>
+                          {isSelected && <MaterialIcons name="check-circle" size={18} color={COLORS.primary} />}
+                          {isDisabled && <MaterialIcons name="block" size={18} color={COLORS.gray[400]} />}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </View>
+            )}
+          </View>
 
           {isAdministrator && (
             <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('RideStatusManagement')}>
@@ -275,6 +348,14 @@ const styles = StyleSheet.create({
     paddingBottom: 6,
     backgroundColor: COLORS.gray[50],
   },
+  emptySubmenuState: {
+    paddingHorizontal: 32,
+    paddingVertical: 10,
+  },
+  emptySubmenuText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
   subItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -291,6 +372,50 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.danger,
     fontWeight: '500',
+  },
+  rideSubItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 32,
+    paddingVertical: 10,
+  },
+  rideSubItemSelected: {
+    backgroundColor: COLORS.primary + '10',
+  },
+  rideSubItemDisabled: {
+    opacity: 0.45,
+  },
+  rideSubItemTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rideSubItemText: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: '500',
+  },
+  rideSubItemTextSelected: {
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
+  rideSubItemMeta: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  rideSubItemStatusWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 8,
+  },
+  rideSubItemStatus: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
   },
   switchItem: {
     flexDirection: 'row',

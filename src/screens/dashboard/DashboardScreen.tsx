@@ -110,7 +110,6 @@ export default function DashboardScreen() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [allRides, setAllRides] = useState<Ride[]>([]);
   const [isHistorical, setIsHistorical] = useState(false);
-  const [showRidePicker, setShowRidePicker] = useState(false);
   const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -263,7 +262,9 @@ export default function DashboardScreen() {
   }, [tour]);
 
   // Fetch data from API — tries today's ride first, then falls back to most recent
-  const fetchDashboard = useCallback(async () => {
+  const fetchDashboard = useCallback(async (options?: { allowHistoricalFallback?: boolean }) => {
+    const allowHistoricalFallback = options?.allowHistoricalFallback ?? true;
+
     if (!tour) return;
     setIsLoading(true);
     setError(null);
@@ -300,9 +301,13 @@ export default function DashboardScreen() {
 
         setRide(dashRide);
         setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
-      } else if (sortedRides.length > 0) {
+      } else if (allowHistoricalFallback && sortedRides.length > 0) {
         // Fall back to the most recent ride (historical/read-only)
         await loadRideDashboard(sortedRides[0], true);
+        return;
+      } else if (sortedRides.length > 0) {
+        setError('No ride found for today.');
+        setIsLoading(false);
         return;
       } else {
         setError('No rides found for this tour.');
@@ -335,10 +340,7 @@ export default function DashboardScreen() {
     }
   }, [tour, loadRideDashboard]);
 
-  // Switch to a specific ride from the picker
-  const switchToRide = useCallback((selectedRide: Ride) => {
-    setShowRidePicker(false);
-    // Determine if this is today's ride
+  const handleSelectRideFromMenu = useCallback((selectedRide: Ride) => {
     const today = new Date().toISOString().split('T')[0];
     const historical = selectedRide.date !== today;
     loadRideDashboard(selectedRide, historical);
@@ -755,16 +757,7 @@ export default function DashboardScreen() {
             )}
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.dateSelector}
-              onPress={() => setShowRidePicker(true)}
-              disabled={allRides.length <= 1}
-            >
-              <Text style={styles.rideDate}>{ride.date}</Text>
-              {allRides.length > 1 && (
-                <MaterialIcons name="arrow-drop-down" size={20} color={COLORS.white} />
-              )}
-            </TouchableOpacity>
+            <Text style={styles.rideDate}>{ride.date}</Text>
             <TouchableOpacity onPress={() => setShowHeaderMenu(true)} style={styles.menuButton}>
               <MaterialIcons name="menu" size={22} color={COLORS.white} />
             </TouchableOpacity>
@@ -911,6 +904,9 @@ export default function DashboardScreen() {
         visible={showHeaderMenu}
         onClose={() => setShowHeaderMenu(false)}
         isAdministrator={isAdministrator}
+        rides={allRides}
+        currentRideId={ride?.rideId ?? null}
+        onSelectRide={handleSelectRideFromMenu}
         showPitStopContextOption={isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1}
         managedPitStopStageNumber={managedPitStopStageNumber}
         onOpenPitStopContextPicker={() => setShowPitStopContextPicker(true)}
@@ -980,52 +976,26 @@ export default function DashboardScreen() {
         </Animated.View>
       )}
 
-      {/* Ride Picker Modal */}
-      <Modal
-        visible={showRidePicker}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowRidePicker(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowRidePicker(false)}
+      {isHistorical && (
+        <Animated.View
+          style={[
+            styles.fab,
+            {
+              right: 16,
+              bottom: 76,
+            },
+          ]}
         >
-          <View style={styles.ridePickerContainer}>
-            <View style={styles.ridePickerHeader}>
-              <Text style={styles.ridePickerTitle}>Select Ride</Text>
-              <TouchableOpacity onPress={() => setShowRidePicker(false)}>
-                <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.ridePickerList}>
-              {allRides.map((r) => {
-                const isSelected = r.rideId === ride?.rideId;
-                const today = new Date().toISOString().split('T')[0];
-                const isToday = r.date === today;
-                return (
-                  <TouchableOpacity
-                    key={r.rideId}
-                    style={[styles.ridePickerItem, isSelected && styles.ridePickerItemSelected]}
-                    onPress={() => switchToRide(r)}
-                  >
-                    <View>
-                      <Text style={[styles.ridePickerItemName, isSelected && styles.ridePickerItemNameSelected]}>
-                        {r.name}
-                      </Text>
-                      <Text style={styles.ridePickerItemDate}>
-                        {r.date}{isToday ? ' (Today)' : ''}
-                      </Text>
-                    </View>
-                    <Text style={styles.ridePickerItemStatus}>{r.status}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+          <TouchableOpacity
+            style={styles.fabButton}
+            onPress={() => {
+              void fetchDashboard({ allowHistoricalFallback: false });
+            }}
+          >
+            <MaterialIcons name="today" size={28} color={COLORS.white} />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
 
       {/* Pit Stop Context Picker */}
       <Modal
@@ -1141,10 +1111,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  dateSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   menuButton: {
     padding: 4,
@@ -1373,62 +1339,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
-  },
-  ridePickerContainer: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '60%',
-    width: '100%',
-    position: 'absolute',
-    bottom: 0,
-  },
-  ridePickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  ridePickerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-  },
-  ridePickerList: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  ridePickerItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  ridePickerItemSelected: {
-    backgroundColor: COLORS.primary + '10',
-  },
-  ridePickerItemName: {
-    fontSize: 16,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
-  },
-  ridePickerItemNameSelected: {
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
-  ridePickerItemDate: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  ridePickerItemStatus: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
   },
 });
