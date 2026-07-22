@@ -27,6 +27,7 @@ export type AuthStackParamList = {
 export type AppStackParamList = {
   Dashboard: undefined;
   CheckIn: { ride: Ride; managedPitStopStageNumber?: number };
+  RideInfo: { ride: Ride; source?: 'dashboard' | 'menu' };
   ChangePassword: undefined;
   RideStatusManagement: undefined;
   UserOnboarding: undefined;

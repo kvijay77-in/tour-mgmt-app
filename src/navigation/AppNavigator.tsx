@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTour } from '../context/TourContext';
 import { UserRole } from '../types/models';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
+import RideInfoScreen from '../screens/dashboard/RideInfoScreen';
 import CheckInScreen from '../screens/checkin/CheckInScreen';
 import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
 import RideStatusManagementScreen from '../screens/admin/RideStatusManagementScreen';
@@ -34,6 +35,10 @@ function CheckInRoute({ route, navigation }: NativeStackScreenProps<AppStackPara
       onClose={() => navigation.goBack()}
     />
   );
+}
+
+function RideInfoRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'RideInfo'>) {
+  return <RideInfoScreen ride={route.params.ride} onClose={() => navigation.goBack()} />;
 }
 
 function ChangePasswordRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'ChangePassword'>) {
@@ -77,6 +82,11 @@ export default function AppNavigator() {
       <Stack.Screen
         name="CheckIn"
         component={CheckInRoute}
+        options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="RideInfo"
+        component={RideInfoRoute}
         options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
       />
       <Stack.Screen

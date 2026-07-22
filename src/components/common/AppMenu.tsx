@@ -49,6 +49,7 @@ export interface AppMenuProps {
   rides: Ride[];
   currentRideId: string | null;
   onSelectRide: (ride: Ride) => void;
+  onViewRideInfo: (ride: Ride) => void;
   showPitStopContextOption: boolean;
   managedPitStopStageNumber: number | null;
   onOpenPitStopContextPicker: () => void;
@@ -68,6 +69,7 @@ export function AppMenu({
   rides,
   currentRideId,
   onSelectRide,
+  onViewRideInfo,
   showPitStopContextOption,
   managedPitStopStageNumber,
   onOpenPitStopContextPicker,
@@ -130,6 +132,11 @@ export function AppMenu({
     onSelectRide(ride);
   };
 
+  const handleViewRideInfo = (ride: Ride) => {
+    onClose();
+    onViewRideInfo(ride);
+  };
+
   if (!isMounted) {
     return null;
   }
@@ -183,31 +190,44 @@ export function AppMenu({
                 ) : (
                   rides.map((ride) => {
                     const isSelected = ride.rideId === currentRideId;
-                    const isDisabled = ride.status === RideStatus.PLANNED;
+                    const isPlannedRide = ride.status === RideStatus.PLANNED;
 
                     return (
-                      <TouchableOpacity
+                      <View
                         key={ride.rideId}
                         style={[
                           styles.rideSubItem,
                           isSelected && styles.rideSubItemSelected,
-                          isDisabled && styles.rideSubItemDisabled,
                         ]}
-                        disabled={isDisabled}
-                        onPress={() => handleSelectRide(ride)}
                       >
-                        <View style={styles.rideSubItemTextWrap}>
-                          <Text style={[styles.rideSubItemText, isSelected && styles.rideSubItemTextSelected]}>
-                            {ride.name}
-                          </Text>
-                          <Text style={styles.rideSubItemMeta}>{ride.date}</Text>
-                        </View>
-                        <View style={styles.rideSubItemStatusWrap}>
-                          <Text style={styles.rideSubItemStatus}>{formatRideStatus(ride.status)}</Text>
-                          {isSelected && <MaterialIcons name="check-circle" size={18} color={COLORS.primary} />}
-                          {isDisabled && <MaterialIcons name="block" size={18} color={COLORS.gray[400]} />}
-                        </View>
-                      </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.rideSubItemMainAction, isPlannedRide && styles.rideSubItemMainActionDisabled]}
+                          disabled={isPlannedRide}
+                          onPress={() => handleSelectRide(ride)}
+                        >
+                          <View style={styles.rideSubItemTextWrap}>
+                            <Text style={[styles.rideSubItemText, isSelected && styles.rideSubItemTextSelected]}>
+                              {ride.name}
+                            </Text>
+                            <Text style={styles.rideSubItemMeta}>{ride.date}</Text>
+                          </View>
+                          <View style={styles.rideSubItemStatusWrap}>
+                            <Text style={styles.rideSubItemStatus}>{formatRideStatus(ride.status)}</Text>
+                            {isSelected && <MaterialIcons name="check-circle" size={18} color={COLORS.primary} />}
+                            {isPlannedRide && <MaterialIcons name="block" size={18} color={COLORS.gray[400]} />}
+                          </View>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.rideSubItemInfoButton}
+                          onPress={() => handleViewRideInfo(ride)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open details for ${ride.name}`}
+                          accessibilityHint="Shows ride details"
+                        >
+                          <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
+                        </TouchableOpacity>
+                      </View>
                     );
                   })
                 )}
@@ -424,12 +444,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
     paddingHorizontal: 32,
-    paddingVertical: 10,
+    paddingVertical: 6,
   },
   rideSubItemSelected: {
     backgroundColor: COLORS.primary + '10',
   },
-  rideSubItemDisabled: {
+  rideSubItemMainAction: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  rideSubItemMainActionDisabled: {
     opacity: 0.45,
   },
   rideSubItemTextWrap: {
@@ -461,6 +490,14 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontWeight: '600',
     textTransform: 'uppercase',
+  },
+  rideSubItemInfoButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary + '15',
   },
   switchItem: {
     flexDirection: 'row',

@@ -159,7 +159,8 @@ Screens are the top-level components rendered by the navigator. Each screen:
 ```
 src/screens/
 ├── dashboard/
-│   └── DashboardScreen.tsx      # Main dashboard with rider grid
+│   ├── DashboardScreen.tsx      # Main dashboard with rider grid
+│   └── RideInfoScreen.tsx       # Shared ride-info modal host screen
 ├── checkin/                      # QR scanning, check-in flow
 ├── admin/                        # Administrator-only management screens
 │   ├── RideStatusManagementScreen.tsx
@@ -178,6 +179,7 @@ src/components/
 ├── common/                       # Shared across all screens
 │   └── SortIcon.tsx             # Custom sort toggle icon
 ├── dashboard/                    # Dashboard-specific components
+│   └── RideInfoContent.tsx      # Reusable ride-info content UI
 └── checkin/                      # Check-in-specific components
 ```
 
@@ -390,6 +392,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
     │   └── NewPasswordScreen
     └── (user)     → TourProvider > AppNavigator   # src/navigation/AppNavigator.tsx (native stack)
         ├── DashboardScreen           (headerShown: false, custom header + AppMenu)
+      ├── RideInfoScreen            (fullScreenModal, params: ride, source)
         ├── CheckInScreen             (fullScreenModal, params: ride, managedPitStopStageNumber)
         ├── ChangePasswordScreen      (fullScreenModal — all authenticated roles)
         ├── RideStatusManagementScreen (fullScreenModal — ADMINISTRATOR only)
@@ -425,6 +428,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
   - Selecting a stage opens a popup modal where actions are state-gated (`OPEN` only when status is null, `CLOSE` only when status is `OPEN`) and API calls are sent to backend pit-stop open/close endpoints.
   - This menu item is hidden when viewing historical rides and when current ride status is `COMPLETED` or `CLOSED`.
 - "Change password", the skipped-check-in visibility toggle, and "Logout" are available to all authenticated roles.
+- Under "All Rides", planned rides remain blocked for dashboard launch; a dedicated ride-info action opens shared ride details for all rides (including planned).
 
 ### User Management Input Validation
 

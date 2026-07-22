@@ -84,16 +84,17 @@ Located in the header, displays cumulative counts:
 
 **Header:**
 - Ride name only (date removed from header)
-- Ride name is clickable and opens a ride details pop-up
+- Ride name is clickable and opens shared ride details
 - Stage count chips with counts
 - Hamburger menu with account actions
 - Administrator-only menu entry for Ride status management (opens dedicated full-screen flow)
+- All Rides submenu keeps planned rides blocked from dashboard launch, while a dedicated info action opens shared ride details for any ride (including planned)
 
 **Body:**
 - Scrollable rider grid
 - Touch rider icon for details (future feature)
 
-**Ride Details Pop-up (from header ride name tap):**
+**Ride Details (shared route from header and All Rides info action):**
 - Compact layout optimized to fit within visible screen area
 - Shows selected ride summary with only Distance and Flag Off (scheduled) after status
 - Shows route in a compact stacked layout: From and To on separate rows with start/finish flag visuals

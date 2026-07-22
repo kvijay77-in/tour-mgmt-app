@@ -26,6 +26,8 @@ tour-mgmt-app/
 ├── src/
 │   ├── screens/                    # Screen components
 │   │   ├── dashboard/              # Dashboard related screens
+│   │   │   ├── DashboardScreen.tsx # Main dashboard with rider grid
+│   │   │   └── RideInfoScreen.tsx  # Shared ride info modal host screen
 │   │   ├── checkin/                # Check-in related screens
 │   │   ├── admin/                  # Admin feature screens
 │   │   │   ├── RideStatusManagementScreen.tsx  # Administrator-only ride status transitions
@@ -46,12 +48,13 @@ tour-mgmt-app/
 │   │   │   ├── ErrorBoundary.tsx
 │   │   │   └── SortIcon.tsx
 │   │   ├── dashboard/              # Dashboard specific components
+│   │   │   └── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
 │   │   └── checkin/                # Check-in specific components
 │   │
 │   ├── navigation/                 # Navigation configuration (native stack only — no tabs/drawer)
 │   │   ├── RootNavigator.tsx       # Switches Auth stack vs (TourProvider > App stack) on auth state
 │   │   ├── AuthNavigator.tsx       # Unauthenticated stack: Login, ForgotPassword, NewPassword
-│   │   └── AppNavigator.tsx        # Authenticated stack: Dashboard, CheckIn, ChangePassword, admin screens
+│   │   └── AppNavigator.tsx        # Authenticated stack: Dashboard, RideInfo, CheckIn, ChangePassword, admin screens
 │   │
 │   ├── services/                   # Business logic & API integration
 │   │   ├── api/                    # tour-data-api RESTful HTTP calls
