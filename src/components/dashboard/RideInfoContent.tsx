@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
-import { Ride, RideStatus, StageType } from '../../types/models';
+import { Ride, RideStatus, Stage, StageType } from '../../types/models';
 
 const formatRideStatusLabel = (status: RideStatus): string => status.replaceAll('_', ' ');
 
@@ -15,10 +15,66 @@ const formatDateTimeForDisplay = (value?: string): string => {
   return parsed.toLocaleString();
 };
 
+const formatTimeOnly = (value?: string): string => {
+  if (!value) return 'N/A';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const formatDateShort = (value?: string): string => {
+  if (!value) return 'N/A';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return parsed.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
 const getStageLabel = (stageNumber: number, totalStages: number): string => {
   if (stageNumber === 0) return 'Start';
   if (stageNumber === totalStages - 1) return 'Finish';
   return `PS${stageNumber}`;
+};
+
+const buildRideDateTime = (rideDate: string, time?: string): string | null => {
+  if (!time) return null;
+
+  const parsed = new Date(`${rideDate}T${time.length === 5 ? `${time}:00` : time}Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return parsed.toISOString();
+};
+
+const addMinutes = (value: string, minutes: number): string => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return new Date(parsed.getTime() + minutes * 60_000).toISOString();
+};
+
+const getRideTimelineStart = (ride: Ride): string | null => {
+  return ride.openedAt ?? ride.startedAt ?? buildRideDateTime(ride.date, ride.flagOffTime ?? ride.openTime) ?? null;
+};
+
+const getPlannedRideStart = (ride: Ride): string | null => {
+  return buildRideDateTime(ride.date, ride.flagOffTime ?? ride.openTime);
+};
+
+const getPitStopWindow = (ride: Ride, stage: Stage): { openedAt?: string; closedAt?: string } => {
+  const rideStart = getRideTimelineStart(ride);
+  const plannedOpenAt = rideStart && typeof stage.estimatedOpenTime === 'number' ? addMinutes(rideStart, stage.estimatedOpenTime) : undefined;
+  const openedAt = stage.openedAt ?? plannedOpenAt;
+  const closedAt = stage.closedAt ?? (openedAt && typeof stage.pitStopDuration === 'number' ? addMinutes(openedAt, stage.pitStopDuration) : undefined);
+
+  return { openedAt, closedAt };
+};
+
+const getTimelineTone = (index: number): string => {
+  const tones = [COLORS.accent, COLORS.primary, COLORS.success, COLORS.warning, COLORS.danger];
+  return tones[index % tones.length];
 };
 
 export interface RideInfoContentProps {
@@ -30,13 +86,24 @@ export interface RideInfoContentProps {
 
 export function RideInfoContent({ ride, showCloseButton = true, onClose, cardStyle }: RideInfoContentProps) {
   const canClose = showCloseButton && typeof onClose === 'function';
+  const pitStops = ride.stages.filter((stage) => stage.type === StageType.PIT_STOP).sort((a, b) => a.stageNumber - b.stageNumber);
+  const isFutureRide = ride.status === 'PLANNED';
+  const plannedRideStart = getPlannedRideStart(ride);
+  const rideTimelineStart = isFutureRide
+    ? plannedRideStart
+    : (ride.openedAt ?? ride.startedAt ?? plannedRideStart ?? getRideTimelineStart(ride));
 
   return (
     <View style={[styles.rideInfoCard, cardStyle]}>
       <View style={styles.rideInfoHeader}>
         <View style={styles.rideInfoTitleWrap}>
           <Text style={styles.rideInfoTitle}>{ride.name}</Text>
-          <Text style={styles.rideInfoSubtitle}>{ride.date}</Text>
+          <View style={styles.rideInfoHeaderMetaRow}>
+            <Text style={styles.rideInfoSubtitle}>{formatDateShort(ride.date)}</Text>
+            <View style={styles.rideInfoStatusChip}>
+              <Text style={styles.rideInfoStatusChipText}>{formatRideStatusLabel(ride.status)}</Text>
+            </View>
+          </View>
         </View>
         {canClose && (
           <TouchableOpacity style={styles.rideInfoCloseButton} onPress={onClose}>
@@ -46,78 +113,140 @@ export function RideInfoContent({ ride, showCloseButton = true, onClose, cardSty
       </View>
 
       <View style={styles.rideInfoBody}>
-        <View style={styles.rideInfoStatusChip}>
-          <Text style={styles.rideInfoStatusChipText}>{formatRideStatusLabel(ride.status)}</Text>
-        </View>
-
-        <View style={styles.rideInfoGrid}>
-          <View style={styles.rideInfoItem}>
-            <Text style={styles.rideInfoLabel}>Distance</Text>
-            <Text style={styles.rideInfoValue}>{ride.totalDistance} km</Text>
-          </View>
-          <View style={styles.rideInfoItem}>
-            <Text style={styles.rideInfoLabel}>Flag Off (Scheduled)</Text>
-            <Text style={styles.rideInfoValue}>{ride.flagOffTime ?? 'N/A'}</Text>
-          </View>
-        </View>
-
         <View style={styles.rideInfoRouteStack}>
           <View style={styles.rideInfoRouteStackRow}>
-            <MaterialIcons name="outlined-flag" size={14} color={COLORS.primary} />
-            <Text style={styles.rideInfoRouteStackLabel}>From</Text>
-            <Text style={styles.rideInfoRouteStackValue} numberOfLines={1}>{ride.startLocation}</Text>
+            <View style={[styles.rideInfoRouteIcon, { backgroundColor: COLORS.accent + '1A' }]}>
+              <MaterialIcons name="outlined-flag" size={15} color={COLORS.accent} />
+            </View>
+            <View style={styles.rideInfoRouteTextWrap}>
+              <Text style={styles.rideInfoRouteStackLabel}>Start</Text>
+              <Text style={styles.rideInfoRouteStackValue} numberOfLines={1}>{ride.startLocation}</Text>
+            </View>
           </View>
-          <View style={styles.rideInfoRouteStackConnector} />
+          <View style={styles.rideInfoRouteCenterRow}>
+            <View style={styles.rideInfoRouteStackConnector} />
+            <View style={styles.rideInfoRouteDistanceBadge}>
+              <MaterialIcons name="route" size={12} color={COLORS.textSecondary} />
+              <Text style={styles.rideInfoRouteDistanceText}>{ride.totalDistance} km</Text>
+            </View>
+          </View>
           <View style={styles.rideInfoRouteStackRow}>
-            <MaterialIcons name="flag" size={14} color={COLORS.primary} />
-            <Text style={styles.rideInfoRouteStackLabel}>To</Text>
-            <Text style={styles.rideInfoRouteStackValue} numberOfLines={1}>{ride.finishLocation}</Text>
+            <View style={[styles.rideInfoRouteIcon, { backgroundColor: COLORS.success + '1A' }]}>
+              <MaterialIcons name="flag" size={15} color={COLORS.success} />
+            </View>
+            <View style={styles.rideInfoRouteTextWrap}>
+              <Text style={styles.rideInfoRouteStackLabel}>Finish</Text>
+              <Text style={styles.rideInfoRouteStackValue} numberOfLines={1}>{ride.finishLocation}</Text>
+            </View>
           </View>
         </View>
 
         <View style={styles.rideInfoSection}>
-          <Text style={styles.rideInfoSectionTitle}>Timeline</Text>
-          <View style={styles.rideInfoTimelineEventRow}>
-            <MaterialIcons name="arrow-forward" size={13} color={COLORS.textSecondary} />
-            <Text style={styles.rideInfoTimelineEventLabel}>Open Time</Text>
-            <Text style={styles.rideInfoTimelineEventTime}>{formatDateTimeForDisplay(ride.openedAt)}</Text>
+          <View style={styles.rideInfoSectionHeader}>
+            <Text style={styles.rideInfoSectionTitle}>Timeline</Text>
           </View>
-          <View style={styles.rideInfoTimelineEventRow}>
-            <MaterialIcons name="arrow-forward" size={13} color={COLORS.textSecondary} />
-            <Text style={styles.rideInfoTimelineEventLabel}>Started</Text>
-            <Text style={styles.rideInfoTimelineEventTime}>{formatDateTimeForDisplay(ride.startedAt)}</Text>
-          </View>
-          {ride.stages
-            .filter((stage) => stage.type === StageType.PIT_STOP)
-            .sort((a, b) => a.stageNumber - b.stageNumber)
-            .map((stage) => (
-              <View key={stage.stageId} style={styles.rideInfoPitStopGroup}>
-                <View style={styles.rideInfoTimelineEventRow}>
-                  <MaterialIcons name="arrow-forward" size={13} color={COLORS.textSecondary} />
-                  <View style={styles.rideInfoTimelineEventLabelWrap}>
-                    <View style={styles.rideInfoStageBadge}>
-                      <Text style={styles.rideInfoStageBadgeText}>{getStageLabel(stage.stageNumber, ride.stages.length)}</Text>
-                    </View>
-                    <Text style={styles.rideInfoTimelineEventLabel}>Open</Text>
-                  </View>
-                  <Text style={styles.rideInfoTimelineEventTime}>{formatDateTimeForDisplay(stage.openedAt)}</Text>
+
+          <View style={styles.rideInfoTimelineRail}>
+            <View style={styles.rideInfoTimelineNode}>
+              <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: COLORS.accent + '1A' }]}>
+                <MaterialIcons name="outlined-flag" size={16} color={COLORS.accent} />
+              </View>
+              <View style={styles.rideInfoTimelineContent}>
+                <View style={styles.rideInfoTimelineHeaderRow}>
+                  <Text style={styles.rideInfoTimelineStageTitle}>Flag Off</Text>
+                  <Text style={styles.rideInfoTimelineStageMeta}>{ride.startLocation}</Text>
                 </View>
-                <View style={styles.rideInfoTimelineEventRow}>
-                  <MaterialIcons name="arrow-forward" size={13} color={COLORS.textSecondary} />
-                  <View style={styles.rideInfoTimelineEventLabelWrap}>
-                    <View style={styles.rideInfoStageBadge}>
-                      <Text style={styles.rideInfoStageBadgeText}>{getStageLabel(stage.stageNumber, ride.stages.length)}</Text>
+                {isFutureRide ? (
+                  <View style={styles.rideInfoTimelinePillRow}>
+                    <View style={styles.rideInfoTimelinePill}>
+                      <MaterialIcons name="schedule" size={12} color={COLORS.primary} />
+                      <Text style={styles.rideInfoTimelinePillText}>Planned</Text>
+                      <Text style={styles.rideInfoTimelinePillTime}>{formatTimeOnly(rideTimelineStart ?? undefined)}</Text>
                     </View>
-                    <Text style={styles.rideInfoTimelineEventLabel}>Close</Text>
                   </View>
-                  <Text style={styles.rideInfoTimelineEventTime}>{formatDateTimeForDisplay(stage.closedAt)}</Text>
+                ) : (
+                  <View style={styles.rideInfoTimelinePillRow}>
+                    <View style={styles.rideInfoTimelinePill}>
+                      <MaterialIcons name="play-circle-outline" size={12} color={COLORS.primary} />
+                      <Text style={styles.rideInfoTimelinePillText}>Opened</Text>
+                      <Text style={styles.rideInfoTimelinePillTime}>{formatTimeOnly(ride.openedAt ?? undefined)}</Text>
+                    </View>
+                    <View style={styles.rideInfoTimelinePill}>
+                      <MaterialIcons name="play-arrow" size={12} color={COLORS.primary} />
+                      <Text style={styles.rideInfoTimelinePillText}>Started</Text>
+                      <Text style={styles.rideInfoTimelinePillTime}>{formatTimeOnly(ride.startedAt ?? rideTimelineStart ?? undefined)}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {pitStops.map((stage, index) => {
+              const stageWindow = getPitStopWindow(ride, stage);
+              const tone = getTimelineTone(index);
+              const isOpenActual = Boolean(stage.openedAt);
+              const isCloseActual = Boolean(stage.closedAt);
+
+              return (
+                <View key={stage.stageId} style={styles.rideInfoTimelineNode}>
+                  <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: tone + '18' }]}>
+                    <MaterialIcons name="directions-bike" size={16} color={tone} />
+                  </View>
+                  <View style={styles.rideInfoTimelineContent}>
+                    <View style={styles.rideInfoTimelineHeaderRow}>
+                      <View style={[styles.rideInfoStageBadge, { backgroundColor: tone + '18' }]}>
+                        <Text style={[styles.rideInfoStageBadgeText, { color: tone }]}>{getStageLabel(stage.stageNumber, ride.stages.length)}</Text>
+                      </View>
+                      <Text style={styles.rideInfoTimelineStageMeta} numberOfLines={1}>{stage.name}</Text>
+                    </View>
+
+                    <View style={styles.rideInfoStageMetricsRow}>
+                      <View style={styles.rideInfoStageMetric}>
+                        <MaterialIcons name="place" size={12} color={COLORS.textSecondary} />
+                        <Text style={styles.rideInfoStageMetricText}>{stage.distanceFromStart ?? 'N/A'} km</Text>
+                      </View>
+                      <View style={styles.rideInfoStageMetric}>
+                        <MaterialIcons name="timer" size={12} color={COLORS.textSecondary} />
+                        <Text style={styles.rideInfoStageMetricText}>{typeof stage.pitStopDuration === 'number' ? `${stage.pitStopDuration} min` : 'N/A'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.rideInfoTimelinePillRow}>
+                      <View style={styles.rideInfoTimelinePill}>
+                        <MaterialIcons name="login" size={12} color={COLORS.primary} />
+                        <Text style={styles.rideInfoTimelinePillText}>{isOpenActual ? 'Opened' : 'Opens'}</Text>
+                        <Text style={styles.rideInfoTimelinePillTime}>{formatTimeOnly(stageWindow.openedAt)}</Text>
+                      </View>
+                      <View style={styles.rideInfoTimelinePill}>
+                        <MaterialIcons name="logout" size={12} color={COLORS.primary} />
+                        <Text style={styles.rideInfoTimelinePillText}>{isCloseActual ? 'Closed' : 'Closes'}</Text>
+                        <Text style={styles.rideInfoTimelinePillTime}>{formatTimeOnly(stageWindow.closedAt)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+
+            <View style={styles.rideInfoTimelineNode}>
+              <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: COLORS.success + '1A' }]}>
+                <MaterialIcons name="flag" size={16} color={COLORS.success} />
+              </View>
+              <View style={styles.rideInfoTimelineContent}>
+                <View style={styles.rideInfoTimelineHeaderRow}>
+                  <Text style={styles.rideInfoTimelineStageTitle}>Finish at</Text>
+                  <Text style={styles.rideInfoTimelineStageMeta}>{ride.finishLocation}</Text>
+                  <Text style={styles.rideInfoTimelineStageTitle}>by</Text>
+                </View>
+                <View style={styles.rideInfoTimelinePillRow}>
+                  <View style={styles.rideInfoTimelinePill}>
+                    <MaterialIcons name="flag" size={12} color={COLORS.primary} />
+                    <Text style={styles.rideInfoTimelinePillText}>{ride.completedAt || ride.closedAt ? 'Arrived' : 'Planned'}</Text>
+                    <Text style={styles.rideInfoTimelinePillTime}>{formatTimeOnly(ride.completedAt ?? ride.closedAt ?? buildRideDateTime(ride.date, ride.closeTime) ?? undefined)}</Text>
+                  </View>
                 </View>
               </View>
-            ))}
-          <View style={styles.rideInfoTimelineEventRow}>
-            <MaterialIcons name="arrow-forward" size={13} color={COLORS.textSecondary} />
-            <Text style={styles.rideInfoTimelineEventLabel}>Completed</Text>
-            <Text style={styles.rideInfoTimelineEventTime}>{formatDateTimeForDisplay(ride.completedAt)}</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -130,6 +259,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 16,
     width: '100%',
+    maxHeight: '100%',
     elevation: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
@@ -140,35 +270,35 @@ const styles = StyleSheet.create({
   rideInfoHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   rideInfoTitleWrap: {
     flex: 1,
     paddingRight: 8,
   },
   rideInfoTitle: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
   rideInfoSubtitle: {
     marginTop: 2,
-    fontSize: 13,
+    fontSize: 12,
     color: COLORS.textSecondary,
   },
   rideInfoCloseButton: {
     padding: 4,
   },
   rideInfoBody: {
-    padding: 14,
-    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
   },
   rideInfoStatusChip: {
-    alignSelf: 'flex-start',
     backgroundColor: COLORS.primary + '1A',
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -179,55 +309,70 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  rideInfoGrid: {
+  rideInfoHeaderMetaRow: {
+    marginTop: 4,
     flexDirection: 'row',
-    flexWrap: 'nowrap',
-    gap: 6,
+    alignItems: 'center',
+    gap: 8,
   },
-  rideInfoItem: {
+  rideInfoRouteIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rideInfoRouteTextWrap: {
     flex: 1,
-    backgroundColor: COLORS.gray[100],
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  rideInfoLabel: {
-    fontSize: 10,
-    color: COLORS.textSecondary,
-    marginBottom: 2,
-  },
-  rideInfoValue: {
-    fontSize: 12,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
   },
   rideInfoRouteStack: {
     backgroundColor: COLORS.gray[100],
     borderRadius: 8,
     paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 3,
+    paddingVertical: 7,
+    gap: 4,
   },
   rideInfoRouteStackRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   rideInfoRouteStackConnector: {
-    marginLeft: 7,
+    marginLeft: 13,
     borderLeftWidth: 1,
     borderLeftColor: COLORS.gray[300],
-    height: 8,
+    height: 10,
+  },
+  rideInfoRouteCenterRow: {
+    marginLeft: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rideInfoRouteDistanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  rideInfoRouteDistanceText: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
   },
   rideInfoRouteStackLabel: {
-    width: 30,
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
     color: COLORS.textSecondary,
   },
   rideInfoRouteStackValue: {
-    flex: 1,
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '600',
     color: COLORS.textPrimary,
   },
   rideInfoSection: {
@@ -236,49 +381,113 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    gap: 5,
+    gap: 6,
+  },
+  rideInfoSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
   },
   rideInfoSectionTitle: {
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  rideInfoTimelineEventRow: {
+  rideInfoTimelineRail: {
+    gap: 7,
+  },
+  rideInfoTimelineNode: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
+  rideInfoTimelineIconBubble: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  rideInfoTimelineContent: {
+    flex: 1,
+    gap: 5,
+  },
+  rideInfoTimelineHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexWrap: 'wrap',
   },
-  rideInfoTimelineEventLabel: {
-    width: 78,
+  rideInfoTimelineStageTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  rideInfoTimelineStageMeta: {
     fontSize: 11,
     color: COLORS.textSecondary,
-    fontWeight: '600',
-  },
-  rideInfoTimelineEventLabelWrap: {
-    width: 78,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  rideInfoTimelineEventTime: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-    flex: 1,
-  },
-  rideInfoPitStopGroup: {
-    gap: 2,
+    flexShrink: 1,
   },
   rideInfoStageBadge: {
     backgroundColor: COLORS.primary + '1A',
     borderRadius: 8,
     paddingHorizontal: 6,
-    paddingVertical: 3,
-    minWidth: 34,
+    paddingVertical: 2,
     alignItems: 'center',
   },
   rideInfoStageBadgeText: {
     fontSize: 10,
     fontWeight: '700',
     color: COLORS.primary,
+  },
+  rideInfoStageMetricsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  rideInfoStageMetric: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.gray[100],
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  rideInfoStageMetricText: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  rideInfoTimelinePillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  rideInfoTimelinePill: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  rideInfoTimelinePillText: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
+  },
+  rideInfoTimelinePillTime: {
+    marginLeft: 'auto',
+    fontSize: 10,
+    color: COLORS.textPrimary,
+    fontWeight: '700',
   },
 });
