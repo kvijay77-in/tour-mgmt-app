@@ -149,6 +149,8 @@ On each day of the tour, before the ride is Started/Flagged off all riders must 
 
 Tour Director will use the dashboard to view the check-in progress and only when all check-ins are completed she/he will give go ahead to start the ride.
 
+If a rider has already been checked in at Start and the user later attempts a Not Riding check-in, or if a rider has already been marked Not Riding at Start and the user later attempts a regular Start check-in, the app must prompt to Override or Cancel before writing any data. On Override, the previous Start-stage check-in must be cancelled and the new check-in must be created.
+
 ## Pit Stops  
 Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop. Assigned pit-stop stage users (`PS_x_USER`) will have the control on to flag the assigned pit stop as 'Open' and 'Closed'. This will help to a tracking view for Pit Stops. In future this status can even be used for Rider App (not scope for this project) to let riders know Pit Stop as been opend and closed.
 
@@ -174,6 +176,8 @@ Finish point is usually a hotel at the destination town where the riders will co
 When a Rider decides to not ride for the day, same needs to be registered by a tour staff with relevant permission  at the starting point before the ride starts for the day. Once a Rider is marked 'Not Riding' no further check should be allowed at any other stages.
 
 In multi-user scenarios (multiple crew users and rider self check-in channels), check-in validation must use the latest central status at submission time. If the rider is already marked 'Not Riding', any subsequent regular or 'Quit Riding' check-in attempt must be blocked and shown to the app user as a Warning (not an app error/exception).
+
+The Start-stage override flow described above is an online-only interaction. It is expected to happen at ride start when network coverage is available, so it does not require offline queueing or deferred sync handling.
 
 ## Quit Riding  
 A rider can decide to quit the ride or call it a day at any point in the ride after starting the ride. A Rider can decide to 'Quit Riding' at a pit stop or any location between stages.  
@@ -205,6 +209,7 @@ For all interactive online check-ins, validation must use the latest rider statu
 Offline mode exception:
 1. When offline, local SQLite status can be used for pre-validation.
 2. Final conflict/validity is still enforced when pending operations sync to backend.
+3. The Start-stage Override/Cancel flow is excluded from offline handling because it is only expected at ride start in a network-available location.
 
 ## Check In for Stage View  
 When a Rider checks in at multiple stages implies that the Rider has checked in all stages till the last checked in stage. This is important in Stage View.

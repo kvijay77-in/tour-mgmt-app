@@ -55,7 +55,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 
 4. **SQLite as single source of truth** — The Dashboard and all UI reads come from the local SQLite database. Network operations (API calls) update SQLite, and the UI observes SQLite. This ensures consistent behaviour in both online and offline modes.
 
-5. **Offline-first for check-ins** — All check-in operations write to SQLite first, then asynchronously sync to the backend. There is no separate "online" vs "offline" code path for check-ins.
+5. **Offline-first for check-ins** — All check-in operations write to SQLite first, then asynchronously sync to the backend. There is no separate "online" vs "offline" code path for check-ins, except the Start-stage Override/Cancel flow, which is intentionally online-only.
 
 6. **Security by default** — No hardcoded credentials, no inline sensitive data, JWT-based authentication for all API calls, RBAC enforcement in the UI layer.
 
@@ -346,6 +346,8 @@ This ensures consistent behaviour whether online or offline. For detailed design
 2. **Same write path online and offline** — check-ins always go to SQLite first, then sync
 3. **Manual + automatic offline control** — users can toggle offline mode; NetInfo detects automatically
 4. **Conflict resolution is automatic** — no manual intervention needed (see [Data Integration Design § 4.5](DataIntegrationDesign.md#45-conflict-resolution))
+
+The Start-stage Override/Cancel flow is excluded from offline handling. It is expected to occur at ride start where network coverage is available, so the UI must submit it live and avoid queueing it for deferred sync.
 
 ### SQLite Schema Overview
 

@@ -29,6 +29,14 @@ export interface CheckInRequest {
 }
 
 /**
+ * Cancel a prior check-in when a rider overrides a Start-stage decision.
+ */
+export interface CancelCheckInRequest {
+  status: 'CANCELLED';
+  prevStatus: CheckInStatus;
+}
+
+/**
  * Create ride request body (POST /v1/tours/{tourId}/rides)
  */
 export interface CreateRideRequest {

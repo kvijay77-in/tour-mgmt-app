@@ -393,6 +393,15 @@ export interface CheckIn {
   
   /** Notes/remarks */
   notes?: string;
+
+  /** Timestamp when this check-in was cancelled by an override flow */
+  cancelledAt?: string;
+
+  /** User who cancelled this check-in */
+  cancelledBy?: string;
+
+  /** Optional backend status field when a cancelled record is materialized explicitly */
+  status?: string;
   
   /** Location coordinates (if available) */
   location?: {
@@ -545,6 +554,14 @@ export const deriveCheckInStatus = (checkIn: CheckIn): CheckInStatus => {
   if (checkIn.isNotRiding) return CheckInStatus.NOT_RIDING;
   if (checkIn.isQuitRiding) return CheckInStatus.QUIT_RIDING;
   return CheckInStatus.CHECKED_IN;
+};
+
+export const isCancelledCheckIn = (checkIn: CheckIn): boolean => {
+  if (checkIn.status?.toUpperCase() === 'CANCELLED') {
+    return true;
+  }
+
+  return Boolean(checkIn.cancelledAt || checkIn.cancelledBy);
 };
 
 // ============================================================================

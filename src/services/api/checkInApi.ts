@@ -4,8 +4,8 @@
  */
 
 import { apiClient, ApiError } from './apiClient';
-import { CheckInRequest, GetCheckInsQuery } from '../../types/api';
-import { CheckIn, CheckInStatus, deriveCheckInStatus } from '../../types/models';
+import { CancelCheckInRequest, CheckInRequest, GetCheckInsQuery } from '../../types/api';
+import { CheckIn, CheckInStatus, deriveCheckInStatus, isCancelledCheckIn } from '../../types/models';
 
 export type InteractiveCheckInOutcome =
   | { kind: 'success'; checkIn: CheckIn }
@@ -15,8 +15,75 @@ export type InteractiveCheckInOutcome =
       message: string;
     };
 
+export type OverrideRequiredOutcome = {
+  kind: 'override_required';
+  reason: 'start_regular_exists' | 'start_not_riding_exists';
+  message: string;
+};
+
+type ValidationOutcome = InteractiveCheckInOutcome | OverrideRequiredOutcome;
+
 function checkInsPath(tourId: string): string {
   return `/v1/tours/${tourId}/checkins`;
+}
+
+function rideCheckInsPath(tourId: string, rideId: string): string {
+  return `/v1/tours/${tourId}/rides/${rideId}/checkins`;
+}
+
+function checkInCancelPath(tourId: string, rideId: string, checkInId: string): string {
+  return `/v1/tours/${tourId}/rides/${rideId}/checkins/${encodeURIComponent(checkInId)}/cancel`;
+}
+
+function extractCheckInList(payload: unknown): CheckIn[] {
+  if (Array.isArray(payload)) {
+    return payload as CheckIn[];
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return [];
+  }
+
+  const nestedData = (payload as { data?: unknown }).data;
+  if (nestedData !== undefined && nestedData !== payload) {
+    const nestedCheckIns = extractCheckInList(nestedData);
+    if (nestedCheckIns.length > 0) {
+      return nestedCheckIns;
+    }
+  }
+
+  const wrappedCheckIns = (payload as { checkIns?: unknown }).checkIns;
+  if (Array.isArray(wrappedCheckIns)) {
+    return wrappedCheckIns as CheckIn[];
+  }
+
+  const wrappedItems = (payload as { items?: unknown }).items;
+  if (Array.isArray(wrappedItems)) {
+    return wrappedItems as CheckIn[];
+  }
+
+  return [];
+}
+
+function resolveCheckInId(checkIn: CheckIn): string | null {
+  if (checkIn.checkInId) {
+    return checkIn.checkInId;
+  }
+
+  const resolvedStageNumber =
+    checkIn.stageNumber ??
+    (checkIn.stageId && /^S\d{3}$/.test(checkIn.stageId)
+      ? Number.parseInt(checkIn.stageId.slice(1), 10)
+      : undefined);
+
+  const resolvedTimestamp = checkIn.timestamp ?? checkIn.createdAt;
+
+  if (!checkIn.riderId || resolvedStageNumber === undefined || !resolvedTimestamp) {
+    return null;
+  }
+
+  const paddedStageNumber = String(resolvedStageNumber).padStart(3, '0');
+  return `${checkIn.riderId}#${paddedStageNumber}#${resolvedTimestamp}`;
 }
 
 /**
@@ -35,6 +102,20 @@ export async function createCheckIn(
     throw new Error('Unexpected empty response from createCheckIn');
   }
   return response.data;
+}
+
+export async function cancelCheckIn(
+  tourId: string,
+  rideId: string,
+  checkInId: string,
+  previousStatus: CheckInStatus,
+): Promise<void> {
+  const payload: CancelCheckInRequest = {
+    status: 'CANCELLED',
+    prevStatus: previousStatus,
+  };
+
+  await apiClient.post(checkInCancelPath(tourId, rideId, checkInId), payload);
 }
 
 function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcome | null {
@@ -93,12 +174,144 @@ function getRequestedActionLabel(checkIn: CheckInRequest): string {
   return 'Regular check-in';
 }
 
+/**
+ * Resolve a check-in's stage number defensively.
+ *
+ * The raw ride check-ins list endpoint may expose the stage as a numeric
+ * `stageNumber`, a stringified number, or only as a `stageId` such as `"S000"`.
+ * Not Riding / Quit Riding records may carry no stage information at all.
+ */
+function resolveStageNumber(checkIn: CheckIn): number | undefined {
+  const raw = checkIn.stageNumber as unknown;
+
+  if (typeof raw === 'number' && !Number.isNaN(raw)) {
+    return raw;
+  }
+
+  if (typeof raw === 'string' && raw.trim() !== '' && !Number.isNaN(Number(raw))) {
+    return Number(raw);
+  }
+
+  if (checkIn.stageId && /^S\d{3}$/.test(checkIn.stageId)) {
+    return Number.parseInt(checkIn.stageId.slice(1), 10);
+  }
+
+  return undefined;
+}
+
+/**
+ * Return the most recent active (non-cancelled) check-in matching a predicate.
+ */
+function getLatestActiveCheckIn(
+  checkIns: CheckIn[],
+  predicate: (checkIn: CheckIn) => boolean,
+): CheckIn | undefined {
+  return checkIns
+    .filter((checkIn) => !isCancelledCheckIn(checkIn) && predicate(checkIn))
+    .reduce<CheckIn | undefined>((latest, current) => {
+      if (!latest) return current;
+
+      const latestTime = Date.parse(latest.timestamp);
+      const currentTime = Date.parse(current.timestamp);
+      if (Number.isNaN(latestTime) || Number.isNaN(currentTime)) {
+        return latest;
+      }
+      return currentTime > latestTime ? current : latest;
+    }, undefined);
+}
+
+/** Latest active regular (CHECKED_IN) check-in recorded at the Start stage. */
+function getActiveStartRegularCheckIn(checkIns: CheckIn[]): CheckIn | undefined {
+  return getLatestActiveCheckIn(
+    checkIns,
+    (checkIn) =>
+      deriveCheckInStatus(checkIn) === CheckInStatus.CHECKED_IN &&
+      resolveStageNumber(checkIn) === 0,
+  );
+}
+
+/** Latest active Not Riding check-in (Not Riding records carry no stage). */
+function getActiveNotRidingCheckIn(checkIns: CheckIn[]): CheckIn | undefined {
+  return getLatestActiveCheckIn(
+    checkIns,
+    (checkIn) => deriveCheckInStatus(checkIn) === CheckInStatus.NOT_RIDING,
+  );
+}
+
+function getStartStageOverrideOutcome(
+  checkIn: CheckInRequest,
+  riderCheckIns: CheckIn[],
+  latestStatus: CheckInStatus,
+): OverrideRequiredOutcome | null {
+  // Change 1: rider has a regular Start check-in and now requests Not Riding.
+  if (checkIn.isNotRiding) {
+    if (
+      latestStatus === CheckInStatus.CHECKED_IN &&
+      getActiveStartRegularCheckIn(riderCheckIns)
+    ) {
+      return {
+        kind: 'override_required',
+        reason: 'start_regular_exists',
+        message: 'A regular Start-stage check-in already exists for this rider. Override it with Not Riding?',
+      };
+    }
+    return null;
+  }
+
+  // Change 2: rider is Not Riding and now requests a regular Start check-in.
+  const isStartStageCheckIn = checkIn.stageNumber === 0 && !checkIn.isQuitRiding;
+  if (
+    isStartStageCheckIn &&
+    latestStatus === CheckInStatus.NOT_RIDING &&
+    getActiveNotRidingCheckIn(riderCheckIns)
+  ) {
+    return {
+      kind: 'override_required',
+      reason: 'start_not_riding_exists',
+      message: 'This rider is already marked as Not Riding at Start. Override it with a regular check-in?',
+    };
+  }
+
+  return null;
+}
+
+async function resolveOverrideTargetCheckIn(
+  tourId: string,
+  checkIn: CheckInRequest,
+): Promise<CheckIn> {
+  const riderCheckIns = await listRiderCheckInsForValidation(
+    tourId,
+    checkIn.rideId,
+    checkIn.riderId,
+  );
+
+  const latestStatus = getLatestRiderStatus(riderCheckIns);
+  const overrideOutcome = getStartStageOverrideOutcome(checkIn, riderCheckIns, latestStatus);
+
+  if (!overrideOutcome) {
+    throw new Error('Override target check-in was not found.');
+  }
+
+  const target =
+    overrideOutcome.reason === 'start_regular_exists'
+      ? getActiveStartRegularCheckIn(riderCheckIns)
+      : getActiveNotRidingCheckIn(riderCheckIns);
+
+  if (!target) {
+    throw new Error('Existing Start-stage check-in to cancel was not found.');
+  }
+
+  return target;
+}
+
 function getLatestRiderStatus(checkIns: CheckIn[]): CheckInStatus {
-  if (checkIns.length === 0) {
+  const activeCheckIns = checkIns.filter((checkIn) => !isCancelledCheckIn(checkIn));
+
+  if (activeCheckIns.length === 0) {
     return CheckInStatus.NOT_CHECKED_IN;
   }
 
-  const latestCheckIn = checkIns.reduce((latest, current) => {
+  const latestCheckIn = activeCheckIns.reduce((latest, current) => {
     const latestTime = Date.parse(latest.timestamp);
     const currentTime = Date.parse(current.timestamp);
     if (Number.isNaN(latestTime) || Number.isNaN(currentTime)) {
@@ -141,12 +354,12 @@ async function listRiderCheckInsForValidation(
   riderId: string,
 ): Promise<CheckIn[]> {
   try {
-    return await listCheckIns(tourId, {
-      rideId,
-      riderId,
-    });
+    const response = await apiClient.get<CheckIn[] | { checkIns?: CheckIn[]; items?: CheckIn[] }>(
+      rideCheckInsPath(tourId, rideId),
+    );
+    return extractCheckInList(response.data).filter((checkIn) => checkIn.riderId === riderId);
   } catch (error) {
-    // Some backend deployments return 404 when no check-ins exist for rider/ride yet.
+    // Some backend deployments return 404 when no check-ins exist for the ride yet.
     if (error instanceof ApiError && error.statusCode === 404) {
       return [];
     }
@@ -164,7 +377,7 @@ async function listRiderCheckInsForValidation(
 export async function createInteractiveCheckIn(
   tourId: string,
   checkIn: CheckInRequest,
-): Promise<InteractiveCheckInOutcome> {
+): Promise<ValidationOutcome> {
   try {
     // Interactive online mode must validate against backend-latest rider status
     // before final create/write to avoid stale local-state decisions.
@@ -173,7 +386,13 @@ export async function createInteractiveCheckIn(
       checkIn.rideId,
       checkIn.riderId,
     );
+
     const latestStatus = getLatestRiderStatus(riderCheckIns);
+    const overrideOutcome = getStartStageOverrideOutcome(checkIn, riderCheckIns, latestStatus);
+    if (overrideOutcome) {
+      return overrideOutcome;
+    }
+
     const statusConflict = getStatusConflictOutcome(checkIn, latestStatus);
     if (statusConflict) {
       return statusConflict;
@@ -194,6 +413,30 @@ export async function createInteractiveCheckIn(
 }
 
 /**
+ * Override an existing check-in by cancelling the prior record and creating the new one.
+ */
+export async function overrideInteractiveCheckIn(
+  tourId: string,
+  checkIn: CheckInRequest,
+): Promise<InteractiveCheckInOutcome> {
+  const existingCheckIn = await resolveOverrideTargetCheckIn(tourId, checkIn);
+  const previousStatus = deriveCheckInStatus(existingCheckIn);
+  const resolvedCheckInId = resolveCheckInId(existingCheckIn);
+
+  if (!resolvedCheckInId) {
+    throw new Error('Unable to resolve the existing check-in identifier for cancellation.');
+  }
+
+  await cancelCheckIn(tourId, checkIn.rideId, resolvedCheckInId, previousStatus);
+
+  const createdCheckIn = await createCheckIn(tourId, checkIn);
+  return {
+    kind: 'success',
+    checkIn: createdCheckIn,
+  };
+}
+
+/**
  * List check-ins for a ride, optionally filtered by rider, stage, or status.
  */
 export async function listCheckIns(
@@ -209,10 +452,10 @@ export async function listCheckIns(
   if (query.limit) params.limit = String(query.limit);
   if (query.nextToken) params.nextToken = query.nextToken;
 
-  const response = await apiClient.get<CheckIn[]>(checkInsPath(tourId), {
+  const response = await apiClient.get<CheckIn[] | { checkIns?: CheckIn[]; items?: CheckIn[] }>(checkInsPath(tourId), {
     params,
   });
-  return response.data ?? [];
+  return extractCheckInList(response.data);
 }
 
 /**

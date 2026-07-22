@@ -27,7 +27,7 @@ import { closePitStopStage, getActiveRide, listRides, openPitStopStage } from '.
 import { getDashboardData } from '../../services/api/dashboardApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType, Stage, RideStatus } from '../../types/models';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType, Stage, RideStatus, isCancelledCheckIn } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
 import { AppMenu } from '../../components/common/AppMenu';
@@ -47,7 +47,7 @@ const { width: WINDOW_WIDTH } = Dimensions.get('window');
 function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): RiderStatus[] {
   return riders.map((rider) => {
     const riderCheckIns = checkIns
-      .filter((ci) => ci.riderId === rider.riderId && ci.rideId === ride.rideId)
+      .filter((ci) => ci.riderId === rider.riderId && ci.rideId === ride.rideId && !isCancelledCheckIn(ci))
       .sort((a, b) => a.stageNumber - b.stageNumber);
 
     // Determine overall status
@@ -562,13 +562,13 @@ export default function DashboardScreen() {
 
   const hasRegularCheckInAtStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
     return riderStatus.checkInHistory.some(
-      (ci) => ci.stageNumber === stageNumber && !ci.isNotRiding && !ci.isQuitRiding
+      (ci) => ci.stageNumber === stageNumber && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci)
     );
   }, []);
 
   const hasRegularCheckInAfterStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
     return riderStatus.checkInHistory.some(
-      (ci) => ci.stageNumber > stageNumber && !ci.isNotRiding && !ci.isQuitRiding
+      (ci) => ci.stageNumber > stageNumber && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci)
     );
   }, []);
 
@@ -766,7 +766,7 @@ export default function DashboardScreen() {
     let latestCheckIn: CheckIn | undefined;
 
     riderStatus.checkInHistory.forEach((checkIn) => {
-      if (checkIn.stageNumber !== stageNumber) return;
+      if (checkIn.stageNumber !== stageNumber || isCancelledCheckIn(checkIn)) return;
 
       if (!latestCheckIn) {
         latestCheckIn = checkIn;
@@ -786,6 +786,8 @@ export default function DashboardScreen() {
       let latestCheckIn: CheckIn | undefined;
 
       riderStatus.checkInHistory.forEach((checkIn) => {
+        if (isCancelledCheckIn(checkIn)) return;
+
         const matches = kind === 'NR' ? checkIn.isNotRiding : checkIn.isQuitRiding;
         if (!matches) return;
 
