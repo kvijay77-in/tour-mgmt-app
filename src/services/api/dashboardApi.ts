@@ -1,27 +1,26 @@
 /**
- * Dashboard API service — composite endpoint for dashboard data.
+ * Dashboard API service for dashboard progress payloads.
  * See docs/DataIntegrationDesign.md §3.2 for response structure.
  */
 
 import { apiClient } from './apiClient';
-import { DashboardData } from '../../types/models';
-import { USE_MOCK_DATA, getMockDashboardDataResponse } from './mockData';
+import { DashboardProgressData } from '../../types/models';
+import { USE_MOCK_DATA, getMockDashboardProgressResponse } from './mockData';
 
 /**
- * Get complete dashboard data for a ride.
- * Returns ride details, all riders, all check-ins, and summary statistics
- * in a single API call.
+ * Get lightweight dashboard progress data for a ride.
+ * Returns check-ins + summary only (no ride object, no riders array).
  *
- * @param etag  Previous ETag for conditional request (304 optimisation)
- * @returns Dashboard data, or null if 304 Not Modified
+ * @param etag Previous ETag for conditional request (304 optimisation)
+ * @returns Progress data, or null if 304 Not Modified
  */
-export async function getDashboardData(
+export async function getDashboardProgress(
   tourId: string,
   rideId: string,
   etag?: string,
-): Promise<{ data: DashboardData | null; etag?: string }> {
+): Promise<{ data: DashboardProgressData | null; etag?: string }> {
   if (USE_MOCK_DATA) {
-    return { data: getMockDashboardDataResponse(), etag: undefined };
+    return { data: getMockDashboardProgressResponse(rideId), etag: undefined };
   }
 
   const headers: Record<string, string> = {};
@@ -29,15 +28,14 @@ export async function getDashboardData(
     headers['If-None-Match'] = etag;
   }
 
-  const response = await apiClient.get<DashboardData>(
-    `/v1/tours/${tourId}/rides/${rideId}/dashboard`,
+  const response = await apiClient.get<DashboardProgressData>(
+    `/v1/tours/${tourId}/rides/${rideId}/dashboard/progress`,
     { headers },
   );
 
   return {
     data: response.data ?? null,
-    // ETag will be extracted from response headers in Phase 3
-    // when full fetch response access is available
+    // ETag extraction can be enabled after apiClient response-header support is added.
     etag: undefined,
   };
 }

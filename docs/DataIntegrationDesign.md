@@ -29,7 +29,10 @@ The `tour-data-api` provides a RESTful API built with AWS SAM, Lambda, API Gatew
 - **20 Lambda functions** covering tours, riders, rides, check-ins, and users
 - **JWT authentication** via AWS Cognito
 - **Tour-scoped tables** — each tour has its own set of DynamoDB tables (TourRider, Ride, CheckIn, User)
-- **Dashboard endpoint** (`GET /v1/tours/{tourId}/rides/{rideId}/dashboard`) returns a composite response with ride details, all riders with profiles, all check-ins, and summary statistics in a single call
+- **Dashboard APIs (Phase 3 split)** include:
+  - Composite endpoint (`GET /v1/tours/{tourId}/rides/{rideId}/dashboard`) retained as legacy backend compatibility endpoint (not used by current frontend dashboard/sync paths)
+  - Lightweight progress endpoint (`GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress`) for frequent dashboard status refresh
+  - Rider details endpoint (`GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details`) for on-demand rider popup
 - **Small data volume** — ~100 riders, ~8 rides per tour, ~600 check-ins per ride maximum
 
 ### 1.2 Efficiency for Mobile App
@@ -40,9 +43,9 @@ Reasons:
 
 | Aspect | Assessment | Detail |
 |--------|-----------|--------|
-| **Data Volume** | ✅ Low | ~100 riders, max 600 check-ins per ride. Total dashboard payload estimated at 50-80KB uncompressed |
-| **Network Calls** | ✅ Optimised | Dashboard endpoint returns all data in a single call (ride + riders + check-ins + summary), avoiding N+1 queries |
-| **Payload Size** | ✅ Acceptable | API returns only needed fields. No bloat from GraphQL type overhead or over-fetching |
+| **Data Volume** | ✅ Low | ~100 riders, max 600 check-ins per ride. Frequent dashboard refreshes use lightweight progress payloads (target typical size under 20 KB) |
+| **Network Calls** | ✅ Optimised | Dashboard screen uses split-load: rides + rider roster + lightweight progress, and rider popup is fetched on demand |
+| **Payload Size** | ✅ Acceptable | Split contracts return only required fields for each dashboard interaction (progress vs rider-popup details) |
 | **Latency** | ✅ Acceptable | Lambda cold starts are acceptable for 10-15 concurrent users. API Gateway HTTP API has lower latency than API Gateway REST API |
 | **Cost** | ✅ Minimal | API Gateway HTTP API is 70% cheaper than API Gateway REST API. Estimated <$10/month during tour |
 | **Offline Support** | ✅ Compatible | API responses are simple JSON — easily cached in SQLite for offline use |
@@ -50,7 +53,7 @@ Reasons:
 
 **Why RESTful API over GraphQL for this use case:**
 
-1. **Dashboard is the primary view** — the backend already provides a composite dashboard endpoint that returns everything needed. GraphQL's selective querying advantage is minimal here since we need all the data anyway.
+1. **Dashboard is the primary view** — Phase 3 uses a lightweight progress contract for refreshes and rider details on demand, reducing repeated transfer of static ride/rider payloads.
 2. **Low complexity queries** — most reads are "get all riders," "get all check-ins for ride," "get today's ride." These are simple and don't benefit from GraphQL's flexibility.
 3. **Write operations are simple** — check-in creation is a single POST with a fixed payload structure.
 4. **Amplify Data (AppSync)** would require redefining the data model in Amplify schema, which contradicts the design principle that DynamoDB tables are managed externally by `tour-data-api`.
@@ -92,7 +95,7 @@ src/services/
 │   ├── riderApi.ts         # Rider endpoints
 │   ├── rideApi.ts          # Ride endpoints
 │   ├── checkInApi.ts       # Check-in endpoints
-│   ├── dashboardApi.ts     # Dashboard endpoint
+│   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
 │   ├── userApi.ts          # User endpoints
 │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 ├── database/               # SQLite for offline support
@@ -214,47 +217,73 @@ Pit stop status updates are stage-scoped actions and apply only to stages where 
 
 ### 3.2 API Response Mapping
 
-The backend returns camelCase JSON (as stored in DynamoDB). The frontend types should use matching property names. Key response structures:
+The backend returns camelCase JSON (as stored in DynamoDB). The frontend types use matching property names.
 
-**Dashboard Response** (`GET /v1/tours/{tourId}/rides/{rideId}/dashboard`):
+Current frontend dashboard and inbound-sync paths are aligned to split contracts:
+- `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress`
+- `GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details`
+- `GET /v1/tours/{tourId}/rides/{rideId}`
+- `GET /v1/tours/{tourId}/riders`
+
+Legacy composite dashboard payload remains a backend compatibility route but is not used by the current frontend implementation.
+
+### 3.2.5 Dashboard API Split (Implemented in Phase 3)
+
+Current implemented frontend flow (`src/screens/dashboard/DashboardScreen.tsx`):
+
+1. Fetch rides for selector and active-ride resolution from ride APIs.
+2. Fetch rider roster once (tour scoped) from rider API.
+3. Fetch selected ride progress from `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress`.
+4. Build dashboard rider status client-side from:
+   - selected ride metadata,
+   - rider roster,
+   - progress `checkIns`.
+5. Fetch rider popup details only when user opens a rider card via:
+   - `GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details`.
+
+Implemented privacy behavior:
+- Rider popup details are memory-only in the Dashboard screen state.
+- No rider-detail persistence to SQLite or SecureStore in default path.
+- Optional offline rider-profile cache remains a future enhancement behind a disabled feature-flag placeholder.
+
+Implemented payload contracts used by frontend:
+
+**Dashboard Progress Response** (`GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress`):
 ```json
 {
   "success": true,
   "data": {
-    "ride": { "rideId": "RIDE001", "stages": [...], ... },
-    "riders": [
-      {
-        "riderId": "R1",
-        "profileId": "uuid",
-        "name": "John Doe",
-        "phone": "+1-555-1234",
-        "photoS3Key": "photos/R1.jpg",
-        ...
-      }
-    ],
-    "checkIns": [
-      {
-        "rideId": "RIDE001",
-        "checkInId": "R1#000#2026-02-10T08:00:00Z",
-        "riderId": "R1",
-        "stageNumber": 0,
-        "stageId": "S000",
-        "isNotRiding": false,
-        "isQuitRiding": false,
-        "method": "QR_SCAN",
-        "timestamp": "2026-02-10T08:00:00Z",
-        "checkedInBy": "user-uuid"
-      }
-    ],
+    "rideId": "RIDE001",
+    "checkIns": [],
     "summary": {
       "totalRiders": 100,
       "checkedIn": 75,
       "notRiding": 5,
       "quitRiding": 2,
       "notCheckedIn": 18
-    }
+    },
+    "dataVersion": "2026-07-23T09:31:30Z"
   },
-  "timestamp": "2026-02-10T10:00:00Z"
+  "timestamp": "2026-07-23T10:00:00Z"
+}
+```
+
+**Rider Details Response** (`GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details`):
+```json
+{
+  "success": true,
+  "data": {
+    "rider": {
+      "riderId": "R57",
+      "profileId": "abc-123",
+      "name": "Jane Doe",
+      "phone": "+1-555-1000",
+      "photoS3Key": "photos/R57.jpg"
+    },
+    "checkInTimeline": [],
+    "latestStatus": "CHECKED_IN"
+  },
+  "timestamp": "2026-07-23T10:00:00Z"
 }
 ```
 
@@ -270,6 +299,29 @@ The backend returns camelCase JSON (as stored in DynamoDB). The frontend types s
   "notes": ""
 }
 ```
+
+### 3.2.6 Dashboard Trigger Strategy and Duplicate-Call Controls (Implemented in Phase 4)
+
+Current implemented frontend behavior extends the Phase 3 split-load flow with targeted refresh and duplicate-call controls:
+
+1. Check-In success path emits a local dashboard update event carrying the created check-in record.
+2. Dashboard applies that check-in to in-memory rider status state immediately (no full refetch on return).
+3. Focus-based refresh is no longer unconditional; it only performs server pull for stale-session recovery.
+4. Manual refresh and explicit ride switch continue to use server pull.
+5. In-flight request guards prevent concurrent duplicate requests for:
+  - dashboard bootstrap flow (ride list + today resolution + progress), and
+  - ride progress fetch for the same ride.
+6. Initial load avoids overlap by resolving today's ride from `listRides` results rather than combining list + separate today lookup.
+
+Resulting trigger matrix for dashboard pulls:
+- App open to Dashboard: server pull (bootstrap)
+- Check-In return to Dashboard: local state update only (default path)
+- Manual refresh action: server pull
+- Explicit ride switch from menu: server pull for selected ride
+- Focus return from other screens: server pull only when stale-session threshold is exceeded
+
+Note on duplicate-call interpretation:
+- Retry attempts generated by `apiClient` transient-failure retry logic are not treated as true duplicate trigger defects.
 
 ---
 
@@ -642,7 +694,7 @@ EXPO_PUBLIC_USE_MOCK_DATA=true
 
 These values are provided by the `tour-data-api` deployment. The Cognito User Pool is shared between the backend and the frontend app.
 
-When `EXPO_PUBLIC_USE_MOCK_DATA` is set to `true`, the API service functions (`getActiveTour`, `getActiveRide`, `getDashboardData`) return synthetic data from `mockData.ts` without making HTTP calls. All other environment variables can be left empty in this mode.
+When `EXPO_PUBLIC_USE_MOCK_DATA` is set to `true`, API service functions return synthetic data from `mockData.ts` without making HTTP calls, including dashboard progress and rider-details responses used by the Phase 3 dashboard flow.
 
 > **Note**: Variables prefixed with `EXPO_PUBLIC_` are embedded in the client bundle. This is acceptable for User Pool IDs and API URLs (not secrets). See [Development Guide → Environment Configuration](development-guide.md#environment-configuration) for full details.
 
@@ -736,9 +788,17 @@ The following enhancements to the `tour-data-api` backend are needed to support 
 
 **Enhancement needed:** The check-in endpoint should return a **409 Conflict** with a clear error code (e.g., `DUPLICATE_CHECKIN`) when a check-in for the same rider at the same stage already exists. A confirmation that the duplicate exists is sufficient — no need to return the full existing check-in data in the error response.
 
-### 9.4 ETag Support for Dashboard Endpoint
+### 9.4 ETag Support for Dashboard Endpoints
 
-**Enhancement needed:** The `GET /v1/tours/{tourId}/rides/{rideId}/dashboard` endpoint should support conditional requests via `ETag` / `If-None-Match` headers. When data hasn't changed, return `304 Not Modified` with no body. This significantly reduces data transfer during 5-second polling.
+Status update:
+- Backend contract now confirms conditional request support (`ETag` / `If-None-Match` / `304`) for:
+  - `GET /v1/tours/{tourId}/rides/{rideId}/dashboard`
+  - `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress`
+  - `GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details`
+
+Frontend follow-up:
+- API helper methods accept optional ETag argument.
+- Response-header extraction for storing returned ETag values is pending API client enhancement.
 
 ### 9.5 Summary
 
@@ -747,7 +807,7 @@ The following enhancements to the `tour-data-api` backend are needed to support 
 | Timestamp-based check-in validation (§9.1) | Eliminates manual resolution for offline cross-stage sync | **High** |
 | Late-sync for closed rides (§9.2) | Eliminates manual resolution for offline check-ins after ride closure | **High** |
 | Duplicate check-in handling (§9.3) | Clean user experience for duplicate attempts | **Medium** |
-| ETag support for dashboard (§9.4) | Reduces data transfer during 5-second polling | **Medium** |
+| ETag propagation in frontend client (§9.4) | Enables full conditional-fetch optimization in frontend refresh orchestration | **Medium** |
 
 ---
 

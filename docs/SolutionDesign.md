@@ -53,7 +53,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 
 3. **Amplify for authentication only** — AWS Amplify Auth SDK is used for Cognito authentication and JWT token management. Data access is via the RESTful tour-data-api, not Amplify Data/AppSync.
 
-4. **SQLite as single source of truth** — The Dashboard and all UI reads come from the local SQLite database. Network operations (API calls) update SQLite, and the UI observes SQLite. This ensures consistent behaviour in both online and offline modes.
+4. **SQLite for offline check-in and sync durability** — Local SQLite is the durable store for offline-capable check-in capture and pending sync operations. Dashboard Phase 3+4 uses split API orchestration for online reads (ride list + rider roster + dashboard progress) plus targeted refresh controls and local check-in event updates, while maintaining offline-safe check-in behavior.
 
 5. **Offline-first for check-ins** — All check-in operations write to SQLite first, then asynchronously sync to the backend. There is no separate "online" vs "offline" code path for check-ins, except the Start-stage Override/Cancel flow, which is intentionally online-only.
 
@@ -86,7 +86,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 
 - **Expo managed workflow**: Simplifies build and deployment across platforms. No need to eject for native modules — all required features are available via Expo SDK.
 - **fetch over axios/other HTTP libraries**: Built into React Native, reduces bundle size. The apiClient wrapper adds retry, auth, and error handling.
-- **SQLite over AsyncStorage**: Structured data with relational queries needed for offline dashboard. AsyncStorage is key-value only and insufficient for complex queries.
+- **SQLite over AsyncStorage**: Structured relational storage is required for offline check-in capture, pending operation queueing, and sync-safe conflict handling. AsyncStorage is key-value only and insufficient for these workflows.
 - **React Context over Redux/MobX**: Application state is straightforward (active tour, auth state, offline mode, role). Context + Hooks provides sufficient state management without additional dependencies.
 
 ---
@@ -306,10 +306,10 @@ All communication with the tour-data-api is through the service layer at `src/se
 |------|-----------|-------------|
 | `apiClient.ts` | — | Base HTTP client with auth, retry, error handling |
 | `tourApi.ts` | `GET /v1/tours/active`, `GET /v1/tours` | Tour resolution and listing |
-| `riderApi.ts` | `GET /v1/tours/{tourId}/riders` | Rider data for dashboard |
+| `riderApi.ts` | `GET /v1/tours/{tourId}/riders`, `GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details` | Rider roster and on-demand rider popup data |
 | `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, `POST /v1/tours/{tourId}/rides/open`, `POST /v1/tours/{tourId}/rides/start`, `POST /v1/tours/{tourId}/rides/{rideId}/close`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/open`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/close`, CRUD | Ride management, status transitions, and pit-stop runtime state updates |
 | `checkInApi.ts` | `POST /v1/tours/{tourId}/checkins`, GET | Check-in operations |
-| `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard` | Composite dashboard data |
+| `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress` | Lightweight dashboard progress data (`checkIns` + `summary`) |
 
 Administrator user-management flows use `src/services/auth/cognitoUserManagementService.ts` and standard Cognito Identity Provider APIs for:
 - Cognito group listing for role selection
@@ -327,14 +327,27 @@ Administrator user-management flows use `src/services/auth/cognitoUserManagement
 - **Error standardization**: Backend errors mapped to consistent frontend error types
 - **Logging**: Structured, level-gated logging via the app logger (see [Logging](#logging))
 
-### Data Flow: API → SQLite → UI
+### Data Flow: API Split-Load + Offline Queue
 
-The app never reads directly from API responses for the Dashboard. The flow is:
-1. API client fetches data from tour-data-api
-2. Data is written to SQLite tables
-3. UI components read from SQLite
+Implemented Dashboard Phase 3 flow:
+1. API client fetches ride list and active ride metadata from ride APIs
+2. API client fetches tour rider roster from rider API
+3. API client fetches ride progress from `/dashboard/progress` (`checkIns` + `summary`)
+4. Dashboard screen composes UI status from ride + rider roster + progress check-ins
+5. Rider popup fetches rider details and timeline on demand via rider-details endpoint
 
-This ensures consistent behaviour whether online or offline. For detailed design, see [Data Integration Design](DataIntegrationDesign.md).
+Implemented storage/privacy behavior:
+1. Rider popup details are held in memory only for the current modal session
+2. Rider popup details are not persisted to SQLite or SecureStore in the default path
+3. Offline rider-profile cache remains a future enhancement behind a disabled flag placeholder
+
+Offline-capable check-ins still use SQLite-first durable writes and pending queue sync. For detailed design, see [Data Integration Design](DataIntegrationDesign.md).
+
+Implemented Dashboard Phase 4 behavior:
+1. Returning from Check-In does not force full dashboard reload; dashboard state is updated from check-in success event payload.
+2. Dashboard server refresh is targeted to explicit triggers (manual refresh, explicit ride switch) and stale-session recovery.
+3. Fetch orchestrator has in-flight guards to avoid concurrent duplicate bootstrap/progress requests.
+4. Initial dashboard load removes redundant ride-resolution overlap by using ride-list response as the today-ride decision source.
 
 ---
 
@@ -342,7 +355,7 @@ This ensures consistent behaviour whether online or offline. For detailed design
 
 ### Design Principles
 
-1. **SQLite is the single source of truth** — UI always reads from SQLite
+1. **SQLite is the durable source for offline check-in and sync queue**
 2. **Same write path online and offline** — check-ins always go to SQLite first, then sync
 3. **Manual + automatic offline control** — users can toggle offline mode; NetInfo detects automatically
 4. **Conflict resolution is automatic** — no manual intervention needed (see [Data Integration Design § 4.5](DataIntegrationDesign.md#45-conflict-resolution))
@@ -365,7 +378,7 @@ For complete schema and storage estimates, see [Data Integration Design § 4.2](
 
 Two independent processes:
 - **Outbound sync**: Processes `pending_operations` queue → POST to tour-data-api → update status
-- **Inbound sync**: Polls dashboard endpoint → writes to SQLite → UI re-renders
+- **Inbound sync (offline-readiness path)**: Refreshes locally cached ride/rider/check-in datasets when enabled for offline scenarios
 
 Both pause when offline (manual toggle or auto-detected) and resume when connectivity is restored.
 

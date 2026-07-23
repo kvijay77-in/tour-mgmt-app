@@ -6,15 +6,6 @@ import { Ride, RideStatus, Stage, StageType } from '../../types/models';
 
 const formatRideStatusLabel = (status: RideStatus): string => status.replaceAll('_', ' ');
 
-const formatDateTimeForDisplay = (value?: string): string => {
-  if (!value) return 'N/A';
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-
-  return parsed.toLocaleString();
-};
-
 const formatTimeOnly = (value?: string): string => {
   if (!value) return 'N/A';
 

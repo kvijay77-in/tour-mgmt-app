@@ -141,10 +141,6 @@ export interface GetCheckInsQuery {
   nextToken?: string;
 }
 
-export interface GetDashboardDataQuery {
-  rideId: string;
-}
-
 export interface GetToursQuery {
   status?: TourStatus;
 }

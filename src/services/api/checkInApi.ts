@@ -333,7 +333,7 @@ function getStatusConflictOutcome(
     return {
       kind: 'info_conflict',
       reason: 'not_riding',
-      message: `Rider is already marked as Not Riding in the latest backend status. ${actionLabel} is not allowed.`,
+      message: `Rider is already marked as Not Riding. ${actionLabel} is not allowed.`,
     };
   }
 
@@ -341,7 +341,7 @@ function getStatusConflictOutcome(
     return {
       kind: 'info_conflict',
       reason: 'quit_riding',
-      message: `Rider is already marked as Quit Riding in the latest backend status. ${actionLabel} is not allowed.`,
+      message: `Rider is already marked as Quit Riding. ${actionLabel} is not allowed.`,
     };
   }
 

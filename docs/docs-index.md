@@ -14,6 +14,9 @@ This page provides a guide to all project documentation.
 | [Solution Design](SolutionDesign.md) | Architecture, design principles, component structure, technical decisions |
 | [Dashboard Feature](Dashboard-Feature.md) | Dashboard screen specification — grid display, stages, sorting, zoom levels, color coding |
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
+| [Dashboard API Optimization Proposal](Dashboard-API-Optimization-Proposal.md) | Approved dashboard API split contract (progress payload + rider-details on demand + ETag behavior) |
+| [Dashboard Call Trigger Baseline](dashboard-call-trigger-baseline.md) | Baseline trigger-to-call matrix used for API efficiency refactor verification |
+| [Dashboard Call Audit Checklist](dashboard-call-audit-checklist.md) | Duplicate-call classification checklist (true duplicate vs retry behavior) |
 | [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md) | Feasibility analysis for distributing a single generic app across multiple organizer AWS subscriptions |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 | [Migration Cleanup](migration-cleanup.md) | Obsolete/superseded code from the SPA→multi-screen navigation migration, pending user sign-off before removal |
@@ -42,6 +45,8 @@ This page provides a guide to all project documentation.
 
 ### For Backend Integration
 - **API integration overview**: [Data Integration Design → API Approach Analysis](DataIntegrationDesign.md#1-api-approach-analysis)
+- **Dashboard split-load flow (Phase 3)**: [Data Integration Design → Dashboard API Split](DataIntegrationDesign.md#325-dashboard-api-split-implemented-in-phase-3)
+- **Dashboard trigger controls (Phase 4)**: [Data Integration Design → Dashboard Trigger Strategy and Duplicate-Call Controls](DataIntegrationDesign.md#326-dashboard-trigger-strategy-and-duplicate-call-controls-implemented-in-phase-4)
 - **Service layer design**: [Data Integration Design → Service Layer Design](DataIntegrationDesign.md#22-service-layer-design)
 - **Offline sync design**: [Data Integration Design → Offline Support Design](DataIntegrationDesign.md#4-offline-support-design)
 - **Conflict resolution**: [Data Integration Design → Conflict Resolution](DataIntegrationDesign.md#45-conflict-resolution)
