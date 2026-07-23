@@ -28,7 +28,7 @@ The Dashboard is the home screen displaying real-time rider tracking during dail
 - Grid layout with 6 columns showing Rider IDs
 - Color-coded icons representing check-in status
 - Default sort: Lexicographical order by Rider ID
-- Real-time updates from database
+- Dashboard status refresh uses lightweight backend progress payload (`checkIns` + `summary`) for the selected ride
 
 ### 2. Stage Count Summary
 Located in the header, displays cumulative counts:
@@ -92,7 +92,9 @@ Located in the header, displays cumulative counts:
 
 **Body:**
 - Scrollable rider grid
-- Touch rider icon for details (future feature)
+- Touch rider icon (Zoom level 1/2) to open rider card
+- Rider card data is fetched on demand per rider via rider-details API (no bulk preloading)
+- Rider card shows loading and retry/error states when details fetch is in progress or fails
 
 **Ride Details (shared route from header and All Rides info action):**
 - Compact layout optimized to fit within visible screen area
@@ -109,18 +111,28 @@ Located in the header, displays cumulative counts:
 - Height: 60px, accommodates unlimited stages
 
 ## Technical Notes
-- Uses mock data service for development (to be replaced with live API — see [Data Integration Design](DataIntegrationDesign.md))
+- Uses split API orchestration for Dashboard load:
+  - Ride list drives today-ride resolution and selector options (no overlapping today-ride lookup call on initial load)
+  - Rider roster from rider API
+  - Grid status from lightweight Dashboard progress API (`/dashboard/progress`)
+- Refresh trigger strategy (Phase 4):
+  - Returning from Check-In updates Dashboard locally and does not force a full dashboard reload
+  - Server pull is targeted to explicit triggers: manual refresh action, explicit ride switch, or stale-session recovery
+  - In-flight request guards prevent concurrent duplicate dashboard bootstrap/progress requests for the same resource
+- Rider profile/timeline data for popup is held in-memory only for the current modal session
+- Offline rider-profile cache is intentionally disabled by default; feature-flag placeholder exists for future enhancement
 - Implements React Native Animated API for FAB drag
 - Responsive grid adjusts to screen width
 - State management: React hooks (useState, useRef)
-- Dashboard reads from SQLite as single source of truth (see [Solution Design → Offline Architecture](SolutionDesign.md#offline-architecture))
+- Check-in offline queue/sync remains SQLite-backed; Dashboard Phase 3 display path uses API split-load strategy described in [Data Integration Design](DataIntegrationDesign.md)
 
 ---
 
 ## Related Documentation
 
 - [Requirements → Dashboard](Requirements.md#dashboard) — Functional requirements for Dashboard
-- [Data Integration Design → Dashboard Refresh Strategy](DataIntegrationDesign.md#44-dashboard-refresh-strategy) — Refresh intervals and polling design
+- [Data Integration Design → Dashboard API Split (Implemented in Phase 3)](DataIntegrationDesign.md#325-dashboard-api-split-implemented-in-phase-3)
+- [Data Integration Design → Dashboard Trigger Strategy and Duplicate-Call Controls (Implemented in Phase 4)](DataIntegrationDesign.md#326-dashboard-trigger-strategy-and-duplicate-call-controls-implemented-in-phase-4)
 - [Solution Design → State Management](SolutionDesign.md#state-management) — Context and state architecture
 
 ---

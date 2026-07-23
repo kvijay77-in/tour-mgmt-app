@@ -580,11 +580,23 @@ export interface DashboardSummary {
 }
 
 /**
- * Complete dashboard data returned by GET /v1/tours/{tourId}/rides/{rideId}/dashboard
+ * Lightweight dashboard progress payload returned by
+ * GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress
  */
-export interface DashboardData {
-  ride: Ride;
-  riders: Rider[];
+export interface DashboardProgressData {
+  rideId: string;
   checkIns: CheckIn[];
   summary: DashboardSummary;
+  dataVersion?: string;
 }
+
+/**
+ * Rider popup details payload returned by
+ * GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details
+ */
+export interface RiderDetailsData {
+  rider: Rider;
+  checkInTimeline: CheckIn[];
+  latestStatus?: CheckInStatus;
+}
+

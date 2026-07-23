@@ -107,7 +107,7 @@ function log(level: LogLevel, tag: string, message: string, data?: unknown): voi
       console.warn(line);
       break;
     default:
-      console.log(line);
+      console.info(line);
       break;
   }
 }

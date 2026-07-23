@@ -11,7 +11,9 @@
 
 import { ApiError } from '../api/apiClient';
 import { createCheckIn as apiCreateCheckIn } from '../api/checkInApi';
-import { getDashboardData } from '../api/dashboardApi';
+import { getDashboardProgress } from '../api/dashboardApi';
+import { listRiders } from '../api/riderApi';
+import { getRideById } from '../api/rideApi';
 import {
   getPendingOperations,
   markSyncing,
@@ -36,6 +38,19 @@ import { CheckInRequest } from '../../types/api';
 const MAX_RETRIES = 5;
 const OUTBOUND_POLL_INTERVAL_MS = 3_000; // 3 seconds
 const INBOUND_POLL_INTERVAL_MS = 5_000; // 5 seconds during active ride
+const INBOUND_RIDE_REFRESH_MS = 60_000;
+const INBOUND_RIDERS_REFRESH_MS = 10 * 60_000;
+
+const lastRideRefreshByRideId = new Map<string, number>();
+const lastRidersRefreshByTourId = new Map<string, number>();
+
+function shouldRefresh(lastRefreshAt: number | undefined, thresholdMs: number): boolean {
+  if (!lastRefreshAt) {
+    return true;
+  }
+
+  return Date.now() - lastRefreshAt >= thresholdMs;
+}
 
 // ---------------------------------------------------------------------------
 // Mutex lock for outbound sync (prevents concurrent processing)
@@ -207,23 +222,40 @@ async function handleApiError(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch dashboard data from the backend and update SQLite.
- * The Dashboard reads from SQLite, so this keeps the local cache current.
+ * Fetch dashboard progress from the backend and update SQLite.
+ * Dashboard screen uses split online APIs directly; sync keeps offline cache current.
  */
 export async function performInboundSync(
   tourId: string,
   rideId: string,
 ): Promise<void> {
-  const { data } = await getDashboardData(tourId, rideId);
+  const [progressResponse, rideResponse, ridersResponse] = await Promise.all([
+    getDashboardProgress(tourId, rideId),
+    shouldRefresh(lastRideRefreshByRideId.get(rideId), INBOUND_RIDE_REFRESH_MS)
+      ? getRideById(tourId, rideId)
+      : Promise.resolve(null),
+    shouldRefresh(lastRidersRefreshByTourId.get(tourId), INBOUND_RIDERS_REFRESH_MS)
+      ? listRiders(tourId)
+      : Promise.resolve(null),
+  ]);
+
+  const data = progressResponse.data;
 
   if (!data) {
     // 304 Not Modified or no data — nothing to update
     return;
   }
 
-  // Update local cache
-  await upsertRide(data.ride);
-  await upsertRiders(data.riders);
+  if (rideResponse) {
+    await upsertRide(rideResponse);
+    lastRideRefreshByRideId.set(rideId, Date.now());
+  }
+
+  if (ridersResponse) {
+    await upsertRiders(ridersResponse);
+    lastRidersRefreshByTourId.set(tourId, Date.now());
+  }
+
   await upsertCheckInsFromApi(data.checkIns);
 
   // Update dashboard summary

@@ -23,11 +23,26 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
-import { closePitStopStage, getActiveRide, listRides, openPitStopStage } from '../../services/api/rideApi';
-import { getDashboardData } from '../../services/api/dashboardApi';
+import { closePitStopStage, listRides, openPitStopStage } from '../../services/api/rideApi';
+import { getDashboardProgress } from '../../services/api/dashboardApi';
+import { getRideRiderDetails, listRiders } from '../../services/api/riderApi';
+import { subscribeDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType, Stage, RideStatus, isCancelledCheckIn } from '../../types/models';
+import {
+  Ride,
+  Rider,
+  CheckIn,
+  RiderStatus,
+  CheckInStatus,
+  Permission,
+  UserRole,
+  StageType,
+  Stage,
+  RideStatus,
+  RiderDetailsData,
+  isCancelledCheckIn,
+} from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
 import { AppMenu } from '../../components/common/AppMenu';
@@ -40,14 +55,26 @@ import {
 } from '../../services/config/pitStopContextService';
 
 const { width: WINDOW_WIDTH } = Dimensions.get('window');
+const ENABLE_OFFLINE_RIDER_PROFILE_CACHE = false;
+const STALE_SESSION_REFRESH_MS = 2 * 60 * 1000;
 
 /**
  * Build RiderStatus[] from dashboard API response data.
  */
 function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): RiderStatus[] {
+  if (!Array.isArray(riders)) {
+    logger.error('Dashboard', 'buildRiderStatuses received a non-array rider roster');
+    return [];
+  }
+
   return riders.map((rider) => {
     const riderCheckIns = checkIns
-      .filter((ci) => ci.riderId === rider.riderId && ci.rideId === ride.rideId && !isCancelledCheckIn(ci))
+      .filter((ci) => {
+        const matchesRider = ci.riderId === rider.riderId;
+        const matchesRide = typeof ci.rideId !== 'string' || ci.rideId === ride.rideId;
+
+        return matchesRider && matchesRide && !isCancelledCheckIn(ci);
+      })
       .sort((a, b) => a.stageNumber - b.stageNumber);
 
     // Determine overall status
@@ -69,9 +96,7 @@ function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): R
       ? regularCheckIns[regularCheckIns.length - 1]
       : undefined;
 
-    const lastStage = lastRegularCheckIn
-      ? ride.stages.find((s) => s.stageNumber === lastRegularCheckIn.stageNumber)
-      : undefined;
+    const lastStage = lastRegularCheckIn ? resolveStageForCheckIn(ride, lastRegularCheckIn) : undefined;
 
     const lastCheckIn = riderCheckIns.length > 0
       ? riderCheckIns[riderCheckIns.length - 1]
@@ -98,6 +123,75 @@ function compareRiderIdsNatural(a: string, b: string): number {
   });
 }
 
+function normalizeStageNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function resolveStageForCheckIn(ride: Ride | null, checkIn: CheckIn): Stage | undefined {
+  if (!ride) {
+    return undefined;
+  }
+
+  if (checkIn.stageId) {
+    const stageById = ride.stages.find((stage) => stage.stageId === checkIn.stageId);
+    if (stageById) {
+      return stageById;
+    }
+  }
+
+  const normalizedStageNumber = normalizeStageNumber(checkIn.stageNumber);
+  if (normalizedStageNumber === null) {
+    return undefined;
+  }
+
+  const exactMatch = ride.stages.find((stage) => stage.stageNumber === normalizedStageNumber);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  if (normalizedStageNumber > 0) {
+    return ride.stages.find((stage) => stage.stageNumber === normalizedStageNumber - 1);
+  }
+
+  return undefined;
+}
+
+function resolveTodayRideFromList(rides: Ride[]): Ride | null {
+  const today = new Date().toISOString().split('T')[0];
+  const todayRides = rides.filter((ride) => ride.date === today);
+
+  if (todayRides.length === 0) {
+    return null;
+  }
+
+  return todayRides.find((candidate) => candidate.status === RideStatus.STARTED || candidate.status === RideStatus.OPEN)
+    ?? todayRides[0];
+}
+
+function getCheckInDedupKey(checkIn: CheckIn): string {
+  if (checkIn.checkInId) {
+    return checkIn.checkInId;
+  }
+
+  return [
+    checkIn.rideId,
+    checkIn.riderId,
+    String(checkIn.stageNumber ?? ''),
+    checkIn.timestamp,
+    checkIn.isNotRiding ? 'NR' : '',
+    checkIn.isQuitRiding ? 'QR' : '',
+  ].join('|');
+}
+
 export default function DashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
   const { width, height } = useWindowDimensions();
@@ -110,13 +204,17 @@ export default function DashboardScreen() {
   const [ride, setRide] = useState<Ride | null>(null);
   const [allRides, setAllRides] = useState<Ride[]>([]);
   const [isHistorical, setIsHistorical] = useState(false);
+  const [riders, setRiders] = useState<Rider[]>([]);
   const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stageViewId, setStageViewId] = useState<string | undefined>(undefined);
   const [isSorted, setIsSorted] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
-  const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
+  const [selectedRiderStatus, setSelectedRiderStatus] = useState<RiderStatus | null>(null);
+  const [selectedRiderDetails, setSelectedRiderDetails] = useState<RiderDetailsData | null>(null);
+  const [isRiderDetailsLoading, setIsRiderDetailsLoading] = useState(false);
+  const [riderDetailsError, setRiderDetailsError] = useState<string | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
@@ -125,6 +223,11 @@ export default function DashboardScreen() {
   const [isPitStopActionSubmitting, setIsPitStopActionSubmitting] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [isSkippedHighlightEnabled, setIsSkippedHighlightEnabled] = useState(true);
+
+  const inFlightRequestKeysRef = useRef<Set<string>>(new Set());
+  const ridersLoadPromiseRef = useRef<Promise<Rider[]> | null>(null);
+  const lastServerPullAtRef = useRef(0);
+  const shouldSkipNextFocusRefreshRef = useRef(false);
 
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
@@ -290,13 +393,45 @@ export default function DashboardScreen() {
     }
   }, [tour, ride, selectedPitStopStageForManagement, applyUpdatedRideFromPitStopAction, getPitStopActionErrorMessage]);
 
-  // Load a specific ride's dashboard data
+  const ensureRidersLoaded = useCallback(async (): Promise<Rider[]> => {
+    if (!tour) return [];
+    if (riders.length > 0) return riders;
+    if (ridersLoadPromiseRef.current) {
+      return ridersLoadPromiseRef.current;
+    }
+
+    ridersLoadPromiseRef.current = listRiders(tour.tourId)
+      .then((roster) => {
+        setRiders(roster);
+        return roster;
+      })
+      .finally(() => {
+        ridersLoadPromiseRef.current = null;
+      });
+
+    return ridersLoadPromiseRef.current;
+  }, [tour, riders]);
+
+  const applyDashboardProgress = useCallback((targetRide: Ride, roster: Rider[], checkIns: CheckIn[]) => {
+    setRide(targetRide);
+    setAllRiderStatuses(buildRiderStatuses(targetRide, roster, checkIns));
+    lastServerPullAtRef.current = Date.now();
+  }, []);
+
+  // Load a specific ride's dashboard progress using preloaded rider roster.
   const loadRideDashboard = useCallback(async (
     targetRide: Ride,
     historical: boolean,
     options?: { background?: boolean }
   ) => {
     const isBackgroundRefresh = options?.background === true;
+    const requestKey = `dashboard-progress:${targetRide.rideId}`;
+
+    if (inFlightRequestKeysRef.current.has(requestKey)) {
+      logger.info('Dashboard', `Skipping duplicate in-flight request: ${requestKey}`);
+      return;
+    }
+    inFlightRequestKeysRef.current.add(requestKey);
 
     if (!isBackgroundRefresh) {
       setIsLoading(true);
@@ -305,32 +440,29 @@ export default function DashboardScreen() {
     setRide(targetRide);
     setIsHistorical(historical);
     try {
-      const { data } = await getDashboardData(tour!.tourId, targetRide.rideId);
+      const roster = await ensureRidersLoaded();
+      const { data } = await getDashboardProgress(tour!.tourId, targetRide.rideId);
       if (!data) {
         if (!isBackgroundRefresh) {
-          setError('No dashboard data available.');
+          setError('No dashboard progress data available.');
           setIsLoading(false);
         }
         return;
       }
 
-      const dashRide = data.ride ?? targetRide;
-      if (!Array.isArray(dashRide.stages) || dashRide.stages.length === 0) {
+      if (!Array.isArray(targetRide.stages) || targetRide.stages.length === 0) {
         if (!isBackgroundRefresh) {
           setError('Ride has no stages configured. Please contact the tour administrator.');
         }
-        setRide(dashRide);
+        setRide(targetRide);
         if (!isBackgroundRefresh) {
           setIsLoading(false);
         }
         return;
       }
 
-      const riders = Array.isArray(data.riders) ? data.riders : [];
       const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
-
-      setRide(dashRide);
-      setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
+      applyDashboardProgress(targetRide, roster, checkIns);
     } catch (err) {
       logger.error('Dashboard', 'loadRideDashboard failed', err);
       let message: string;
@@ -355,17 +487,25 @@ export default function DashboardScreen() {
         setError(message);
       }
     } finally {
+      inFlightRequestKeysRef.current.delete(requestKey);
       if (!isBackgroundRefresh) {
         setIsLoading(false);
       }
     }
-  }, [tour]);
+  }, [tour, ensureRidersLoaded, applyDashboardProgress]);
 
   // Fetch data from API — tries today's ride first, then falls back to most recent
   const fetchDashboard = useCallback(async (options?: { allowHistoricalFallback?: boolean }) => {
     const allowHistoricalFallback = options?.allowHistoricalFallback ?? true;
 
     if (!tour) return;
+    const requestKey = `dashboard-bootstrap:${tour.tourId}`;
+    if (inFlightRequestKeysRef.current.has(requestKey)) {
+      logger.info('Dashboard', `Skipping duplicate in-flight request: ${requestKey}`);
+      return;
+    }
+    inFlightRequestKeysRef.current.add(requestKey);
+
     setIsLoading(true);
     setError(null);
     try {
@@ -375,32 +515,30 @@ export default function DashboardScreen() {
       const sortedRides = [...rides].sort((a, b) => b.date.localeCompare(a.date));
       setAllRides(sortedRides);
 
-      // Try today's ride first
-      const activeRide = await getActiveRide(tour.tourId);
-      if (activeRide) {
+      const roster = await ensureRidersLoaded();
+
+      // Resolve today's ride from listRides response to avoid overlapping ride fetches.
+      const todayRide = resolveTodayRideFromList(sortedRides);
+      if (todayRide) {
         setIsHistorical(false);
-        setRide(activeRide);
+        setRide(todayRide);
 
-        const { data } = await getDashboardData(tour.tourId, activeRide.rideId);
+        const { data } = await getDashboardProgress(tour.tourId, todayRide.rideId);
         if (!data) {
-          setError('No dashboard data available.');
+          setError('No dashboard progress data available.');
           setIsLoading(false);
           return;
         }
 
-        const dashRide = data.ride ?? activeRide;
-        if (!Array.isArray(dashRide.stages) || dashRide.stages.length === 0) {
+        if (!Array.isArray(todayRide.stages) || todayRide.stages.length === 0) {
           setError('Ride has no stages configured. Please contact the tour administrator.');
-          setRide(dashRide);
+          setRide(todayRide);
           setIsLoading(false);
           return;
         }
 
-        const riders = Array.isArray(data.riders) ? data.riders : [];
         const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
-
-        setRide(dashRide);
-        setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
+        applyDashboardProgress(todayRide, roster, checkIns);
       } else if (allowHistoricalFallback && sortedRides.length > 0) {
         // Fall back to the most recent ride (historical/read-only)
         await loadRideDashboard(sortedRides[0], true);
@@ -436,17 +574,16 @@ export default function DashboardScreen() {
       }
       setError(message);
     } finally {
+      inFlightRequestKeysRef.current.delete(requestKey);
       setIsLoading(false);
     }
-  }, [tour, loadRideDashboard]);
+  }, [tour, loadRideDashboard, ensureRidersLoaded, applyDashboardProgress]);
 
   const handleSelectRideFromMenu = useCallback((selectedRide: Ride) => {
     const today = new Date().toISOString().split('T')[0];
     const historical = selectedRide.date !== today;
     loadRideDashboard(selectedRide, historical);
   }, [loadRideDashboard]);
-
-  const shouldSkipNextFocusRefreshRef = useRef(false);
 
   const handleOpenRideInfo = useCallback((selectedRide: Ride, source: 'dashboard' | 'menu') => {
     // Ride info is read-only and should not reload dashboard on close.
@@ -466,9 +603,8 @@ export default function DashboardScreen() {
     }
   }, [isTourLoading, tour, fetchDashboard]);
 
-  // Refresh dashboard data whenever this screen regains focus (e.g. returning
-  // from Check-In or an admin screen). Skip the very first focus since the
-  // effect above already loads data on mount.
+  // Focus refresh is targeted: skip known non-refresh returns and only pull
+  // from server when the last successful sync is stale.
   const isInitialFocusRef = useRef(true);
 
   useFocusEffect(
@@ -481,11 +617,54 @@ export default function DashboardScreen() {
         shouldSkipNextFocusRefreshRef.current = false;
         return;
       }
-      if (tour) {
-        fetchDashboard();
+      if (!tour) {
+        return;
+      }
+
+      const isStale = Date.now() - lastServerPullAtRef.current >= STALE_SESSION_REFRESH_MS;
+      if (isStale) {
+        void fetchDashboard();
       }
     }, [tour, fetchDashboard])
   );
+
+  const applyLocalCheckInUpdate = useCallback((checkIn: CheckIn) => {
+    if (!ride || checkIn.rideId !== ride.rideId) {
+      return;
+    }
+
+    setAllRiderStatuses((prevStatuses) => {
+      const checkInByKey = new Map<string, CheckIn>();
+
+      prevStatuses
+        .flatMap((status) => status.checkInHistory)
+        .forEach((existingCheckIn) => {
+          checkInByKey.set(getCheckInDedupKey(existingCheckIn), existingCheckIn);
+        });
+
+      const incomingKey = getCheckInDedupKey(checkIn);
+      if (checkInByKey.has(incomingKey)) {
+        return prevStatuses;
+      }
+
+      checkInByKey.set(incomingKey, checkIn);
+
+      const roster = riders.length > 0 ? riders : prevStatuses.map((status) => status.rider);
+      const mergedCheckIns = Array.from(checkInByKey.values()).filter((entry) => entry.rideId === ride.rideId);
+
+      return buildRiderStatuses(ride, roster, mergedCheckIns);
+    });
+  }, [ride, riders]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDashboardCheckInEvent(({ checkIn }) => {
+      // Returning from Check-In should not force a full reload.
+      shouldSkipNextFocusRefreshRef.current = true;
+      applyLocalCheckInUpdate(checkIn);
+    });
+
+    return unsubscribe;
+  }, [applyLocalCheckInUpdate]);
 
   // Pinch gesture for zoom
   const baseScale = useRef(1);
@@ -561,16 +740,39 @@ export default function DashboardScreen() {
   }, [stageViewId, ride]);
 
   const hasRegularCheckInAtStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
+    const targetStage = ride?.stages.find((stage) => stage.stageNumber === stageNumber);
+    if (!targetStage) {
+      return false;
+    }
+
     return riderStatus.checkInHistory.some(
-      (ci) => ci.stageNumber === stageNumber && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci)
+      (ci) => {
+        const matchedStage = resolveStageForCheckIn(ride, ci);
+        return matchedStage?.stageId === targetStage.stageId
+          && !ci.isNotRiding
+          && !ci.isQuitRiding
+          && !isCancelledCheckIn(ci);
+      }
     );
-  }, []);
+  }, [ride]);
 
   const hasRegularCheckInAfterStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
+    const targetStage = ride?.stages.find((stage) => stage.stageNumber === stageNumber);
+    if (!targetStage) {
+      return false;
+    }
+
     return riderStatus.checkInHistory.some(
-      (ci) => ci.stageNumber > stageNumber && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci)
+      (ci) => {
+        const matchedStage = resolveStageForCheckIn(ride, ci);
+        return matchedStage !== undefined
+          && matchedStage.stageNumber > targetStage.stageNumber
+          && !ci.isNotRiding
+          && !ci.isQuitRiding
+          && !isCancelledCheckIn(ci);
+      }
     );
-  }, []);
+  }, [ride]);
 
   const shouldShowSkippedIndicator = useCallback((riderStatus: RiderStatus): boolean => {
     if (!isSkippedHighlightEnabled || !selectedStage) {
@@ -592,12 +794,87 @@ export default function DashboardScreen() {
   };
 
   // Handle rider icon tap
+  const getDashboardErrorMessage = useCallback((err: unknown, fallback: string): string => {
+    const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
+    if (isApiError) {
+      const apiErr = err as ApiError;
+      if (apiErr.errorCode === 'CONFIG_ERROR') return apiErr.message;
+      if (apiErr.statusCode === 0) return 'Unable to reach the server. Please check your internet connection and try again.';
+      if (apiErr.statusCode >= 500) return 'The server encountered an error. Please try again later.';
+      return apiErr.message || fallback;
+    }
+    if (isNetworkError(err)) {
+      return 'Unable to reach the server. Please check your internet connection and try again.';
+    }
+    return 'An unexpected error occurred. Please try again.';
+  }, []);
+
+  const loadSelectedRiderDetails = useCallback(async (riderStatus: RiderStatus) => {
+    if (!tour || !ride) return;
+
+    setIsRiderDetailsLoading(true);
+    setRiderDetailsError(null);
+    setSelectedRiderDetails(null);
+
+    try {
+      const details = await getRideRiderDetails(tour.tourId, ride.rideId, riderStatus.rider.riderId);
+      if (!details) {
+        setRiderDetailsError('Rider details are not available for this rider.');
+        return;
+      }
+
+      // The rider-details endpoint returns a timeline already scoped to this
+      // rider + ride, so individual entries may omit riderId/rideId. Backfill
+      // them so the shared buildRiderStatuses() matching logic (also used for
+      // the full roster, where entries always carry riderId/rideId) works
+      // correctly here too.
+      const normalizedDetails: RiderDetailsData = {
+        ...details,
+        checkInTimeline: details.checkInTimeline.map((checkIn) => ({
+          ...checkIn,
+          riderId: checkIn.riderId || details.rider.riderId,
+          rideId: checkIn.rideId || ride.rideId,
+        })),
+      };
+
+      // Privacy requirement: keep rider details in-memory only.
+      setSelectedRiderDetails(normalizedDetails);
+
+      if (ENABLE_OFFLINE_RIDER_PROFILE_CACHE) {
+        // Future enhancement placeholder: optional offline rider-profile cache path.
+      }
+    } catch (err) {
+      logger.error('Dashboard', 'loadSelectedRiderDetails failed', err);
+      setRiderDetailsError(getDashboardErrorMessage(err, 'Failed to load rider details. Please try again.'));
+    } finally {
+      setIsRiderDetailsLoading(false);
+    }
+  }, [tour, ride, getDashboardErrorMessage]);
+
+  const handleCloseRiderCard = useCallback(() => {
+    setIsRiderCardVisible(false);
+    setSelectedRiderStatus(null);
+    setSelectedRiderDetails(null);
+    setRiderDetailsError(null);
+    setIsRiderDetailsLoading(false);
+  }, []);
+
   const handleRiderTap = (riderStatus: RiderStatus) => {
     if (zoomLevel === 1 || zoomLevel === 2) {
-      setSelectedRider(riderStatus);
+      setSelectedRiderStatus(riderStatus);
       setIsRiderCardVisible(true);
+      void loadSelectedRiderDetails(riderStatus);
     }
   };
+
+  const selectedRider = useMemo(() => {
+    if (!ride || !selectedRiderStatus || !selectedRiderDetails) {
+      return null;
+    }
+
+    const [status] = buildRiderStatuses(ride, [selectedRiderDetails.rider], selectedRiderDetails.checkInTimeline);
+    return status ?? null;
+  }, [ride, selectedRiderStatus, selectedRiderDetails]);
 
   // Sort riders based on requirements
   const sortRiders = (riders: RiderStatus[]): RiderStatus[] => {
@@ -763,10 +1040,16 @@ export default function DashboardScreen() {
   };
 
   const getLatestCheckInForStage = useCallback((riderStatus: RiderStatus, stageNumber: number): CheckIn | undefined => {
+    const targetStage = ride?.stages.find((stage) => stage.stageNumber === stageNumber);
+    if (!targetStage) {
+      return undefined;
+    }
+
     let latestCheckIn: CheckIn | undefined;
 
     riderStatus.checkInHistory.forEach((checkIn) => {
-      if (checkIn.stageNumber !== stageNumber || isCancelledCheckIn(checkIn)) return;
+      const matchedStage = resolveStageForCheckIn(ride, checkIn);
+      if (matchedStage?.stageId !== targetStage.stageId || isCancelledCheckIn(checkIn)) return;
 
       if (!latestCheckIn) {
         latestCheckIn = checkIn;
@@ -779,7 +1062,7 @@ export default function DashboardScreen() {
     });
 
     return latestCheckIn;
-  }, []);
+  }, [ride]);
 
   const getLatestSpecialCheckIn = useCallback(
     (riderStatus: RiderStatus, kind: 'NR' | 'QR'): CheckIn | undefined => {
@@ -1059,12 +1342,12 @@ export default function DashboardScreen() {
         visible={isRiderCardVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setIsRiderCardVisible(false)}
+        onRequestClose={handleCloseRiderCard}
       >
         <TouchableOpacity 
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setIsRiderCardVisible(false)}
+          onPress={handleCloseRiderCard}
         >
           <TouchableOpacity
             style={[
@@ -1079,7 +1362,28 @@ export default function DashboardScreen() {
               // Keep modal open while interacting inside the rider card.
             }}
           >
-            {selectedRider && (
+            {isRiderDetailsLoading && (
+              <View style={styles.riderCardLoadingState}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={styles.riderCardLoadingText}>Loading rider details...</Text>
+              </View>
+            )}
+
+            {!isRiderDetailsLoading && riderDetailsError && selectedRiderStatus && (
+              <View style={styles.riderCardLoadingState}>
+                <Text style={styles.riderCardErrorText}>{riderDetailsError}</Text>
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={() => {
+                    void loadSelectedRiderDetails(selectedRiderStatus);
+                  }}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {!isRiderDetailsLoading && !riderDetailsError && selectedRider && (
               <ScrollView
                 style={styles.riderCardScroll}
                 contentContainerStyle={styles.riderCardScrollContent}
@@ -1116,7 +1420,7 @@ export default function DashboardScreen() {
                     <>
                       <Text style={styles.riderCardSectionTitle}>Stage Check-ins</Text>
                       {(() => {
-                        const sortedStages = [...selectedRider.ride.stages].sort((a, b) => a.stageNumber - b.stageNumber);
+                        const sortedStages = [...ride.stages].sort((a, b) => a.stageNumber - b.stageNumber);
 
                         if (selectedRider.overallStatus === CheckInStatus.QUIT_RIDING) {
                           const quitCheckIn = getLatestSpecialCheckIn(selectedRider, 'QR');
@@ -1134,14 +1438,14 @@ export default function DashboardScreen() {
                             <>
                               {regularStages.map((stage) => {
                                 const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
-                                const stageColor = getStageColor(stage.stageNumber, selectedRider.ride.stages.length);
+                                const stageColor = getStageColor(stage.stageNumber, ride.stages.length);
 
                                 return (
                                   <View key={stage.stageId} style={styles.riderStageRow}>
                                     <View style={styles.riderStageHeaderRow}>
                                       <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}>
                                         <Text style={styles.riderStageNameChipText}>
-                                          {getStageDisplayName(stage, selectedRider.ride.stages.length)}
+                                          {getStageDisplayName(stage, ride.stages.length)}
                                         </Text>
                                       </View>
                                     </View>
@@ -1168,7 +1472,7 @@ export default function DashboardScreen() {
 
                         return sortedStages.map((stage) => {
                           const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
-                          const stageColor = getStageColor(stage.stageNumber, selectedRider.ride.stages.length);
+                          const stageColor = getStageColor(stage.stageNumber, ride.stages.length);
                           const isSkippedStage = hasRegularCheckInAfterStage(selectedRider, stage.stageNumber)
                             && !hasRegularCheckInAtStage(selectedRider, stage.stageNumber);
 
@@ -1177,7 +1481,7 @@ export default function DashboardScreen() {
                               <View style={styles.riderStageHeaderRow}>
                                 <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}> 
                                   <Text style={styles.riderStageNameChipText}>
-                                    {getStageDisplayName(stage, selectedRider.ride.stages.length)}
+                                    {getStageDisplayName(stage, ride.stages.length)}
                                   </Text>
                                 </View>
                                 {isSkippedStage && (
@@ -1199,7 +1503,7 @@ export default function DashboardScreen() {
 
                 <TouchableOpacity 
                   style={styles.closeButton}
-                  onPress={() => setIsRiderCardVisible(false)}
+                  onPress={handleCloseRiderCard}
                 >
                   <Text style={styles.closeButtonText}>Close</Text>
                 </TouchableOpacity>
@@ -1407,6 +1711,7 @@ export default function DashboardScreen() {
             disabled={isDragging}
             onPress={() => {
               if (!isDragging) {
+                shouldSkipNextFocusRefreshRef.current = true;
                 navigation.navigate('CheckIn', {
                   ride,
                   managedPitStopStageNumber: managedPitStopStageNumber ?? undefined,
@@ -1704,6 +2009,23 @@ const styles = StyleSheet.create({
   },
   riderCardScrollContent: {
     paddingBottom: 4,
+  },
+  riderCardLoadingState: {
+    minHeight: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  riderCardLoadingText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  riderCardErrorText: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
   },
   riderCardHeader: {
     alignItems: 'center',

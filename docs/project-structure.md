@@ -63,7 +63,7 @@ tour-mgmt-app/
 │   │   │   ├── riderApi.ts         # Rider endpoints
 │   │   │   ├── rideApi.ts          # Ride endpoints
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
-│   │   │   ├── dashboardApi.ts     # Dashboard composite endpoint
+│   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 │   │   ├── config/                 # Runtime org configuration service
 │   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence

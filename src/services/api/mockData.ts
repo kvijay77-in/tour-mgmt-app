@@ -15,7 +15,8 @@ import {
   RiderStatus,
   Tour,
   TourStatus,
-  DashboardData,
+  DashboardProgressData,
+  RiderDetailsData,
   deriveCheckInStatus,
 } from '../../types/models';
 
@@ -357,21 +358,36 @@ export const MOCK_TOUR: Tour = {
   updatedAt: '2026-01-01T00:00:00Z',
 };
 
-// ============================================================================
-// MOCK DASHBOARD DATA (composite response shape)
-// ============================================================================
+export const getMockDashboardProgressResponse = (rideId: string): DashboardProgressData => {
+  const checkIns = getMockCheckIns(rideId);
 
-export const getMockDashboardDataResponse = (): DashboardData => {
   return {
-    ride: MOCK_RIDE,
-    riders: MOCK_RIDERS,
-    checkIns: MOCK_CHECKINS,
+    rideId,
+    checkIns,
     summary: {
       totalRiders: MOCK_RIDERS.length,
-      checkedIn: MOCK_CHECKINS.filter(ci => !ci.isNotRiding && !ci.isQuitRiding).length,
-      notRiding: MOCK_CHECKINS.filter(ci => ci.isNotRiding).length,
-      quitRiding: MOCK_CHECKINS.filter(ci => ci.isQuitRiding).length,
-      notCheckedIn: MOCK_RIDERS.length - new Set(MOCK_CHECKINS.map(ci => ci.riderId)).size,
+      checkedIn: checkIns.filter((ci) => !ci.isNotRiding && !ci.isQuitRiding).length,
+      notRiding: checkIns.filter((ci) => ci.isNotRiding).length,
+      quitRiding: checkIns.filter((ci) => ci.isQuitRiding).length,
+      notCheckedIn: MOCK_RIDERS.length - new Set(checkIns.map((ci) => ci.riderId)).size,
     },
+    dataVersion: new Date().toISOString(),
+  };
+};
+
+export const getMockRiderDetailsResponse = (
+  riderId: string,
+  rideId: string,
+): RiderDetailsData | null => {
+  const rider = getMockRiderById(riderId);
+  if (!rider) return null;
+
+  const checkInTimeline = getMockRiderCheckIns(riderId, rideId).filter((ci) => !ci.status || ci.status.toUpperCase() !== 'CANCELLED');
+  const latestCheckIn = [...checkInTimeline].sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
+
+  return {
+    rider,
+    checkInTimeline,
+    latestStatus: latestCheckIn ? deriveCheckInStatus(latestCheckIn) : undefined,
   };
 };

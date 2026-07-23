@@ -29,9 +29,11 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
+import { HighlightedText } from '../../components/common/HighlightedText';
 import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
+import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
-import { CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
+import { CheckIn, CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
@@ -60,8 +62,8 @@ interface CheckInScreenProps {
   ride: Ride;
   /** Optional persisted pit-stop stage context chosen by the user */
   managedPitStopStageNumber?: number;
-  /** Called when check-in completes successfully — dashboard should refresh */
-  onCheckInComplete: () => void;
+  /** Called when check-in completes successfully — dashboard can update local state */
+  onCheckInComplete: (checkIn: CheckIn) => void;
   /** Called when user closes the screen */
   onClose: () => void;
 }
@@ -472,9 +474,9 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
         return;
       }
 
-      // Notify parent immediately so dashboard can refresh without waiting
-      // for the user to tap "Scan Next Rider".
-      onCheckInComplete();
+      // Notify dashboard immediately so UI updates without a full reload.
+      onCheckInComplete(outcome.checkIn);
+      publishDashboardCheckInEvent({ checkIn: outcome.checkIn });
 
       const stageName = effectiveStage?.name ?? '—';
       const typeLabel =
@@ -796,7 +798,12 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
               : COLORS.danger
         }
       />
-      <Text style={errorPresentation === 'error' ? styles.errorResultText : styles.infoResultText}>{errorMessage}</Text>
+      <HighlightedText
+        text={errorMessage}
+        highlight={['Not Riding', 'Quit Riding']}
+        style={errorPresentation === 'error' ? styles.errorResultText : styles.infoResultText}
+        highlightStyle={styles.highlightedText}
+      />
       {errorPresentation === 'error' && (
         <TouchableOpacity style={styles.primaryButton} onPress={() => {
           void submitCheckIn();
@@ -1095,6 +1102,10 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'center',
     paddingHorizontal: 16,
+  },
+  highlightedText: {
+    fontWeight: '700',
+    color: COLORS.warning,
   },
 
   // Buttons
