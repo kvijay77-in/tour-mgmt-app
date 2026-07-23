@@ -12,6 +12,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -25,9 +26,10 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
-import { createInteractiveCheckIn } from '../../services/api/checkInApi';
+import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
 import { CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
@@ -173,6 +175,7 @@ type ErrorPresentation = 'error' | 'info' | 'warning';
 export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheckInComplete, onClose }: CheckInScreenProps) {
   const { user } = useAuth();
   const { tour } = useTour();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
 
   const [phase, setPhase] = useState<Phase>('type_select');
@@ -225,29 +228,6 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
     }
   }, [checkInType, ride.stages]);
 
-  // Fast path for pit-stop users with only one allowed regular stage.
-  useEffect(() => {
-    if (phase !== 'type_select') return;
-    if (autoStartAppliedRef.current) return;
-    if (!hasSingleRegularPitStopStage) return;
-
-    const stage = ride.stages.find(
-      (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
-    );
-    if (!stage) return;
-
-    const validationError = getValidationMessage('regular', stage);
-    if (validationError) return;
-
-    setCheckInType('regular');
-    setSelectedStage(stage);
-    setPhase('scanning');
-    setScanAttempts(0);
-    setScannedRiderId('');
-    processingRef.current = false;
-    autoStartAppliedRef.current = true;
-  }, [phase, hasSingleRegularPitStopStage, ride.stages, allowedRegularStageNumbers, getValidationMessage]);
-
   // -----------------------------------------------------------------------
   // Check-in type selection
   // -----------------------------------------------------------------------
@@ -296,6 +276,29 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
     setErrorPresentation('warning');
     setPhase('error');
   }, []);
+
+  // Fast path for pit-stop users with only one allowed regular stage.
+  useEffect(() => {
+    if (phase !== 'type_select') return;
+    if (autoStartAppliedRef.current) return;
+    if (!hasSingleRegularPitStopStage) return;
+
+    const stage = ride.stages.find(
+      (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
+    );
+    if (!stage) return;
+
+    const validationError = getValidationMessage('regular', stage);
+    if (validationError) return;
+
+    setCheckInType('regular');
+    setSelectedStage(stage);
+    setPhase('scanning');
+    setScanAttempts(0);
+    setScannedRiderId('');
+    processingRef.current = false;
+    autoStartAppliedRef.current = true;
+  }, [phase, hasSingleRegularPitStopStage, ride.stages, allowedRegularStageNumbers, getValidationMessage]);
 
   const selectCheckInType = (type: CheckInType) => {
     if (type === 'not_riding') {
@@ -385,7 +388,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
   // Submit check-in
   // -----------------------------------------------------------------------
 
-  const submitCheckIn = async () => {
+  const submitCheckIn = async (overrideRequested: boolean = false) => {
     if (!tour || !scannedRiderId) return;
 
     const effectiveStage =
@@ -432,7 +435,28 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
             isQuitRiding: false,
           };
 
-      const outcome = await createInteractiveCheckIn(tour.tourId, request);
+      const outcome = overrideRequested
+        ? await overrideInteractiveCheckIn(tour.tourId, request)
+        : await createInteractiveCheckIn(tour.tourId, request);
+
+      if (outcome.kind === 'override_required') {
+        setIsSubmitting(false);
+        Alert.alert(
+          'Override existing check-in?',
+          `${outcome.message}\n\nCancel keeps the current check-in unchanged. Override will replace it with the new status.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Override',
+              style: 'destructive',
+              onPress: () => {
+                void submitCheckIn(true);
+              },
+            },
+          ],
+        );
+        return;
+      }
 
       if (outcome.kind === 'info_conflict') {
         logger.info(TAG, `Check-in informational outcome: ${outcome.reason}`, {
@@ -721,7 +745,9 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
         <View style={styles.confirmButtons}>
           <TouchableOpacity
             style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
-            onPress={submitCheckIn}
+            onPress={() => {
+              void submitCheckIn();
+            }}
             disabled={isSubmitting}
           >
             {isSubmitting ? (
@@ -772,7 +798,9 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       />
       <Text style={errorPresentation === 'error' ? styles.errorResultText : styles.infoResultText}>{errorMessage}</Text>
       {errorPresentation === 'error' && (
-        <TouchableOpacity style={styles.primaryButton} onPress={submitCheckIn}>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => {
+          void submitCheckIn();
+        }}>
           <Text style={styles.primaryButtonText}>Retry</Text>
         </TouchableOpacity>
       )}
@@ -804,11 +832,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-          <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{phaseTitle[phase]}</Text>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
         {phase !== 'type_select' && phase !== 'success' && phase !== 'error' && (
           <TouchableOpacity onPress={resetToStart} style={styles.headerButton}>
             <MaterialIcons name="restart-alt" size={24} color={COLORS.textSecondary} />
@@ -817,6 +841,10 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
         {(phase === 'type_select' || phase === 'success' || phase === 'error') && (
           <View style={styles.headerButton} />
         )}
+        <Text style={styles.headerTitle}>{phaseTitle[phase]}</Text>
+        <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+          <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
+        </TouchableOpacity>
       </View>
 
       {/* Ride context bar */}
@@ -852,7 +880,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 56 : 16,
     paddingBottom: 12,
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,

@@ -153,3 +153,39 @@ export async function closeRide(
   }
   return response.data;
 }
+
+/**
+ * Open a pit-stop stage for the specified ride.
+ */
+export async function openPitStopStage(
+  tourId: string,
+  rideId: string,
+  stageNumber: number,
+): Promise<Ride> {
+  const response = await apiClient.post<Ride>(
+    `${ridesPath(tourId)}/${rideId}/stages/${stageNumber}/pitstop/open`,
+    {},
+  );
+  if (!response.data) {
+    throw new Error('Unexpected empty response from openPitStopStage');
+  }
+  return response.data;
+}
+
+/**
+ * Close a pit-stop stage for the specified ride.
+ */
+export async function closePitStopStage(
+  tourId: string,
+  rideId: string,
+  stageNumber: number,
+): Promise<Ride> {
+  const response = await apiClient.post<Ride>(
+    `${ridesPath(tourId)}/${rideId}/stages/${stageNumber}/pitstop/close`,
+    {},
+  );
+  if (!response.data) {
+    throw new Error('Unexpected empty response from closePitStopStage');
+  }
+  return response.data;
+}

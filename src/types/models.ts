@@ -262,9 +262,22 @@ export interface Stage {
   
   /** Distance from start (in km) */
   distanceFromStart?: number;
+
+  /** Planned pit stop opening offset (in minutes) */
+  estimatedOpenTime?: number;
+
+  /** Planned pit stop window duration (in minutes) */
+  pitStopDuration?: number;
+
+  /** Runtime pit stop status (OPEN/CLOSED) */
+  pitStopStatus?: 'OPEN' | 'CLOSED' | null;
+
+  /** Runtime timestamp when pit stop is opened */
+  openedAt?: string;
+
+  /** Runtime timestamp when pit stop is closed */
+  closedAt?: string;
   
-  /** Estimated time from start (in minutes) */
-  estimatedTimeFromStart?: number;
 }
 
 /**
@@ -297,12 +310,21 @@ export interface Ride {
 
   /** Planned flag-off time */
   flagOffTime?: string;
+
+  /** Planned ride opening time (HH:MM) */
+  openTime?: string;
+
+  /** Planned ride closing time (HH:MM) */
+  closeTime?: string;
   
   /** List of stages (Start, Pit Stops, Finish) */
   stages: Stage[];
   
   /** Ride status */
   status: RideStatus;
+
+  /** Timestamp when ride was opened */
+  openedAt?: string;
   
   /** Timestamp when ride was started */
   startedAt?: string;
@@ -371,6 +393,15 @@ export interface CheckIn {
   
   /** Notes/remarks */
   notes?: string;
+
+  /** Timestamp when this check-in was cancelled by an override flow */
+  cancelledAt?: string;
+
+  /** User who cancelled this check-in */
+  cancelledBy?: string;
+
+  /** Optional backend status field when a cancelled record is materialized explicitly */
+  status?: string;
   
   /** Location coordinates (if available) */
   location?: {
@@ -523,6 +554,14 @@ export const deriveCheckInStatus = (checkIn: CheckIn): CheckInStatus => {
   if (checkIn.isNotRiding) return CheckInStatus.NOT_RIDING;
   if (checkIn.isQuitRiding) return CheckInStatus.QUIT_RIDING;
   return CheckInStatus.CHECKED_IN;
+};
+
+export const isCancelledCheckIn = (checkIn: CheckIn): boolean => {
+  if (checkIn.status?.toUpperCase() === 'CANCELLED') {
+    return true;
+  }
+
+  return Boolean(checkIn.cancelledAt || checkIn.cancelledBy);
 };
 
 // ============================================================================

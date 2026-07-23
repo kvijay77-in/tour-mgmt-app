@@ -14,31 +14,25 @@ import {
   PanResponder,
   Modal,
   ActivityIndicator,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  Switch,
   Alert,
   useWindowDimensions,
 } from 'react-native';
-import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
-import { getActiveRide, listRides } from '../../services/api/rideApi';
+import { closePitStopStage, getActiveRide, listRides, openPitStopStage } from '../../services/api/rideApi';
 import { getDashboardData } from '../../services/api/dashboardApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType } from '../../types/models';
+import { Ride, Rider, CheckIn, RiderStatus, CheckInStatus, Permission, UserRole, StageType, Stage, RideStatus, isCancelledCheckIn } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 import { SortIcon } from '../../components/common/SortIcon';
+import { AppMenu } from '../../components/common/AppMenu';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
-import CheckInScreen from '../checkin/CheckInScreen';
-import RideStatusManagementScreen from '../admin/RideStatusManagementScreen';
-import UserOnboardingScreen from '../admin/UserOnboardingScreen';
-import UserEnableDisableScreen from '../admin/UserEnableDisableScreen';
-import UserDeleteScreen from '../admin/UserDeleteScreen';
-import UserModifyScreen from '../admin/UserModifyScreen';
+import { AppStackParamList } from '../../types/navigation';
 import {
   clearPitStopContextStageNumber,
   loadPitStopContextStageNumber,
@@ -53,7 +47,7 @@ const { width: WINDOW_WIDTH } = Dimensions.get('window');
 function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): RiderStatus[] {
   return riders.map((rider) => {
     const riderCheckIns = checkIns
-      .filter((ci) => ci.riderId === rider.riderId && ci.rideId === ride.rideId)
+      .filter((ci) => ci.riderId === rider.riderId && ci.rideId === ride.rideId && !isCancelledCheckIn(ci))
       .sort((a, b) => a.stageNumber - b.stageNumber);
 
     // Determine overall status
@@ -105,21 +99,17 @@ function compareRiderIdsNatural(a: string, b: string): number {
 }
 
 export default function DashboardScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
   const { width, height } = useWindowDimensions();
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
   const {
     user,
     logout,
-    changePassword,
-    isAuthenticating: isAuthBusy,
-    error: authError,
   } = useAuth();
 
   const [ride, setRide] = useState<Ride | null>(null);
   const [allRides, setAllRides] = useState<Ride[]>([]);
   const [isHistorical, setIsHistorical] = useState(false);
-  const [showRidePicker, setShowRidePicker] = useState(false);
-  const [showCheckIn, setShowCheckIn] = useState(false);
   const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,24 +119,17 @@ export default function DashboardScreen() {
   const [selectedRider, setSelectedRider] = useState<RiderStatus | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [showRideStatusManagement, setShowRideStatusManagement] = useState(false);
-  const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
-  const [showUserOnboarding, setShowUserOnboarding] = useState(false);
-  const [showUserEnableDisable, setShowUserEnableDisable] = useState(false);
-  const [showUserDelete, setShowUserDelete] = useState(false);
-  const [showUserModify, setShowUserModify] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
+  const [showPitStopManagementModal, setShowPitStopManagementModal] = useState(false);
+  const [selectedPitStopStageNumber, setSelectedPitStopStageNumber] = useState<number | null>(null);
+  const [isPitStopActionSubmitting, setIsPitStopActionSubmitting] = useState(false);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordFormError, setPasswordFormError] = useState<string | null>(null);
   const [isSkippedHighlightEnabled, setIsSkippedHighlightEnabled] = useState(true);
 
   // RBAC: can this user perform check-ins?
   const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
   const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
+  const isSuperUser = user?.userRole === UserRole.SUPER_USER;
   const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
 
   const pitStopRoleStageNumbers = useMemo(
@@ -166,6 +149,31 @@ export default function DashboardScreen() {
     () => availablePitStopStagesForUser.map((s) => s.stageNumber),
     [availablePitStopStagesForUser],
   );
+
+  const availablePitStopStagesForManagement = useMemo(() => {
+    if (!ride) return [] as Stage[];
+
+    const pitStopStages = ride.stages
+      .filter((stage) => stage.type === StageType.PIT_STOP)
+      .sort((a, b) => a.stageNumber - b.stageNumber);
+
+    if (isAdministrator || isSuperUser) {
+      return pitStopStages;
+    }
+
+    if (pitStopRoleStageNumbers.length > 0) {
+      return pitStopStages.filter((stage) => pitStopRoleStageNumbers.includes(stage.stageNumber));
+    }
+
+    return [] as Stage[];
+  }, [ride, isAdministrator, isSuperUser, pitStopRoleStageNumbers]);
+
+  const selectedPitStopStageForManagement = useMemo(() => {
+    if (!ride || selectedPitStopStageNumber === null) return null;
+    return ride.stages.find(
+      (stage) => stage.type === StageType.PIT_STOP && stage.stageNumber === selectedPitStopStageNumber,
+    ) ?? null;
+  }, [ride, selectedPitStopStageNumber]);
 
   useEffect(() => {
     if (!ride || !isPitStopPrimaryRole) {
@@ -210,6 +218,77 @@ export default function DashboardScreen() {
     setManagedPitStopStageNumber(stageNumber);
     setShowPitStopContextPicker(false);
   }, []);
+
+  const handleOpenPitStopManagement = useCallback((stageNumber: number) => {
+    setSelectedPitStopStageNumber(stageNumber);
+    setShowPitStopManagementModal(true);
+  }, []);
+
+  const getPitStopActionErrorMessage = useCallback((err: unknown): string => {
+    const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
+    if (isApiError) {
+      const apiErr = err as ApiError;
+      if (apiErr.statusCode === 0) {
+        return 'Unable to reach the server. Please check your internet connection and try again.';
+      }
+      return apiErr.message || 'Unable to update pit stop status. Please try again.';
+    }
+    if (isNetworkError(err)) {
+      return 'Unable to reach the server. Please check your internet connection and try again.';
+    }
+    return 'An unexpected error occurred. Please try again.';
+  }, []);
+
+  const applyUpdatedRideFromPitStopAction = useCallback((updatedRide: Ride) => {
+    setRide(updatedRide);
+
+    const updatedSelectedStage = updatedRide.stages.find(
+      (stage) => stage.type === StageType.PIT_STOP && stage.stageNumber === selectedPitStopStageNumber,
+    );
+
+    if (!updatedSelectedStage) {
+      setShowPitStopManagementModal(false);
+      setSelectedPitStopStageNumber(null);
+    }
+  }, [selectedPitStopStageNumber]);
+
+  const handleOpenPitStop = useCallback(async () => {
+    if (!tour || !ride || !selectedPitStopStageForManagement) return;
+
+    setIsPitStopActionSubmitting(true);
+    try {
+      const updatedRide = await openPitStopStage(
+        tour.tourId,
+        ride.rideId,
+        selectedPitStopStageForManagement.stageNumber,
+      );
+      applyUpdatedRideFromPitStopAction(updatedRide);
+    } catch (err) {
+      logger.error('Dashboard', 'handleOpenPitStop failed', err);
+      Alert.alert('Unable to open pit stop', getPitStopActionErrorMessage(err));
+    } finally {
+      setIsPitStopActionSubmitting(false);
+    }
+  }, [tour, ride, selectedPitStopStageForManagement, applyUpdatedRideFromPitStopAction, getPitStopActionErrorMessage]);
+
+  const handleClosePitStop = useCallback(async () => {
+    if (!tour || !ride || !selectedPitStopStageForManagement) return;
+
+    setIsPitStopActionSubmitting(true);
+    try {
+      const updatedRide = await closePitStopStage(
+        tour.tourId,
+        ride.rideId,
+        selectedPitStopStageForManagement.stageNumber,
+      );
+      applyUpdatedRideFromPitStopAction(updatedRide);
+    } catch (err) {
+      logger.error('Dashboard', 'handleClosePitStop failed', err);
+      Alert.alert('Unable to close pit stop', getPitStopActionErrorMessage(err));
+    } finally {
+      setIsPitStopActionSubmitting(false);
+    }
+  }, [tour, ride, selectedPitStopStageForManagement, applyUpdatedRideFromPitStopAction, getPitStopActionErrorMessage]);
 
   // Load a specific ride's dashboard data
   const loadRideDashboard = useCallback(async (
@@ -283,7 +362,9 @@ export default function DashboardScreen() {
   }, [tour]);
 
   // Fetch data from API — tries today's ride first, then falls back to most recent
-  const fetchDashboard = useCallback(async () => {
+  const fetchDashboard = useCallback(async (options?: { allowHistoricalFallback?: boolean }) => {
+    const allowHistoricalFallback = options?.allowHistoricalFallback ?? true;
+
     if (!tour) return;
     setIsLoading(true);
     setError(null);
@@ -320,9 +401,13 @@ export default function DashboardScreen() {
 
         setRide(dashRide);
         setAllRiderStatuses(buildRiderStatuses(dashRide, riders, checkIns));
-      } else if (sortedRides.length > 0) {
+      } else if (allowHistoricalFallback && sortedRides.length > 0) {
         // Fall back to the most recent ride (historical/read-only)
         await loadRideDashboard(sortedRides[0], true);
+        return;
+      } else if (sortedRides.length > 0) {
+        setError('No ride found for today.');
+        setIsLoading(false);
         return;
       } else {
         setError('No rides found for this tour.');
@@ -355,14 +440,22 @@ export default function DashboardScreen() {
     }
   }, [tour, loadRideDashboard]);
 
-  // Switch to a specific ride from the picker
-  const switchToRide = useCallback((selectedRide: Ride) => {
-    setShowRidePicker(false);
-    // Determine if this is today's ride
+  const handleSelectRideFromMenu = useCallback((selectedRide: Ride) => {
     const today = new Date().toISOString().split('T')[0];
     const historical = selectedRide.date !== today;
     loadRideDashboard(selectedRide, historical);
   }, [loadRideDashboard]);
+
+  const shouldSkipNextFocusRefreshRef = useRef(false);
+
+  const handleOpenRideInfo = useCallback((selectedRide: Ride, source: 'dashboard' | 'menu') => {
+    // Ride info is read-only and should not reload dashboard on close.
+    shouldSkipNextFocusRefreshRef.current = true;
+    navigation.navigate('RideInfo', {
+      ride: selectedRide,
+      source,
+    });
+  }, [navigation]);
 
   useEffect(() => {
     if (!isTourLoading && tour) {
@@ -372,6 +465,27 @@ export default function DashboardScreen() {
       setIsLoading(false);
     }
   }, [isTourLoading, tour, fetchDashboard]);
+
+  // Refresh dashboard data whenever this screen regains focus (e.g. returning
+  // from Check-In or an admin screen). Skip the very first focus since the
+  // effect above already loads data on mount.
+  const isInitialFocusRef = useRef(true);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isInitialFocusRef.current) {
+        isInitialFocusRef.current = false;
+        return;
+      }
+      if (shouldSkipNextFocusRefreshRef.current) {
+        shouldSkipNextFocusRefreshRef.current = false;
+        return;
+      }
+      if (tour) {
+        fetchDashboard();
+      }
+    }, [tour, fetchDashboard])
+  );
 
   // Pinch gesture for zoom
   const baseScale = useRef(1);
@@ -448,13 +562,13 @@ export default function DashboardScreen() {
 
   const hasRegularCheckInAtStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
     return riderStatus.checkInHistory.some(
-      (ci) => ci.stageNumber === stageNumber && !ci.isNotRiding && !ci.isQuitRiding
+      (ci) => ci.stageNumber === stageNumber && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci)
     );
   }, []);
 
   const hasRegularCheckInAfterStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
     return riderStatus.checkInHistory.some(
-      (ci) => ci.stageNumber > stageNumber && !ci.isNotRiding && !ci.isQuitRiding
+      (ci) => ci.stageNumber > stageNumber && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci)
     );
   }, []);
 
@@ -482,55 +596,6 @@ export default function DashboardScreen() {
     if (zoomLevel === 1 || zoomLevel === 2) {
       setSelectedRider(riderStatus);
       setIsRiderCardVisible(true);
-    }
-  };
-
-  const resetChangePasswordForm = () => {
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setPasswordFormError(null);
-  };
-
-  const handleOpenChangePassword = () => {
-    setShowHeaderMenu(false);
-    resetChangePasswordForm();
-    setShowChangePasswordModal(true);
-  };
-
-  const handleCloseChangePassword = () => {
-    setShowChangePasswordModal(false);
-    resetChangePasswordForm();
-  };
-
-  const handleSubmitChangePassword = async () => {
-    setPasswordFormError(null);
-
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordFormError('Please fill in all password fields.');
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setPasswordFormError('New password must be at least 8 characters.');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setPasswordFormError('New password and confirm password do not match.');
-      return;
-    }
-
-    if (currentPassword === newPassword) {
-      setPasswordFormError('New password must be different from current password.');
-      return;
-    }
-
-    try {
-      await changePassword(currentPassword, newPassword);
-      handleCloseChangePassword();
-    } catch {
-      // AuthContext already sets a user-friendly error message.
     }
   };
 
@@ -688,6 +753,74 @@ export default function DashboardScreen() {
     return `PS${stageNumber}`;
   };
 
+  const formatDateTimeForDisplay = (value?: string): string => {
+    if (!value) return 'N/A';
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+
+    return parsed.toLocaleString();
+  };
+
+  const getLatestCheckInForStage = useCallback((riderStatus: RiderStatus, stageNumber: number): CheckIn | undefined => {
+    let latestCheckIn: CheckIn | undefined;
+
+    riderStatus.checkInHistory.forEach((checkIn) => {
+      if (checkIn.stageNumber !== stageNumber || isCancelledCheckIn(checkIn)) return;
+
+      if (!latestCheckIn) {
+        latestCheckIn = checkIn;
+        return;
+      }
+
+      if (new Date(checkIn.timestamp).getTime() > new Date(latestCheckIn.timestamp).getTime()) {
+        latestCheckIn = checkIn;
+      }
+    });
+
+    return latestCheckIn;
+  }, []);
+
+  const getLatestSpecialCheckIn = useCallback(
+    (riderStatus: RiderStatus, kind: 'NR' | 'QR'): CheckIn | undefined => {
+      let latestCheckIn: CheckIn | undefined;
+
+      riderStatus.checkInHistory.forEach((checkIn) => {
+        if (isCancelledCheckIn(checkIn)) return;
+
+        const matches = kind === 'NR' ? checkIn.isNotRiding : checkIn.isQuitRiding;
+        if (!matches) return;
+
+        if (!latestCheckIn) {
+          latestCheckIn = checkIn;
+          return;
+        }
+
+        if (new Date(checkIn.timestamp).getTime() > new Date(latestCheckIn.timestamp).getTime()) {
+          latestCheckIn = checkIn;
+        }
+      });
+
+      return latestCheckIn;
+    },
+    []
+  );
+
+  const getStageDisplayName = useCallback((stage: Stage, totalStages: number): string => {
+    const name = stage.name?.trim();
+    if (name) return name;
+    return getStageLabel(stage.stageNumber, totalStages);
+  }, []);
+
+  const isRideCompletedOrClosed = ride?.status === RideStatus.COMPLETED || ride?.status === RideStatus.CLOSED;
+  const showPitStopManagementOption = !isHistorical
+    && !isRideCompletedOrClosed
+    && availablePitStopStagesForManagement.length > 0;
+
+  const selectedPitStopStatus = selectedPitStopStageForManagement?.pitStopStatus ?? null;
+  const canOpenSelectedPitStop = selectedPitStopStatus === null;
+  const canCloseSelectedPitStop = selectedPitStopStatus === 'OPEN';
+
   // Style helpers for dynamic colors and sizes
   const getRiderIconStyle = (riderStatus: RiderStatus) => {
     const bgColor = getRiderColor(riderStatus);
@@ -775,7 +908,7 @@ export default function DashboardScreen() {
       <View style={[styles.container, styles.centeredContent]}>
         <MaterialIcons name="error-outline" size={48} color={COLORS.danger} />
         <Text style={styles.errorText}>{tourError || error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+        <TouchableOpacity style={styles.retryButton} onPress={() => { void handleRetry(); }}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
@@ -786,7 +919,7 @@ export default function DashboardScreen() {
     return (
       <View style={[styles.container, styles.centeredContent]}>
         <Text style={styles.errorText}>No active ride found.</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchDashboard}>
+        <TouchableOpacity style={styles.retryButton} onPress={() => { void fetchDashboard(); }}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
@@ -794,12 +927,21 @@ export default function DashboardScreen() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <View style={styles.container}>
       {/* Compact Header */}
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={styles.headerTitleRow}>
-            <Text style={styles.rideTitle}>{ride.name}</Text>
+            <TouchableOpacity
+              style={styles.rideTitleButton}
+              onPress={() => handleOpenRideInfo(ride, 'dashboard')}
+              accessibilityRole="button"
+              accessibilityLabel="Open ride details"
+              accessibilityHint="Shows details for the selected ride"
+            >
+              <Text style={styles.rideTitle}>{ride.name}</Text>
+              <MaterialIcons name="info-outline" size={18} color={COLORS.white} />
+            </TouchableOpacity>
             {isHistorical && (
               <View style={styles.historicalBadge}>
                 <Text style={styles.historicalBadgeText}>Historical</Text>
@@ -807,16 +949,6 @@ export default function DashboardScreen() {
             )}
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.dateSelector}
-              onPress={() => setShowRidePicker(true)}
-              disabled={allRides.length <= 1}
-            >
-              <Text style={styles.rideDate}>{ride.date}</Text>
-              {allRides.length > 1 && (
-                <MaterialIcons name="arrow-drop-down" size={20} color={COLORS.white} />
-              )}
-            </TouchableOpacity>
             <TouchableOpacity onPress={() => setShowHeaderMenu(true)} style={styles.menuButton}>
               <MaterialIcons name="menu" size={22} color={COLORS.white} />
             </TouchableOpacity>
@@ -934,279 +1066,297 @@ export default function DashboardScreen() {
           activeOpacity={1}
           onPress={() => setIsRiderCardVisible(false)}
         >
-          <View style={styles.riderCard}>
+          <TouchableOpacity
+            style={[
+              styles.riderCard,
+              {
+                width: Math.min(width * 0.92, 460),
+                maxHeight: height * 0.9,
+              },
+            ]}
+            activeOpacity={1}
+            onPress={() => {
+              // Keep modal open while interacting inside the rider card.
+            }}
+          >
             {selectedRider && (
-              <>
-                <MaterialIcons 
-                  name="account-circle" 
-                  size={80} 
-                  color={COLORS.gray[400]} 
-                  style={styles.riderCardIcon}
-                />
-                <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
-                <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
-                <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
+              <ScrollView
+                style={styles.riderCardScroll}
+                contentContainerStyle={styles.riderCardScrollContent}
+                showsVerticalScrollIndicator={true}
+              >
+                <View style={styles.riderCardHeader}>
+                  <MaterialIcons
+                    name="account-circle"
+                    size={80}
+                    color={COLORS.gray[400]}
+                    style={styles.riderCardIcon}
+                  />
+                  <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
+                  <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
+                  <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
+                </View>
+
+                <View style={styles.riderCardSection}>
+                  {selectedRider.overallStatus === CheckInStatus.NOT_RIDING ? (
+                    (() => {
+                      const notRidingCheckIn = getLatestSpecialCheckIn(selectedRider, 'NR');
+                      return (
+                        <>
+                          <Text style={styles.riderCardSectionTitle}>Not Riding</Text>
+                          <Text style={styles.riderSpecialStatusTime}>
+                            {notRidingCheckIn
+                              ? `Marked at ${formatDateTimeForDisplay(notRidingCheckIn.timestamp)}`
+                              : 'Marked as Not Riding'}
+                          </Text>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <Text style={styles.riderCardSectionTitle}>Stage Check-ins</Text>
+                      {(() => {
+                        const sortedStages = [...selectedRider.ride.stages].sort((a, b) => a.stageNumber - b.stageNumber);
+
+                        if (selectedRider.overallStatus === CheckInStatus.QUIT_RIDING) {
+                          const quitCheckIn = getLatestSpecialCheckIn(selectedRider, 'QR');
+                          const quitTime = quitCheckIn
+                            ? new Date(quitCheckIn.timestamp).getTime()
+                            : Number.POSITIVE_INFINITY;
+
+                          const regularStages = sortedStages.filter((stage) => {
+                            const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
+                            if (!checkIn || checkIn.isNotRiding || checkIn.isQuitRiding) return false;
+                            return new Date(checkIn.timestamp).getTime() <= quitTime;
+                          });
+
+                          return (
+                            <>
+                              {regularStages.map((stage) => {
+                                const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
+                                const stageColor = getStageColor(stage.stageNumber, selectedRider.ride.stages.length);
+
+                                return (
+                                  <View key={stage.stageId} style={styles.riderStageRow}>
+                                    <View style={styles.riderStageHeaderRow}>
+                                      <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}>
+                                        <Text style={styles.riderStageNameChipText}>
+                                          {getStageDisplayName(stage, selectedRider.ride.stages.length)}
+                                        </Text>
+                                      </View>
+                                    </View>
+                                    <Text style={styles.riderStageTime}>{formatDateTimeForDisplay(checkIn?.timestamp)}</Text>
+                                  </View>
+                                );
+                              })}
+
+                              <View style={styles.riderStageRow}>
+                                <View style={styles.riderStageHeaderRow}>
+                                  <View style={[styles.riderStageNameChip, styles.riderQuitChip]}>
+                                    <Text style={styles.riderStageNameChipText}>Quit Riding</Text>
+                                  </View>
+                                </View>
+                                <Text style={styles.riderStageTime}>
+                                  {quitCheckIn
+                                    ? formatDateTimeForDisplay(quitCheckIn.timestamp)
+                                    : 'Marked as Quit Riding'}
+                                </Text>
+                              </View>
+                            </>
+                          );
+                        }
+
+                        return sortedStages.map((stage) => {
+                          const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
+                          const stageColor = getStageColor(stage.stageNumber, selectedRider.ride.stages.length);
+                          const isSkippedStage = hasRegularCheckInAfterStage(selectedRider, stage.stageNumber)
+                            && !hasRegularCheckInAtStage(selectedRider, stage.stageNumber);
+
+                          return (
+                            <View key={stage.stageId} style={styles.riderStageRow}>
+                              <View style={styles.riderStageHeaderRow}>
+                                <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}> 
+                                  <Text style={styles.riderStageNameChipText}>
+                                    {getStageDisplayName(stage, selectedRider.ride.stages.length)}
+                                  </Text>
+                                </View>
+                                {isSkippedStage && (
+                                  <View style={styles.riderStageWarningBadge}>
+                                    <Text style={styles.riderStageWarningMark}>!</Text>
+                                  </View>
+                                )}
+                              </View>
+                              <Text style={styles.riderStageTime}>
+                                {checkIn ? formatDateTimeForDisplay(checkIn.timestamp) : 'Not checked in'}
+                              </Text>
+                            </View>
+                          );
+                        });
+                      })()}
+                    </>
+                  )}
+                </View>
+
                 <TouchableOpacity 
                   style={styles.closeButton}
                   onPress={() => setIsRiderCardVisible(false)}
                 >
                   <Text style={styles.closeButtonText}>Close</Text>
                 </TouchableOpacity>
-              </>
+              </ScrollView>
             )}
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
 
-      {/* Header Floating Menu */}
-      <Modal
+      {/* Header Menu (slide-in) */}
+      <AppMenu
         visible={showHeaderMenu}
+        onClose={() => setShowHeaderMenu(false)}
+        isAdministrator={isAdministrator}
+        rides={allRides}
+        currentRideId={ride?.rideId ?? null}
+        onSelectRide={handleSelectRideFromMenu}
+        onViewRideInfo={(selectedRide) => handleOpenRideInfo(selectedRide, 'menu')}
+        showPitStopContextOption={isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1}
+        managedPitStopStageNumber={managedPitStopStageNumber}
+        onOpenPitStopContextPicker={() => setShowPitStopContextPicker(true)}
+        showPitStopManagementOption={showPitStopManagementOption}
+        pitStopManagementStages={availablePitStopStagesForManagement.map((stage) => ({
+          stageNumber: stage.stageNumber,
+          name: stage.name,
+        }))}
+        onOpenPitStopManagement={handleOpenPitStopManagement}
+        showSkippedToggle={!!selectedStage}
+        isSkippedHighlightEnabled={isSkippedHighlightEnabled}
+        onToggleSkippedHighlight={setIsSkippedHighlightEnabled}
+        onLogout={logout}
+      />
+
+      {/* Pit Stop Management Modal */}
+      <Modal
+        visible={showPitStopManagementModal}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setShowHeaderMenu(false)}
+        onRequestClose={() => {
+          if (!isPitStopActionSubmitting) {
+            setShowPitStopManagementModal(false);
+          }
+        }}
       >
         <TouchableOpacity
-          style={styles.menuOverlay}
-          activeOpacity={1}
-          onPress={() => setShowHeaderMenu(false)}
-        >
-          <View style={styles.menuPanel}>
-            <TouchableOpacity
-              style={styles.menuCloseButton}
-              onPress={() => setShowHeaderMenu(false)}
-            >
-              <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={handleOpenChangePassword}>
-              <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Change password</Text>
-            </TouchableOpacity>
-            {isAdministrator && (
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowHeaderMenu(false);
-                  setShowUserManagementSubmenu(false);
-                  setShowRideStatusManagement(true);
-                }}
-              >
-                <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
-                <Text style={styles.menuItemText}>Ride status management</Text>
-              </TouchableOpacity>
-            )}
-            {isAdministrator && (
-              <View style={styles.menuSectionWrap}>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={() => setShowUserManagementSubmenu((prev) => !prev)}
-                >
-                  <MaterialIcons name="manage-accounts" size={18} color={COLORS.textPrimary} />
-                  <Text style={styles.menuItemText}>User Management</Text>
-                  <View style={styles.menuItemRightIconWrap}>
-                    <MaterialIcons
-                      name={showUserManagementSubmenu ? 'expand-less' : 'expand-more'}
-                      size={18}
-                      color={COLORS.textSecondary}
-                    />
-                  </View>
-                </TouchableOpacity>
-
-                {showUserManagementSubmenu && (
-                  <View style={styles.menuSubmenuWrap}>
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        setShowUserOnboarding(true);
-                      }}
-                    >
-                      <MaterialIcons name="person-add" size={16} color={COLORS.textPrimary} />
-                      <Text style={styles.menuSubItemText}>New user onboarding</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        setShowUserEnableDisable(true);
-                      }}
-                    >
-                      <MaterialIcons name="toggle-on" size={16} color={COLORS.textPrimary} />
-                      <Text style={styles.menuSubItemText}>Enable / Disable user</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        setShowUserDelete(true);
-                      }}
-                    >
-                      <MaterialIcons name="delete-outline" size={16} color={COLORS.danger} />
-                      <Text style={styles.menuSubItemDangerText}>Delete user</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.menuSubItem}
-                      onPress={() => {
-                        setShowHeaderMenu(false);
-                        setShowUserManagementSubmenu(false);
-                        setShowUserModify(true);
-                      }}
-                    >
-                      <MaterialIcons name="edit" size={16} color={COLORS.textPrimary} />
-                      <Text style={styles.menuSubItemText}>Modify user</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            )}
-            {isPitStopPrimaryRole && availablePitStopStagesForUser.length > 1 && (
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => {
-                  setShowHeaderMenu(false);
-                  setShowPitStopContextPicker(true);
-                }}
-              >
-                <MaterialIcons name="tune" size={18} color={COLORS.textPrimary} />
-                <Text style={styles.menuItemText}>
-                  Set pit stop context
-                  {managedPitStopStageNumber !== null ? ` (PS${managedPitStopStageNumber})` : ''}
-                </Text>
-              </TouchableOpacity>
-            )}
-            {selectedStage && (
-              <View style={styles.menuSwitchItem}>
-                <View style={styles.menuSwitchLabelWrap}>
-                  <MaterialIcons name="warning-amber" size={18} color={COLORS.warning} />
-                  <Text style={styles.menuItemText}>Show skipped Check-In</Text>
-                </View>
-                <Switch
-                  value={isSkippedHighlightEnabled}
-                  onValueChange={setIsSkippedHighlightEnabled}
-                  thumbColor={COLORS.white}
-                  trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
-                />
-              </View>
-            )}
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={async () => {
-                setShowHeaderMenu(false);
-                await logout();
-              }}
-            >
-              <MaterialIcons name="logout" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Logout</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Change Password Popup */}
-      <Modal
-        visible={showChangePasswordModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCloseChangePassword}
-      >
-        <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isPitStopActionSubmitting) {
+              setShowPitStopManagementModal(false);
+            }
+          }}
         >
           <TouchableOpacity
-            style={styles.modalOverlay}
+            style={styles.pitStopManagementCard}
             activeOpacity={1}
-            onPress={handleCloseChangePassword}
+            onPress={() => {
+              // Prevent close when interacting inside modal card.
+            }}
           >
-            <TouchableOpacity activeOpacity={1} onPress={() => {}} style={styles.changePasswordCard}>
-              <View style={styles.changePasswordHeader}>
-                <Text style={styles.changePasswordTitle}>Change Password</Text>
-                <TouchableOpacity onPress={handleCloseChangePassword}>
-                  <MaterialIcons name="close" size={22} color={COLORS.textSecondary} />
-                </TouchableOpacity>
+            <View style={styles.pitStopManagementHeader}>
+              <View style={styles.pitStopManagementTitleWrap}>
+                <Text style={styles.pitStopManagementTitle}>Pit Stop management</Text>
+                <Text style={styles.pitStopManagementSubtitle}>
+                  {selectedPitStopStageForManagement
+                    ? `PS${selectedPitStopStageForManagement.stageNumber} - ${selectedPitStopStageForManagement.name}`
+                    : 'Select a pit stop from menu'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.pitStopManagementCloseButton}
+                onPress={() => {
+                  if (!isPitStopActionSubmitting) {
+                    setShowPitStopManagementModal(false);
+                  }
+                }}
+                disabled={isPitStopActionSubmitting}
+              >
+                <MaterialIcons name="close" size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.pitStopManagementBody}>
+              <View style={styles.pitStopManagementInfoRow}>
+                <Text style={styles.pitStopManagementLabel}>Pit stop</Text>
+                <Text style={styles.pitStopManagementValue}>{selectedPitStopStageForManagement?.name ?? 'N/A'}</Text>
+              </View>
+              <View style={styles.pitStopManagementInfoRow}>
+                <Text style={styles.pitStopManagementLabel}>Duration</Text>
+                <Text style={styles.pitStopManagementValue}>
+                  {typeof selectedPitStopStageForManagement?.pitStopDuration === 'number'
+                    ? `${selectedPitStopStageForManagement.pitStopDuration} min`
+                    : 'N/A'}
+                </Text>
+              </View>
+              <View style={styles.pitStopManagementInfoRow}>
+                <Text style={styles.pitStopManagementLabel}>Status</Text>
+                <Text style={styles.pitStopManagementValue}>{selectedPitStopStatus ?? 'Not opened'}</Text>
               </View>
 
-              {(passwordFormError || authError) && (
-                <View style={styles.changePasswordErrorBanner}>
-                  <MaterialIcons name="error-outline" size={18} color={COLORS.danger} />
-                  <Text style={styles.changePasswordErrorText}>{passwordFormError || authError}</Text>
+              {selectedPitStopStageForManagement?.openedAt && (
+                <View style={styles.pitStopManagementInfoRow}>
+                  <Text style={styles.pitStopManagementLabel}>Opened At</Text>
+                  <Text style={styles.pitStopManagementValue}>
+                    {formatDateTimeForDisplay(selectedPitStopStageForManagement.openedAt)}
+                  </Text>
                 </View>
               )}
 
-              <View style={styles.changePasswordFieldGroup}>
-                <Text style={styles.changePasswordLabel}>Current password</Text>
-                <TextInput
-                  value={currentPassword}
-                  onChangeText={setCurrentPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType="password"
-                  placeholder="Enter current password"
-                  placeholderTextColor={COLORS.textDisabled}
-                  style={styles.changePasswordInput}
-                  editable={!isAuthBusy}
-                />
-              </View>
+              {selectedPitStopStageForManagement?.closedAt && (
+                <View style={styles.pitStopManagementInfoRow}>
+                  <Text style={styles.pitStopManagementLabel}>Closed At</Text>
+                  <Text style={styles.pitStopManagementValue}>
+                    {formatDateTimeForDisplay(selectedPitStopStageForManagement.closedAt)}
+                  </Text>
+                </View>
+              )}
 
-              <View style={styles.changePasswordFieldGroup}>
-                <Text style={styles.changePasswordLabel}>New password</Text>
-                <TextInput
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType="newPassword"
-                  placeholder="Enter new password"
-                  placeholderTextColor={COLORS.textDisabled}
-                  style={styles.changePasswordInput}
-                  editable={!isAuthBusy}
-                />
-              </View>
-
-              <View style={styles.changePasswordFieldGroup}>
-                <Text style={styles.changePasswordLabel}>Confirm new password</Text>
-                <TextInput
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  textContentType="newPassword"
-                  placeholder="Re-enter new password"
-                  placeholderTextColor={COLORS.textDisabled}
-                  style={styles.changePasswordInput}
-                  editable={!isAuthBusy}
-                  onSubmitEditing={handleSubmitChangePassword}
-                />
-              </View>
-
-              <View style={styles.changePasswordActions}>
+              <View style={styles.pitStopManagementActionRow}>
                 <TouchableOpacity
-                  style={styles.changePasswordCancelButton}
-                  onPress={handleCloseChangePassword}
-                  disabled={isAuthBusy}
+                  style={[
+                    styles.pitStopManagementActionButton,
+                    styles.pitStopManagementOpenButton,
+                    (!canOpenSelectedPitStop || isPitStopActionSubmitting) && styles.pitStopManagementActionButtonDisabled,
+                  ]}
+                  disabled={!canOpenSelectedPitStop || isPitStopActionSubmitting}
+                  onPress={() => {
+                    void handleOpenPitStop();
+                  }}
                 >
-                  <Text style={styles.changePasswordCancelButtonText}>Cancel</Text>
+                  <Text style={styles.pitStopManagementActionButtonText}>OPEN</Text>
                 </TouchableOpacity>
+
                 <TouchableOpacity
-                  style={[styles.changePasswordSaveButton, isAuthBusy && styles.changePasswordSaveButtonDisabled]}
-                  onPress={handleSubmitChangePassword}
-                  disabled={isAuthBusy}
+                  style={[
+                    styles.pitStopManagementActionButton,
+                    styles.pitStopManagementCloseActionButton,
+                    (!canCloseSelectedPitStop || isPitStopActionSubmitting) && styles.pitStopManagementActionButtonDisabled,
+                  ]}
+                  disabled={!canCloseSelectedPitStop || isPitStopActionSubmitting}
+                  onPress={() => {
+                    void handleClosePitStop();
+                  }}
                 >
-                  {isAuthBusy ? (
-                    <ActivityIndicator size="small" color={COLORS.white} />
-                  ) : (
-                    <Text style={styles.changePasswordSaveButtonText}>Update</Text>
-                  )}
+                  <Text style={styles.pitStopManagementActionButtonText}>CLOSE</Text>
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
+
+              {isPitStopActionSubmitting && (
+                <View style={styles.pitStopManagementSubmittingRow}>
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                  <Text style={styles.pitStopManagementSubmittingText}>Updating pit stop status...</Text>
+                </View>
+              )}
+            </View>
           </TouchableOpacity>
-        </KeyboardAvoidingView>
+        </TouchableOpacity>
       </Modal>
 
       {/* Footer with Sort and Stage View Toggles */}
@@ -1257,7 +1407,10 @@ export default function DashboardScreen() {
             disabled={isDragging}
             onPress={() => {
               if (!isDragging) {
-                setShowCheckIn(true);
+                navigation.navigate('CheckIn', {
+                  ride,
+                  managedPitStopStageNumber: managedPitStopStageNumber ?? undefined,
+                });
               }
             }}
           >
@@ -1266,134 +1419,26 @@ export default function DashboardScreen() {
         </Animated.View>
       )}
 
-      {/* Check-In Screen Modal */}
-      {ride && (
-        <Modal
-          visible={showCheckIn}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowCheckIn(false)}
+      {isHistorical && (
+        <Animated.View
+          style={[
+            styles.fab,
+            {
+              right: 16,
+              bottom: 76,
+            },
+          ]}
         >
-          <CheckInScreen
-            ride={ride}
-            managedPitStopStageNumber={managedPitStopStageNumber ?? undefined}
-            onCheckInComplete={() => {
-              // Refresh dashboard data after a check-in
-              if (tour && ride) {
-                loadRideDashboard(ride, false, { background: true });
-              }
+          <TouchableOpacity
+            style={styles.fabButton}
+            onPress={() => {
+              void fetchDashboard({ allowHistoricalFallback: false });
             }}
-            onClose={() => setShowCheckIn(false)}
-          />
-        </Modal>
+          >
+            <MaterialIcons name="today" size={28} color={COLORS.white} />
+          </TouchableOpacity>
+        </Animated.View>
       )}
-
-      {/* Ride Status Management Screen Modal (Admin only) */}
-      {tour && isAdministrator && (
-        <Modal
-          visible={showRideStatusManagement}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowRideStatusManagement(false)}
-        >
-          <RideStatusManagementScreen
-            tourId={tour.tourId}
-            onClose={() => setShowRideStatusManagement(false)}
-            onStatusChanged={fetchDashboard}
-          />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserOnboarding}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserOnboarding(false)}
-        >
-          <UserOnboardingScreen onClose={() => setShowUserOnboarding(false)} />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserEnableDisable}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserEnableDisable(false)}
-        >
-          <UserEnableDisableScreen onClose={() => setShowUserEnableDisable(false)} />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserDelete}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserDelete(false)}
-        >
-          <UserDeleteScreen onClose={() => setShowUserDelete(false)} />
-        </Modal>
-      )}
-
-      {isAdministrator && (
-        <Modal
-          visible={showUserModify}
-          animationType="slide"
-          presentationStyle="fullScreen"
-          onRequestClose={() => setShowUserModify(false)}
-        >
-          <UserModifyScreen onClose={() => setShowUserModify(false)} />
-        </Modal>
-      )}
-
-      {/* Ride Picker Modal */}
-      <Modal
-        visible={showRidePicker}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowRidePicker(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowRidePicker(false)}
-        >
-          <View style={styles.ridePickerContainer}>
-            <View style={styles.ridePickerHeader}>
-              <Text style={styles.ridePickerTitle}>Select Ride</Text>
-              <TouchableOpacity onPress={() => setShowRidePicker(false)}>
-                <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.ridePickerList}>
-              {allRides.map((r) => {
-                const isSelected = r.rideId === ride?.rideId;
-                const today = new Date().toISOString().split('T')[0];
-                const isToday = r.date === today;
-                return (
-                  <TouchableOpacity
-                    key={r.rideId}
-                    style={[styles.ridePickerItem, isSelected && styles.ridePickerItemSelected]}
-                    onPress={() => switchToRide(r)}
-                  >
-                    <View>
-                      <Text style={[styles.ridePickerItemName, isSelected && styles.ridePickerItemNameSelected]}>
-                        {r.name}
-                      </Text>
-                      <Text style={styles.ridePickerItemDate}>
-                        {r.date}{isToday ? ' (Today)' : ''}
-                      </Text>
-                    </View>
-                    <Text style={styles.ridePickerItemStatus}>{r.status}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* Pit Stop Context Picker */}
       <Modal
@@ -1439,7 +1484,7 @@ export default function DashboardScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
@@ -1494,6 +1539,12 @@ const styles = StyleSheet.create({
     gap: 8,
     flex: 1,
   },
+  rideTitleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
   historicalBadge: {
     backgroundColor: 'rgba(255,255,255,0.3)',
     paddingHorizontal: 8,
@@ -1510,10 +1561,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  dateSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   menuButton: {
     padding: 4,
   },
@@ -1521,11 +1568,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.white,
-  },
-  rideDate: {
-    fontSize: 14,
-    color: COLORS.white,
-    opacity: 0.9,
+    flexShrink: 1,
   },
   statsRow: {
     flexDirection: 'row',
@@ -1644,213 +1687,274 @@ const styles = StyleSheet.create({
   riderCard: {
     backgroundColor: COLORS.white,
     borderRadius: 16,
-    padding: 24,
-    width: WINDOW_WIDTH * 0.8,
-    maxWidth: 300,
-    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 14,
+    width: WINDOW_WIDTH * 0.88,
+    maxWidth: 420,
+    maxHeight: '80%',
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
+  riderCardScroll: {
+    flexGrow: 0,
+  },
+  riderCardScrollContent: {
+    paddingBottom: 4,
+  },
+  riderCardHeader: {
+    alignItems: 'center',
+  },
   riderCardIcon: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   riderCardId: {
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.textPrimary,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   riderCardName: {
     fontSize: 16,
     color: COLORS.textPrimary,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   riderCardContact: {
     fontSize: 14,
     color: COLORS.textSecondary,
-    marginBottom: 20,
+    marginBottom: 12,
+  },
+  riderCardSection: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 14,
+  },
+  riderCardSectionTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  riderStageRow: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  riderStageHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  riderStageNameChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    alignSelf: 'flex-start',
+  },
+  riderQuitChip: {
+    backgroundColor: COLORS.danger,
+  },
+  riderStageNameChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.white,
+  },
+  riderStageTime: {
+    marginTop: 4,
+    fontSize: 11,
+    color: COLORS.textSecondary,
+  },
+  riderStageWarningBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 22,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    backgroundColor: '#FFF8E1',
+  },
+  riderStageWarningMark: {
+    fontSize: 14,
+    lineHeight: 14,
+    fontWeight: '900',
+    color: '#92400E',
+  },
+  riderSpecialStatusTime: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
   closeButton: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 8,
+    alignSelf: 'center',
   },
   closeButtonText: {
     color: COLORS.white,
     fontSize: 14,
     fontWeight: 'bold',
   },
-  menuOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-  },
-  menuPanel: {
-    position: 'absolute',
-    top: 84,
-    right: 12,
+  ridePickerContainer: {
     backgroundColor: COLORS.white,
-    borderRadius: 10,
-    minWidth: 260,
-    maxWidth: WINDOW_WIDTH * 0.86,
-    paddingVertical: 8,
+    borderRadius: 14,
+    width: WINDOW_WIDTH * 0.88,
+    maxWidth: 420,
+    maxHeight: '72%',
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
+    overflow: 'hidden',
   },
-  menuCloseButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    padding: 4,
-    zIndex: 2,
+  ridePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  menuItem: {
+  ridePickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  ridePickerList: {
+    maxHeight: 360,
+  },
+  ridePickerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  menuSectionWrap: {
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
   },
-  menuItemRightIconWrap: {
-    marginLeft: 'auto',
+  ridePickerItemSelected: {
+    backgroundColor: COLORS.primary + '12',
   },
-  menuSubmenuWrap: {
-    paddingBottom: 6,
-    backgroundColor: COLORS.gray[50],
-  },
-  menuSubItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 28,
-    paddingVertical: 9,
-  },
-  menuSubItemText: {
-    fontSize: 13,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
-  },
-  menuSubItemDangerText: {
-    fontSize: 13,
-    color: COLORS.danger,
-    fontWeight: '500',
-  },
-  menuSwitchItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  menuSwitchLabelWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-    marginRight: 8,
-  },
-  menuItemText: {
+  ridePickerItemName: {
     fontSize: 14,
     color: COLORS.textPrimary,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  changePasswordCard: {
+  ridePickerItemNameSelected: {
+    color: COLORS.primary,
+  },
+  ridePickerItemDate: {
+    marginTop: 2,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  pitStopManagementCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 14,
-    padding: 16,
-    width: WINDOW_WIDTH * 0.9,
+    borderRadius: 16,
+    width: WINDOW_WIDTH * 0.88,
     maxWidth: 420,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    overflow: 'hidden',
   },
-  changePasswordHeader: {
+  pitStopManagementHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  changePasswordTitle: {
-    fontSize: 18,
+  pitStopManagementTitleWrap: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  pitStopManagementTitle: {
+    fontSize: 19,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  changePasswordErrorBanner: {
+  pitStopManagementSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+  pitStopManagementCloseButton: {
+    padding: 4,
+  },
+  pitStopManagementBody: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  pitStopManagementInfoRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderRadius: 8,
-    padding: 10,
-    gap: 6,
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  changePasswordErrorText: {
-    fontSize: 13,
-    color: COLORS.danger,
-    flex: 1,
-  },
-  changePasswordFieldGroup: {
-    marginTop: 12,
-  },
-  changePasswordLabel: {
-    fontSize: 13,
-    color: COLORS.textPrimary,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  changePasswordInput: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  changePasswordActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
     gap: 10,
-    marginTop: 18,
   },
-  changePasswordCancelButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    backgroundColor: COLORS.gray[100],
-  },
-  changePasswordCancelButtonText: {
-    color: COLORS.textPrimary,
-    fontSize: 14,
+  pitStopManagementLabel: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
     fontWeight: '600',
   },
-  changePasswordSaveButton: {
-    minWidth: 90,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
+  pitStopManagementValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  pitStopManagementActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+  },
+  pitStopManagementActionButton: {
+    flex: 1,
+    borderRadius: 10,
     paddingVertical: 10,
-    borderRadius: 8,
+    alignItems: 'center',
+  },
+  pitStopManagementOpenButton: {
     backgroundColor: COLORS.primary,
   },
-  changePasswordSaveButtonDisabled: {
-    opacity: 0.7,
+  pitStopManagementCloseActionButton: {
+    backgroundColor: COLORS.warning,
   },
-  changePasswordSaveButtonText: {
+  pitStopManagementActionButtonDisabled: {
+    backgroundColor: COLORS.gray[300],
+  },
+  pitStopManagementActionButtonText: {
     color: COLORS.white,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
+  },
+  pitStopManagementSubmittingRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pitStopManagementSubmittingText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
   },
   footer: {
     backgroundColor: COLORS.white,
@@ -1909,62 +2013,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
-  },
-  ridePickerContainer: {
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '60%',
-    width: '100%',
-    position: 'absolute',
-    bottom: 0,
-  },
-  ridePickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  ridePickerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-  },
-  ridePickerList: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  ridePickerItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  ridePickerItemSelected: {
-    backgroundColor: COLORS.primary + '10',
-  },
-  ridePickerItemName: {
-    fontSize: 16,
-    color: COLORS.textPrimary,
-    fontWeight: '500',
-  },
-  ridePickerItemNameSelected: {
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
-  ridePickerItemDate: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  ridePickerItemStatus: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    textTransform: 'uppercase',
   },
 });

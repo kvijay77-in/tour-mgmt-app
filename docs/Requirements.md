@@ -11,6 +11,7 @@ Detailed functional requirements, use cases, and feature specifications for the 
 - [Dashboard](#dashboard)
   - [Stage Count](#stage-count)
   - [Historical View](#historical-view)
+  - [Pit Stop Management](#pit-stop-management)
   - [Stage View](#stage-view)
   - [Sort](#sort)
   - [Zoom In & Out](#zoom-in--out)
@@ -85,6 +86,28 @@ This is part of the Header section in the Dashboard. Logic for count:
 ## Historical View
 Dashboard should always display the respective calendar day's ride by default. There should be an option to view previous days or historical ride. When viewing historical ride, it must be alway in read-only mode i.e. check in feature must be disabled. Historical view should be available for all dates from the start of the tour with dates listed based on the ride dates available in the database as a list. A calender view instead of list can be considered if that provides a good user experience.
 
+## Pit Stop Management
+
+Pit Stop management is available from the Dashboard hamburger menu for today's ride only.
+
+Functional behavior:
+
+1. Show menu item label as `Pit Stop management` only for users with role permission:
+  - `ADMINISTRATOR`
+  - `SUPER_USER`
+  - `PS_x_USER`
+2. Do not show this menu item when current ride is completed/closed.
+3. Each allowed pit stop stage must be listed as a submenu item.
+  - `ADMINISTRATOR` and `SUPER_USER` can see all `PIT_STOP` stages for today's ride.
+  - `PS_x_USER` can see only the mapped pit stop stage(s).
+4. Selecting a submenu opens a popup for that stage.
+5. Popup content and actions:
+  - Show pit stop name and configured duration.
+  - Enable `OPEN` action only when `pitStopStatus` is null.
+  - Enable `CLOSE` action only when `pitStopStatus` is `OPEN`.
+  - Display `openedAt` and `closedAt` when available.
+  - Trigger backend API call for every enabled action.
+
 ## Stage View
 When App is launched and Dashboard is displayed it give a complete view of the riders' progress. A Stage-wise view is also required for someone to see what's the stage's status. Each stage should have a button that can toggle Stage View on and off. When stage view is on, it should display check in status relative to the stage i.e. show all riders and Rider icon color should have respective Stage color for checked in riders and a different color for not checked in riders. When stage view is off (toggle), view should go back to default complete view.
 
@@ -126,10 +149,25 @@ On each day of the tour, before the ride is Started/Flagged off all riders must 
 
 Tour Director will use the dashboard to view the check-in progress and only when all check-ins are completed she/he will give go ahead to start the ride.
 
+If a rider has already been checked in at Start and the user later attempts a Not Riding check-in, or if a rider has already been marked Not Riding at Start and the user later attempts a regular Start check-in, the app must prompt to Override or Cancel before writing any data. On Override, the previous Start-stage check-in must be cancelled and the new check-in must be created.
+
 ## Pit Stops  
 Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop. Assigned pit-stop stage users (`PS_x_USER`) will have the control on to flag the assigned pit stop as 'Open' and 'Closed'. This will help to a tracking view for Pit Stops. In future this status can even be used for Rider App (not scope for this project) to let riders know Pit Stop as been opend and closed.
 
 No. of pit stops may vary as per the day's ride plan and distance. Dashboard should dynamically adapt to the corresponding ride and no. of pit stops automatically.
+
+Ride/stage attributes used for pit stop management:
+
+1. Ride level:
+  - `openTime`: planned ride opening time.
+  - `closeTime`: planned ride closing time.
+2. Stage level (`PIT_STOP` stages):
+  - `estimatedOpenTime`: planned open offset in minutes.
+  - `pitStopDuration`: pit stop window duration in minutes.
+  - `pitStopStatus`: runtime status (`null`, `OPEN`, `CLOSED`).
+  - `openedAt`: runtime timestamp when pit stop is opened.
+  - `closedAt`: runtime timestamp when pit stop is closed.
+3. `estimatedTimeFromStart` is deprecated and must not be used.
 
 ## Finish  
 Finish point is usually a hotel at the destination town where the riders will complete the day's ride. A pre-authorized hotel front desk staff will use the app to scan Rider's QR Code to check in for the Finish stage.
@@ -138,6 +176,8 @@ Finish point is usually a hotel at the destination town where the riders will co
 When a Rider decides to not ride for the day, same needs to be registered by a tour staff with relevant permission  at the starting point before the ride starts for the day. Once a Rider is marked 'Not Riding' no further check should be allowed at any other stages.
 
 In multi-user scenarios (multiple crew users and rider self check-in channels), check-in validation must use the latest central status at submission time. If the rider is already marked 'Not Riding', any subsequent regular or 'Quit Riding' check-in attempt must be blocked and shown to the app user as a Warning (not an app error/exception).
+
+The Start-stage override flow described above is an online-only interaction. It is expected to happen at ride start when network coverage is available, so it does not require offline queueing or deferred sync handling.
 
 ## Quit Riding  
 A rider can decide to quit the ride or call it a day at any point in the ride after starting the ride. A Rider can decide to 'Quit Riding' at a pit stop or any location between stages.  
@@ -169,6 +209,7 @@ For all interactive online check-ins, validation must use the latest rider statu
 Offline mode exception:
 1. When offline, local SQLite status can be used for pre-validation.
 2. Final conflict/validity is still enforced when pending operations sync to backend.
+3. The Start-stage Override/Cancel flow is excluded from offline handling because it is only expected at ride start in a network-available location.
 
 ## Check In for Stage View  
 When a Rider checks in at multiple stages implies that the Rider has checked in all stages till the last checked in stage. This is important in Stage View.
@@ -211,6 +252,7 @@ Rules:
 - These roles apply only to stages with type `PIT_STOP`.
 - Last stage is always `FINISH` and must never be mapped to a pit-stop role.
 - Regular check-in is allowed only for the exact pit-stop stage(s) mapped by the role(s).
+- Pit Stop management is allowed only for the mapped pit-stop stage(s).
 - Quit Riding check-in is allowed for all `PS_x_USER` roles.
 - Not Riding check-in is not allowed for `PS_x_USER` roles.
 - Manual check-in is not allowed for `PS_x_USER` roles.

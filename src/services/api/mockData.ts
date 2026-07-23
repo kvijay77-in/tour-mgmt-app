@@ -64,7 +64,6 @@ export const MOCK_STAGES: Stage[] = [
     type: StageType.START,
     name: 'Start - City Center',
     distanceFromStart: 0,
-    estimatedTimeFromStart: 0,
   },
   {
     stageId: 'S001',
@@ -72,7 +71,8 @@ export const MOCK_STAGES: Stage[] = [
     type: StageType.PIT_STOP,
     name: 'Pit Stop 1 - Riverside Park',
     distanceFromStart: 25,
-    estimatedTimeFromStart: 90,
+    estimatedOpenTime: 90,
+    pitStopDuration: 45,
   },
   {
     stageId: 'S002',
@@ -80,7 +80,8 @@ export const MOCK_STAGES: Stage[] = [
     type: StageType.PIT_STOP,
     name: 'Pit Stop 2 - Mountain View',
     distanceFromStart: 50,
-    estimatedTimeFromStart: 180,
+    estimatedOpenTime: 180,
+    pitStopDuration: 45,
   },
   {
     stageId: 'S003',
@@ -88,7 +89,6 @@ export const MOCK_STAGES: Stage[] = [
     type: StageType.FINISH,
     name: 'Finish - Coastal Resort',
     distanceFromStart: 75,
-    estimatedTimeFromStart: 270,
   },
 ];
 
@@ -103,9 +103,11 @@ export const MOCK_RIDE: Ride = {
   startLocation: 'City Center',
   finishLocation: 'Coastal Resort',
   totalDistance: 75,
+  openTime: '07:30',
   stages: MOCK_STAGES,
   status: RideStatus.STARTED,
   startedAt: '2026-02-01T08:00:00Z',
+  closeTime: '14:30',
 };
 
 // ============================================================================
@@ -124,7 +126,7 @@ const generateCheckIns = (): CheckIn[] => {
   const ps1Riders = ['R001', 'R005', 'R011', 'R016', 'R021', 'R026', 'R032', 'R038', 'R043', 'R048', 'R053', 'R058', 'R062', 'R068', 'R073', 'R077', 'R081', 'R084', 'R086', 'R087', 'R088', 'R090', 'R004']; // 23 riders
   const startRiders = ['R006', 'R008', 'R010', 'R013', 'R014', 'R017', 'R019', 'R020', 'R023', 'R024', 'R027', 'R029', 'R030', 'R033', 'R034', 'R035', 'R036', 'R039', 'R040', 'R041', 'R045', 'R046', 'R047', 'R049', 'R050', 'R052', 'R054', 'R055', 'R057', 'R060', 'R061', 'R063', 'R064', 'R066', 'R069']; // 35 riders (27 checked in at start + 8 not checked in yet)
   const nrRiders = ['R070', 'R071', 'R074', 'R075', 'R076']; // 5 riders
-  const qrRiders = ['R080', 'R082', 'R083']; // 3 riders
+  const _qrRiders = ['R080', 'R082', 'R083']; // 3 riders
   
   // Helper to add check-ins for a rider at multiple stages
   const addCheckInsForRider = (riderId: string, upToStage: number, isQuitting: boolean = false) => {

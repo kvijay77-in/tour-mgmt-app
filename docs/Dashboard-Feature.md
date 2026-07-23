@@ -83,14 +83,25 @@ Located in the header, displays cumulative counts:
 ### 7. UI Layout
 
 **Header:**
-- Ride name and date
+- Ride name only (date removed from header)
+- Ride name is clickable and opens shared ride details
 - Stage count chips with counts
 - Hamburger menu with account actions
 - Administrator-only menu entry for Ride status management (opens dedicated full-screen flow)
+- All Rides submenu keeps planned rides blocked from dashboard launch, while a dedicated info action opens shared ride details for any ride (including planned)
 
 **Body:**
 - Scrollable rider grid
 - Touch rider icon for details (future feature)
+
+**Ride Details (shared route from header and All Rides info action):**
+- Compact layout optimized to fit within visible screen area
+- Shows selected ride summary with only Distance and Flag Off (scheduled) after status
+- Shows route in a compact stacked layout: From and To on separate rows with start/finish flag visuals
+- Uses a single merged timeline in this order: Open Time, Started, PIT_STOP stage entries, Completed
+- Timeline uses per-stage progress arrows with standardized label/time alignment
+- For PIT_STOP entries, highlights stage label (PSx) and shows pit-stop Open and Close timestamps
+- Dismiss by tapping close icon or outside the pop-up
 
 **Footer:**
 - Sort toggle button (left)

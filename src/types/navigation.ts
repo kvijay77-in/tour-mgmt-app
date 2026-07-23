@@ -1,52 +1,37 @@
 /**
  * Navigation types for React Navigation
+ *
+ * See docs/SolutionDesign.md § Navigation Structure and
+ * /memories/repo/spa-to-multiscreen-migration-plan.md for the phased rollout.
  */
 
-import { AppRole } from './models';
+import { Ride } from './models';
 
 // ============================================================================
-// AUTH STACK
+// AUTH STACK — rendered by src/navigation/AuthNavigator.tsx
 // ============================================================================
 
 export type AuthStackParamList = {
-  Login: undefined;
-  ForgotPassword: undefined;
+  Login: { prefillUsername?: string; externalError?: string } | undefined;
+  ForgotPassword: { username?: string } | undefined;
+  NewPassword: { username: string; rememberMe: boolean };
 };
 
 // ============================================================================
-// MAIN APP STACK
+// APP STACK (authenticated) — rendered by src/navigation/AppNavigator.tsx
+//
+// Phase 1 added CheckIn + admin routes (admin routes registered conditionally
+// on isAdministrator). Phase 2 adds ChangePassword.
 // ============================================================================
 
-export type MainStackParamList = {
-  Dashboard: {
-    rideDate?: string; // For historical view
-  };
-  CheckIn: {
-    stageId: string;
-    riderId?: string; // Pre-filled for manual check-in
-  };
-  AdminRideManagement: undefined;
-  AddEditRide: {
-    rideId?: string; // undefined for new ride
-  };
-  Profile: undefined;
-};
-
-// ============================================================================
-// ROOT NAVIGATOR
-// ============================================================================
-
-export type RootStackParamList = {
-  Auth: undefined;
-  Main: undefined;
-  Loading: undefined;
-};
-
-// ============================================================================
-// NAVIGATION PROPS
-// ============================================================================
-
-export type NavigationProps = {
-  userRole: AppRole;
-  isAuthenticated: boolean;
+export type AppStackParamList = {
+  Dashboard: undefined;
+  CheckIn: { ride: Ride; managedPitStopStageNumber?: number };
+  RideInfo: { ride: Ride; source?: 'dashboard' | 'menu' };
+  ChangePassword: undefined;
+  RideStatusManagement: undefined;
+  UserOnboarding: undefined;
+  UserEnableDisable: undefined;
+  UserDelete: undefined;
+  UserModify: undefined;
 };

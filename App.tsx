@@ -12,11 +12,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
+import { NavigationContainer } from '@react-navigation/native';
 import { ErrorBoundary } from './src/components/common/ErrorBoundary';
-import { TourProvider } from './src/context/TourContext';
-import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { AuthProvider } from './src/context/AuthContext';
 import { configureAmplify } from './src/config/amplify';
 import { initBackendRouting } from './src/config/reviewAccess';
 import { COLORS } from './src/constants/colors';
@@ -24,25 +24,10 @@ import { OrgConfig } from './src/types/config';
 import { loadOrgConfig } from './src/services/config/orgConfigService';
 import { setApiBaseUrl } from './src/services/api/apiClient';
 import { logger } from './src/utils/logger';
-import DashboardScreen from './src/screens/dashboard/DashboardScreen';
-import LoginScreen from './src/screens/auth/LoginScreen';
-import NewPasswordScreen from './src/screens/auth/NewPasswordScreen';
-import ForgotPasswordScreen from './src/screens/auth/ForgotPasswordScreen';
 import OrgSetupScreen from './src/screens/auth/OrgSetupScreen';
+import RootNavigator from './src/navigation/RootNavigator';
 
 const TAG = 'App';
-
-type AuthScreen =
-  | { screen: 'login' }
-  | {
-      screen: 'forgotPassword';
-      username?: string;
-    }
-  | {
-      screen: 'newPassword';
-      username: string;
-      rememberMe: boolean;
-    };
 
 // ---------------------------------------------------------------------------
 // Apply runtime org config (Amplify + apiClient)
@@ -52,94 +37,6 @@ function applyOrgConfig(config: OrgConfig): void {
   configureAmplify(config);
   setApiBaseUrl(config.apiBaseUrl);
   initBackendRouting(config);
-}
-
-// ---------------------------------------------------------------------------
-// AuthGate — login / new-password / dashboard
-// ---------------------------------------------------------------------------
-
-function AuthGate() {
-  const { user, isLoading } = useAuth();
-  const [authScreen, setAuthScreen] = useState<AuthScreen>({ screen: 'login' });
-  const [loginErrorMessage, setLoginErrorMessage] = useState<string | null>(null);
-  const [loginPrefillUsername, setLoginPrefillUsername] = useState<string | undefined>(undefined);
-
-  // Reset to login screen whenever the user is signed out
-  React.useEffect(() => {
-    if (!user && !isLoading) {
-      setAuthScreen({ screen: 'login' });
-    }
-  }, [user, isLoading]);
-
-  const handleGoToLogin = React.useCallback(() => {
-    setAuthScreen({ screen: 'login' });
-  }, []);
-
-  const handleNoRoleAfterPasswordChange = React.useCallback(() => {
-    setLoginErrorMessage('No role has been assigned to your account. Please contact your tour administrator.');
-    setAuthScreen({ screen: 'login' });
-  }, []);
-
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
-  }
-
-  if (!user) {
-    if (authScreen.screen === 'forgotPassword') {
-      return (
-        <ForgotPasswordScreen
-          initialUsername={authScreen.username}
-          onBackToLogin={() => {
-            setAuthScreen({ screen: 'login' });
-          }}
-          onPasswordResetComplete={({ username }) => {
-            setLoginErrorMessage(null);
-            setLoginPrefillUsername(username);
-            setAuthScreen({ screen: 'login' });
-          }}
-        />
-      );
-    }
-
-    if (authScreen.screen === 'newPassword') {
-      return (
-        <NewPasswordScreen
-          username={authScreen.username}
-          rememberMe={authScreen.rememberMe}
-          onCancel={handleGoToLogin}
-          onPasswordChangedNoRole={handleNoRoleAfterPasswordChange}
-        />
-      );
-    }
-    return (
-      <LoginScreen
-        initialUsername={loginPrefillUsername}
-        externalErrorMessage={loginErrorMessage}
-        onForgotPassword={({ username }) =>
-          setAuthScreen({
-            screen: 'forgotPassword',
-            username,
-          })}
-        onNewPasswordRequired={({ username, rememberMe }) =>
-          setAuthScreen({
-            screen: 'newPassword',
-            username,
-            rememberMe,
-          })}
-      />
-    );
-  }
-
-  return (
-    <TourProvider>
-      <StatusBar style="auto" />
-      <DashboardScreen />
-    </TourProvider>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -222,17 +119,24 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <ErrorBoundary>
-        <AuthProvider>
-          <AuthGate />
-        </AuthProvider>
-      </ErrorBoundary>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.gestureRoot}>
+      <SafeAreaProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <NavigationContainer>
+              <RootNavigator />
+            </NavigationContainer>
+          </AuthProvider>
+        </ErrorBoundary>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
