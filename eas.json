@@ -31,7 +31,7 @@
         "EXPO_PUBLIC_AWS_USER_POOL_ID": "ap-south-1_MMxOi2Qmt",
         "EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID": "31s80dcc5u1oob7shuc2s4up0a",
         "EXPO_PUBLIC_TOUR_DATA_API_BASE_URL": "https://mgyezkldn2.execute-api.ap-south-1.amazonaws.com/dev",
-        "EXPO_PUBLIC_REVIEW_USERNAME": "google-reviewer@someusefulapps.com",
+        "EXPO_PUBLIC_REVIEW_USERNAME": "store-reviewer@someusefulapps.com",
         "EXPO_PUBLIC_REVIEW_AWS_REGION": "ap-south-1",
         "EXPO_PUBLIC_REVIEW_AWS_USER_POOL_ID": "ap-south-1_MMxOi2Qmt",
         "EXPO_PUBLIC_REVIEW_AWS_USER_POOL_WEB_CLIENT_ID": "31s80dcc5u1oob7shuc2s4up0a",
@@ -39,7 +39,7 @@
       }
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
       "channel": "preview",
       "android": {
         "buildType": "app-bundle",
@@ -52,7 +52,7 @@
       }
     },
     "production": {
-      "distribution": "internal",
+      "distribution": "store",
       "channel": "production",
       "android": {
         "buildType": "app-bundle",

@@ -152,6 +152,21 @@ npx eas-cli env:create \
 Repeat for each variable and target environment, using `preview` for tester
 rollout and `production` for future production-channel builds.
 
+This repo also includes a helper script that reads `.env`, skips empty values
+and dev-only flags already managed in `eas.json`, then upserts the remaining
+`EXPO_PUBLIC_*` variables into EAS:
+
+```bash
+./tools/push-eas-env.sh
+```
+
+To target a different EAS environment or preview what will be uploaded:
+
+```bash
+./tools/push-eas-env.sh development
+./tools/push-eas-env.sh --dry-run preview production
+```
+
 To list existing environment variables:
 
 ```bash

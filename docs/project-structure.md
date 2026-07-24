@@ -113,6 +113,7 @@ tour-mgmt-app/
 │
 ├── tools/                          # Publisher/admin utilities (not part of the app bundle)
 │   └── setup-link-generator.html   # HMAC-signed setup link & QR code generator
+│   └── push-eas-env.sh             # Sync populated EXPO_PUBLIC_* values from .env into EAS project environments
 │
 ├── node_modules/                   # Dependencies (not in git)
 │
@@ -157,6 +158,7 @@ tour-mgmt-app/
 - **`app.json`**: Expo configuration (app name, splash screen, platform settings).
 - **`eas.json`**: EAS Build profiles for producing signed APKs. See [release-guide.md](./release-guide.md).
 - **`.easignore`**: Excludes non-build artefacts (backend snapshot zip, docs, tools) from the EAS upload tarball.
+- **`tools/`**: Publisher/admin utilities such as the setup-link generator and EAS env sync helper.
 
 ### Additional Notes
 - **Single Entry Point**: `App.tsx` serves as the root component for Android, iOS, and Web
