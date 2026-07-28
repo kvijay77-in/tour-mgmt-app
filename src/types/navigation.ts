@@ -25,8 +25,7 @@ export type AuthStackParamList = {
 // ============================================================================
 
 export type AppStackParamList = {
-  Dashboard: undefined;
-  CheckIn: { ride: Ride; managedPitStopStageNumber?: number };
+  MainTabs: undefined;
   RideInfo: { ride: Ride; source?: 'dashboard' | 'menu' };
   ChangePassword: undefined;
   RideStatusManagement: undefined;
@@ -34,4 +33,11 @@ export type AppStackParamList = {
   UserEnableDisable: undefined;
   UserDelete: undefined;
   UserModify: undefined;
+};
+
+// Phase 2: Main tab navigator (Dashboard, CheckIn, Log)
+export type MainTabParamList = {
+  Dashboard: undefined;
+  CheckIn: undefined;
+  Log: undefined;
 };

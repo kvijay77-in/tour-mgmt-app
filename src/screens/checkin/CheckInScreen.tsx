@@ -22,13 +22,15 @@ import {
   Platform,
   KeyboardAvoidingView,
   ScrollView,
-  Vibration,
+  Switch,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import { useIsFocused } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
+import { useRideSession } from '../../context/RideSessionContext';
 import { HighlightedText } from '../../components/common/HighlightedText';
 import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
 import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
@@ -37,6 +39,8 @@ import { CheckIn, CheckInMethod, Permission, Ride, RideStatus, Stage, StageType 
 import { CheckInRequest } from '../../types/api';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
+import { getRiderById } from '../../services/database/riderStore';
+import { playSuccess, playFailure, playScanTick } from '../../services/feedback/feedbackService';
 
 const TAG = 'CheckInScreen';
 
@@ -59,13 +63,13 @@ function extractRiderIdFromQr(rawValue?: string): string | null {
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
 
 interface CheckInScreenProps {
-  ride: Ride;
+  ride?: Ride;
   /** Optional persisted pit-stop stage context chosen by the user */
   managedPitStopStageNumber?: number;
   /** Called when check-in completes successfully — dashboard can update local state */
-  onCheckInComplete: (checkIn: CheckIn) => void;
+  onCheckInComplete?: (checkIn: CheckIn) => void;
   /** Called when user closes the screen */
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,15 +178,18 @@ const stageStyles = StyleSheet.create({
 type Phase = 'type_select' | 'stage_select' | 'scanning' | 'manual_entry' | 'confirming' | 'success' | 'error';
 type ErrorPresentation = 'error' | 'info' | 'warning';
 
-export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheckInComplete, onClose }: CheckInScreenProps) {
+export default function CheckInScreen({ ride: propRide, managedPitStopStageNumber, onCheckInComplete, onClose }: CheckInScreenProps) {
   const { user } = useAuth();
   const { tour } = useTour();
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
+  const { currentRide, selectedStageNumber, setSelectedStage: setContextSelectedStage, autoCheckIn, toggleAutoCheckIn, setCheckIns, checkIns } = useRideSession();
+  const isFocused = useIsFocused();
 
   const [phase, setPhase] = useState<Phase>('type_select');
   const [checkInType, setCheckInType] = useState<CheckInType>('regular');
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
+  const [scannedRiderName, setScannedRiderName] = useState<string>('');
   const [scannedRiderId, setScannedRiderId] = useState<string>('');
   const [manualRiderId, setManualRiderId] = useState<string>('');
   const [scanAttempts, setScanAttempts] = useState(0);
@@ -192,6 +199,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
   const [errorPresentation, setErrorPresentation] = useState<ErrorPresentation>('error');
   const processingRef = useRef(false);
   const autoStartAppliedRef = useRef(false);
+  const bottomInsetPadding = Math.max(insets.bottom, 12);
 
   // Determine available check-in types based on role
   const canCheckInRegular = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
@@ -201,15 +209,14 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
 
   const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
 
-  const pitStopRoleStageNumbers = useMemo(
-    () => getPitStopStageNumbersFromRoles(user?.userRoles ?? []),
-    [user?.userRoles],
-  );
+  const pitStopRoleStageNumbers = useMemo(() => getPitStopStageNumbersFromRoles(user?.userRoles ?? []), [user?.userRoles]);
+  // Use ride from prop or RideSession context.
+  const activeRide = propRide ?? currentRide;
 
   const allowedRegularStageNumbers = useMemo(() => {
-    if (!isPitStopPrimaryRole) return [] as number[];
+    if (!isPitStopPrimaryRole || !activeRide) return [] as number[];
 
-    const ridePitStopStages = ride.stages
+    const ridePitStopStages = activeRide.stages
       .filter((s) => s.type === StageType.PIT_STOP)
       .map((s) => s.stageNumber);
 
@@ -218,17 +225,55 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       return [managedPitStopStageNumber];
     }
     return roleAllowedStages;
-  }, [isPitStopPrimaryRole, ride.stages, pitStopRoleStageNumbers, managedPitStopStageNumber]);
+  }, [isPitStopPrimaryRole, activeRide, pitStopRoleStageNumbers, managedPitStopStageNumber]);
 
   const hasSingleRegularPitStopStage = isPitStopPrimaryRole && allowedRegularStageNumbers.length === 1;
 
   // Auto-select Start stage for NR
   useEffect(() => {
-    if (checkInType === 'not_riding') {
-      const startStage = ride.stages.find((s) => s.type === StageType.START);
+    if (checkInType === 'not_riding' && activeRide) {
+      const startStage = activeRide.stages.find((s) => s.type === StageType.START);
       if (startStage) setSelectedStage(startStage);
     }
-  }, [checkInType, ride.stages]);
+  }, [checkInType, activeRide]);
+
+  // Sync local selectedStage from RideSession context selection (stageNumber)
+  useEffect(() => {
+    if (!activeRide) return;
+    if (selectedStageNumber == null) return;
+    const stage = activeRide.stages.find((s) => s.stageNumber === selectedStageNumber);
+    if (stage) setSelectedStage(stage);
+  }, [selectedStageNumber, activeRide]);
+
+  // Resolve rider name from local cache for confirmation UI
+  useEffect(() => {
+    let mounted = true;
+    if (!scannedRiderId) {
+      setScannedRiderName('');
+      return;
+    }
+
+    (async () => {
+      try {
+        const r = await getRiderById(scannedRiderId);
+        if (!mounted) return;
+        setScannedRiderName(r?.name ?? '');
+      } catch (err) {
+        logger.warn(TAG, 'Failed to resolve rider name', err);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [scannedRiderId]);
+
+  // If the component becomes focused and a managed pit-stop stage is provided, apply it to context.
+  useEffect(() => {
+    if (!isFocused || !isPitStopPrimaryRole || !managedPitStopStageNumber) return;
+    if (!allowedRegularStageNumbers.includes(managedPitStopStageNumber)) return;
+    if (selectedStageNumber == null) {
+      setContextSelectedStage(managedPitStopStageNumber);
+    }
+  }, [isFocused, isPitStopPrimaryRole, managedPitStopStageNumber, allowedRegularStageNumbers, selectedStageNumber, setContextSelectedStage]);
 
   // -----------------------------------------------------------------------
   // Check-in type selection
@@ -236,15 +281,15 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
 
   const getValidationMessage = useCallback((type: CheckInType, stage: Stage | null): string | null => {
     if (type === 'not_riding') {
-      if (ride.status !== RideStatus.OPEN) {
-        return `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
+      if (!activeRide || activeRide.status !== RideStatus.OPEN) {
+        return `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`;
       }
       return null;
     }
 
     if (type === 'quit_riding') {
-      if (ride.status !== RideStatus.STARTED) {
-        return `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${ride.status}.`;
+      if (!activeRide || activeRide.status !== RideStatus.STARTED) {
+        return `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
       }
       return null;
     }
@@ -262,16 +307,18 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       }
     }
 
-    if (stage.type === StageType.START && ride.status !== RideStatus.OPEN) {
-      return `Start stage check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
+    if (stage.type === StageType.START && (!activeRide || activeRide.status !== RideStatus.OPEN)) {
+      return `Start stage check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`;
     }
 
-    if (stage.type !== StageType.START && ride.status !== RideStatus.STARTED) {
-      return `This check-in type is allowed only when today's ride status is STARTED. Current status: ${ride.status}.`;
+    if (stage.type !== StageType.START && (!activeRide || activeRide.status !== RideStatus.STARTED)) {
+      return `This check-in type is allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
     }
 
     return null;
-  }, [ride.status, isPitStopPrimaryRole, allowedRegularStageNumbers]);
+  }, [activeRide, isPitStopPrimaryRole, allowedRegularStageNumbers]);
+  // include activeRide in dependencies to satisfy exhaustive-deps
+  // (we read activeRide object in validation checks)
 
   const blockWithValidationMessage = useCallback((message: string) => {
     setErrorMessage(message);
@@ -283,9 +330,9 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
   useEffect(() => {
     if (phase !== 'type_select') return;
     if (autoStartAppliedRef.current) return;
-    if (!hasSingleRegularPitStopStage) return;
+    if (!hasSingleRegularPitStopStage || !activeRide) return;
 
-    const stage = ride.stages.find(
+    const stage = activeRide.stages.find(
       (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
     );
     if (!stage) return;
@@ -294,17 +341,18 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
     if (validationError) return;
 
     setCheckInType('regular');
+    setContextSelectedStage(stage.stageNumber);
     setSelectedStage(stage);
     setPhase('scanning');
     setScanAttempts(0);
     setScannedRiderId('');
     processingRef.current = false;
     autoStartAppliedRef.current = true;
-  }, [phase, hasSingleRegularPitStopStage, ride.stages, allowedRegularStageNumbers, getValidationMessage]);
+  }, [phase, hasSingleRegularPitStopStage, activeRide, activeRide?.stages, allowedRegularStageNumbers, getValidationMessage, setContextSelectedStage]);
 
   const selectCheckInType = (type: CheckInType) => {
     if (type === 'not_riding') {
-      const validationError = getValidationMessage(type, ride.stages.find((s) => s.type === StageType.START) ?? null);
+      const validationError = getValidationMessage(type, activeRide ? activeRide.stages.find((s) => s.type === StageType.START) ?? null : null);
       if (validationError) {
         blockWithValidationMessage(validationError);
         return;
@@ -320,13 +368,11 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
     }
 
     setCheckInType(type);
+    // Single-screen flow: go to scanner and use shared stage context from header.
     if (type === 'quit_riding') {
-      // Quit Riding can happen between stages; no stage selection required.
       setSelectedStage(null);
-      setPhase('scanning');
-    } else {
-      setPhase('stage_select');
     }
+    setPhase('scanning');
   };
 
   const selectStageAndScan = (stage: Stage) => {
@@ -337,6 +383,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
     }
 
     setSelectedStage(stage);
+    setContextSelectedStage(stage.stageNumber);
     setPhase('scanning');
     setScanAttempts(0);
     setScannedRiderId('');
@@ -354,11 +401,17 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       if (!riderId) return;
 
       processingRef.current = true;
-      Vibration.vibrate(100);
+      // light feedback on scan
+      void playScanTick();
       setScannedRiderId(riderId);
       setPhase('confirming');
+
+      // Auto-commit when enabled in RideSession
+      if (autoCheckIn) {
+        void submitCheckIn();
+      }
     },
-    [],
+    [autoCheckIn, submitCheckIn],
   );
 
   const handleScanRetry = () => {
@@ -390,13 +443,13 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
   // Submit check-in
   // -----------------------------------------------------------------------
 
-  const submitCheckIn = async (overrideRequested: boolean = false) => {
-    if (!tour || !scannedRiderId) return;
+  const submitCheckIn = useCallback(async (overrideRequested: boolean = false) => {
+    if (!tour || !scannedRiderId || !activeRide) return;
 
     const effectiveStage =
       checkInType === 'not_riding'
-        ? (selectedStage ?? ride.stages.find((s) => s.type === StageType.START) ?? null)
-        : selectedStage;
+        ? (selectedStage ?? activeRide.stages.find((s) => s.type === StageType.START) ?? null)
+        : selectedStage ?? (selectedStageNumber != null ? activeRide.stages.find((s) => s.stageNumber === selectedStageNumber) ?? null : null);
 
     if (checkInType !== 'quit_riding' && !effectiveStage) {
       blockWithValidationMessage('Start stage is required for this check-in type.');
@@ -423,14 +476,14 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       const request: CheckInRequest = checkInType === 'quit_riding'
         ? {
             riderId: scannedRiderId,
-            rideId: ride.rideId,
+            rideId: activeRide.rideId,
             method,
             isNotRiding: false,
             isQuitRiding: true,
           }
         : {
             riderId: scannedRiderId,
-            rideId: ride.rideId,
+            rideId: activeRide.rideId,
             stageNumber: effectiveStage!.stageNumber,
             method,
             isNotRiding: checkInType === 'not_riding',
@@ -471,11 +524,13 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
           outcome.reason === 'quit_riding' || outcome.reason === 'not_riding' ? 'warning' : 'info',
         );
         setPhase('error');
+        void playFailure('warning');
         return;
       }
 
       // Notify dashboard immediately so UI updates without a full reload.
-      onCheckInComplete(outcome.checkIn);
+      if (onCheckInComplete) onCheckInComplete(outcome.checkIn);
+      else setCheckIns([outcome.checkIn, ...(checkIns ?? [])]);
       publishDashboardCheckInEvent({ checkIn: outcome.checkIn });
 
       const stageName = effectiveStage?.name ?? '—';
@@ -485,6 +540,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
         stageName;
       setResultMessage(`${scannedRiderId} — ${typeLabel} ✓`);
       setPhase('success');
+      void playSuccess();
       logger.info(TAG, `Check-in recorded: ${scannedRiderId} at ${stageName} (${checkInType})`);
     } catch (err) {
       logger.error(TAG, 'Check-in submission failed', err);
@@ -492,10 +548,26 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       setErrorMessage(message);
       setErrorPresentation('error');
       setPhase('error');
+      void playFailure('error');
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    tour,
+    scannedRiderId,
+    activeRide,
+    checkInType,
+    selectedStage,
+    selectedStageNumber,
+    phase,
+    scanAttempts,
+    manualRiderId,
+    onCheckInComplete,
+    checkIns,
+    setCheckIns,
+    blockWithValidationMessage,
+    getValidationMessage,
+  ]);
 
   // After a successful check-in, allow scanning the next rider
   const scanNextRider = () => {
@@ -515,8 +587,8 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
     setErrorPresentation('error');
     processingRef.current = false;
 
-    if (hasSingleRegularPitStopStage) {
-      const stage = ride.stages.find(
+    if (hasSingleRegularPitStopStage && activeRide) {
+      const stage = activeRide.stages.find(
         (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
       );
 
@@ -555,17 +627,17 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       )}
       {canCheckInNR && (
         <TouchableOpacity
-          style={[styles.typeButton, ride.status !== RideStatus.OPEN && styles.typeButtonDisabled]}
+          style={[styles.typeButton, (activeRide?.status ?? RideStatus.PLANNED) !== RideStatus.OPEN && styles.typeButtonDisabled]}
           onPress={() => selectCheckInType('not_riding')}
-          disabled={ride.status !== RideStatus.OPEN}
+          disabled={(activeRide?.status ?? RideStatus.PLANNED) !== RideStatus.OPEN}
         >
           <MaterialIcons name="do-not-disturb" size={24} color={COLORS.gray[500]} />
           <View style={styles.typeButtonText}>
             <Text style={styles.typeButtonTitle}>Not Riding</Text>
             <Text style={styles.typeButtonSubtitle}>
-              {ride.status === RideStatus.OPEN
+              {activeRide?.status === RideStatus.OPEN
                 ? 'Mark rider as not participating today'
-                : `Available only when ride is OPEN (current: ${ride.status})`}
+                : `Available only when ride is OPEN (current: ${activeRide?.status ?? 'unknown'})`}
             </Text>
           </View>
           <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
@@ -573,17 +645,17 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       )}
       {canCheckInQR && (
         <TouchableOpacity
-          style={[styles.typeButton, ride.status !== RideStatus.STARTED && styles.typeButtonDisabled]}
+          style={[styles.typeButton, (activeRide?.status ?? RideStatus.PLANNED) !== RideStatus.STARTED && styles.typeButtonDisabled]}
           onPress={() => selectCheckInType('quit_riding')}
-          disabled={ride.status !== RideStatus.STARTED}
+          disabled={(activeRide?.status ?? RideStatus.PLANNED) !== RideStatus.STARTED}
         >
           <MaterialIcons name="cancel" size={24} color="#B91C1C" />
           <View style={styles.typeButtonText}>
             <Text style={styles.typeButtonTitle}>Quit Riding</Text>
             <Text style={styles.typeButtonSubtitle}>
-              {ride.status === RideStatus.STARTED
+              {activeRide?.status === RideStatus.STARTED
                 ? 'Rider leaving mid-ride'
-                : `Available only when ride is STARTED (current: ${ride.status})`}
+                : `Available only when ride is STARTED (current: ${activeRide?.status ?? 'unknown'})`}
             </Text>
           </View>
           <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
@@ -594,7 +666,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
 
   const renderStageSelection = () => (
     <View style={styles.section}>
-      {checkInType === 'regular' && ride.status === RideStatus.PLANNED && (
+      {checkInType === 'regular' && (activeRide?.status ?? RideStatus.PLANNED) === RideStatus.PLANNED && (
         <View style={styles.infoBanner}>
           <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
           <Text style={styles.infoBannerText}>
@@ -602,7 +674,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
           </Text>
         </View>
       )}
-      {checkInType === 'regular' && ride.status === RideStatus.OPEN && (
+      {checkInType === 'regular' && (activeRide?.status ?? RideStatus.PLANNED) === RideStatus.OPEN && (
         <View style={styles.infoBanner}>
           <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
           <Text style={styles.infoBannerText}>
@@ -611,11 +683,11 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
         </View>
       )}
       <StageSelector
-        stages={ride.stages}
+        stages={activeRide?.stages ?? []}
         selectedStage={selectedStage}
         onSelect={selectStageAndScan}
         checkInType={checkInType}
-        rideStatus={ride.status}
+        rideStatus={activeRide?.status ?? RideStatus.PLANNED}
         allowedRegularStageNumbers={isPitStopPrimaryRole ? allowedRegularStageNumbers : undefined}
       />
       {checkInType === 'regular' && isPitStopPrimaryRole && allowedRegularStageNumbers.length === 0 && (
@@ -668,7 +740,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
         <View style={styles.scannerOverlay}>
           <View style={styles.scannerFrame} />
         </View>
-        <View style={styles.scannerFooter}>
+        <View style={[styles.scannerFooter, { paddingBottom: bottomInsetPadding }]}>
           <Text style={styles.scanHint}>
             Scan rider QR code{scanAttempts > 0 ? ` (attempt ${scanAttempts + 1}/${MAX_SCAN_RETRIES})` : ''}
           </Text>
@@ -677,6 +749,10 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
               <Text style={styles.manualEntryLinkText}>Enter Rider ID manually</Text>
             </TouchableOpacity>
           )}
+          <View style={styles.autoCheckRow}>
+            <Text style={styles.scanHint}>Auto check-in</Text>
+            <Switch value={autoCheckIn} onValueChange={(v) => toggleAutoCheckIn(v)} />
+          </View>
         </View>
       </View>
     );
@@ -696,7 +772,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
           </Text>
         </View>
       )}
-      <View style={styles.manualInputRow}>
+      <View style={[styles.manualInputRow, { paddingBottom: bottomInsetPadding }]}>
         <TextInput
           style={styles.manualInput}
           value={manualRiderId}
@@ -725,6 +801,8 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       checkInType === 'quit_riding' ? 'Quit Riding' :
       'Check-In';
 
+    const stageName = selectedStage?.name ?? (activeRide ? activeRide.stages.find((s) => s.stageNumber === selectedStageNumber)?.name : undefined) ?? '—';
+
     return (
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Confirm {typeLabel}</Text>
@@ -733,10 +811,16 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
             <Text style={styles.confirmLabel}>Rider ID</Text>
             <Text style={styles.confirmValue}>{scannedRiderId}</Text>
           </View>
+          {scannedRiderName ? (
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Name</Text>
+              <Text style={styles.confirmValue}>{scannedRiderName}</Text>
+            </View>
+          ) : null}
           {checkInType !== 'quit_riding' && (
             <View style={styles.confirmRow}>
               <Text style={styles.confirmLabel}>Stage</Text>
-              <Text style={styles.confirmValue}>{selectedStage?.name ?? '—'}</Text>
+              <Text style={styles.confirmValue}>{stageName}</Text>
             </View>
           )}
           <View style={styles.confirmRow}>
@@ -744,9 +828,9 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
             <Text style={styles.confirmValue}>{typeLabel}</Text>
           </View>
         </View>
-        <View style={styles.confirmButtons}>
+        <View style={[styles.confirmButtons, { paddingBottom: bottomInsetPadding }]}>
           <TouchableOpacity
-            style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
+            style={[styles.primaryButton, isSubmitting && styles.disabledButton, { flex: 1, marginRight: 8 }]}
             onPress={() => {
               void submitCheckIn();
             }}
@@ -758,7 +842,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
               <Text style={styles.primaryButtonText}>Confirm</Text>
             )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleScanRetry} disabled={isSubmitting}>
+          <TouchableOpacity style={[styles.secondaryButton, { width: 120 }]} onPress={handleScanRetry} disabled={isSubmitting}>
             <Text style={styles.secondaryButtonText}>Re-scan</Text>
           </TouchableOpacity>
         </View>
@@ -773,7 +857,7 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       <TouchableOpacity style={styles.primaryButton} onPress={scanNextRider}>
         <Text style={styles.primaryButtonText}>Scan Next Rider</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
+      <TouchableOpacity style={styles.secondaryButton} onPress={() => onClose && onClose()}>
         <Text style={styles.secondaryButtonText}>Done</Text>
       </TouchableOpacity>
     </View>
@@ -836,6 +920,25 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
           : 'Check-In Failed',
   };
 
+  // If there's no active ride in context or props, show a placeholder.
+  if (!activeRide) {
+    return (
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
+          <View style={styles.headerButton} />
+          <Text style={styles.headerTitle}>Check-In</Text>
+          <View style={styles.headerButton} />
+        </View>
+        <View style={styles.contextBar}>
+          <Text style={styles.contextText}>No ride selected</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+          <Text style={{ color: COLORS.textSecondary, textAlign: 'center' }}>Select a ride from the Dashboard to enable Check-In.</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -849,18 +952,21 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
           <View style={styles.headerButton} />
         )}
         <Text style={styles.headerTitle}>{phaseTitle[phase]}</Text>
-        <TouchableOpacity onPress={onClose} style={styles.headerButton}>
+        <TouchableOpacity onPress={() => onClose && onClose()} style={styles.headerButton}>
           <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
       </View>
 
       {/* Ride context bar */}
       <View style={styles.contextBar}>
-        <Text style={styles.contextText}>{ride.name} — {ride.date} — Status: {ride.status}</Text>
+        <Text style={styles.contextText}>{activeRide?.name ?? '—'} — {activeRide?.date ?? '—'} — Status: {activeRide?.status ?? '—'}</Text>
       </View>
 
       {/* Content */}
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInsetPadding }]}
+        keyboardShouldPersistTaps="handled"
+      >
         {phase === 'type_select' && renderTypeSelection()}
         {phase === 'stage_select' && renderStageSelection()}
         {phase === 'scanning' && renderScanner()}
@@ -1075,7 +1181,17 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
   confirmButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 12,
+  },
+
+  autoCheckRow: {
+    marginTop: 8,
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
 
   // Result

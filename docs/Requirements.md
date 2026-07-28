@@ -355,9 +355,16 @@ Data model and fields to be determined as part of design and development stage.
 # Backend
 Data model and APIs for data access is provided by solution developed by the repo - [Backend](https://github.com/kvijay77-in/tour-data-api). Read through it's requirements and how it is implemented. Follow guidelines and recommendations in this repo for any data access implementation. Ensure data privacy and security is not compromised for any reason. 
 
+**API Gap / Change Request:**
+
+- The CheckIn `checkedInBy` field is currently a Cognito username which non-admin clients cannot map to a human-friendly display name. Recommend the backend include an optional `checkedInByName` string on CheckIn payloads returned by `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress` and check-in creation responses when available.
+- Alternative: expose a minimal read-only mapping endpoint `GET /v1/tours/{tourId}/users?fields=cognitoUserName,displayName` restricted to check-in roles. Clients should fallback to `"Not Available"` when the field is absent.
+
 # Others
 Mobile device permission is only required for Camera to scan QR Code. 
 Check if local database requires storage permission??
+
+UI layout must account for safe areas and system bars on all supported platforms. On Android edge-to-edge devices, top headers must not overlap the status bar and bottom-anchored controls (footer actions, tab bars, and primary action rows) must remain fully visible above the navigation bar.
 
 ---
 

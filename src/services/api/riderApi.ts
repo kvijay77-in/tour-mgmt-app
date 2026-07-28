@@ -23,14 +23,14 @@ function normalizeRiderListResponse(
     return [];
   }
 
-  const payloadAny = payload as any;
+  const payloadObj = payload as Record<string, unknown>;
 
-  const maybeItems = payloadAny.items;
+  const maybeItems = payloadObj['items'];
   if (Array.isArray(maybeItems)) {
     return maybeItems as Rider[];
   }
 
-  const maybeRiders = payloadAny.riders;
+  const maybeRiders = payloadObj['riders'];
   if (Array.isArray(maybeRiders)) {
     return maybeRiders as Rider[];
   }

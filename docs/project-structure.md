@@ -22,6 +22,7 @@ tour-mgmt-app/
 │   ├── project-structure.md
 │   ├── release-guide.md
 │   └── Images/
+│   ├── dashboard-backend-api-change-request.md
 │
 ├── src/
 │   ├── screens/                    # Screen components

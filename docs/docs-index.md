@@ -18,6 +18,7 @@ This page provides a guide to all project documentation.
 | [Dashboard Call Trigger Baseline](dashboard-call-trigger-baseline.md) | Baseline trigger-to-call matrix used for API efficiency refactor verification |
 | [Dashboard Call Audit Checklist](dashboard-call-audit-checklist.md) | Duplicate-call classification checklist (true duplicate vs retry behavior) |
 | [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md) | Feasibility analysis for distributing a single generic app across multiple organizer AWS subscriptions |
+| [Dashboard Backend API Change Request](dashboard-backend-api-change-request.md) | Change request to include `checkedInByName` or a minimal user mapping endpoint |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 | [Migration Cleanup](migration-cleanup.md) | Obsolete/superseded code from the SPA→multi-screen navigation migration, pending user sign-off before removal |
 

@@ -126,6 +126,14 @@ Located in the header, displays cumulative counts:
 - State management: React hooks (useState, useRef)
 - Check-in offline queue/sync remains SQLite-backed; Dashboard Phase 3 display path uses API split-load strategy described in [Data Integration Design](DataIntegrationDesign.md)
 
+### Backend Change Request: `checkedInByName`
+
+- Problem: dashboard check-in entries currently expose only `checkedInBy` (Cognito username). Non-admin clients cannot resolve this to a display name.
+- Preferred fix: include optional `checkedInByName` in each CheckIn object returned by `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress`.
+- Client fallback: display `"Not Available"` when `checkedInByName` is absent.
+
+See [docs/dashboard-backend-api-change-request.md](dashboard-backend-api-change-request.md) for details and alternatives.
+
 ---
 
 ## Related Documentation

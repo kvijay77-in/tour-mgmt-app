@@ -63,6 +63,8 @@ This is an evolving document and hence latest info must be referred to at all ti
 
 8. **Modular and reusable** — Components should be small, focused, and reusable. Business logic should be isolated in the services layer, not embedded in UI components.
 
+9. **Safe-area first layout for edge-to-edge Android** — Android edge-to-edge is enforced on modern SDK levels, so all top-anchored headers must respect top safe area insets and all bottom-anchored UI (tab bars, footers, fixed action rows) must apply bottom safe area padding. Avoid hardcoded status-bar spacing values such as fixed `paddingTop` for screen headers.
+
 ---
 
 ## Technology Stack
@@ -349,6 +351,13 @@ Implemented Dashboard Phase 4 behavior:
 3. Fetch orchestrator has in-flight guards to avoid concurrent duplicate bootstrap/progress requests.
 4. Initial dashboard load removes redundant ride-resolution overlap by using ride-list response as the today-ride decision source.
 
+### Backend Change Request: `checkedInByName`
+
+- Problem: the Dashboard `checkIns` payload currently provides `checkedInBy` as a Cognito username which non-admin clients cannot map to a display name.
+- Preferred fix: server should include an optional `checkedInByName` string on CheckIn payloads returned by `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress` and on check-in creation responses where available. Clients will fallback to `"Not Available"` when the field is absent.
+- Alternative: expose a minimal read-only endpoint `GET /v1/tours/{tourId}/users?fields=cognitoUserName,displayName` restricted to check-in roles.
+
+See [docs/dashboard-backend-api-change-request.md](dashboard-backend-api-change-request.md) for a formal request and implementation guidance.
 ---
 
 ## Offline Architecture

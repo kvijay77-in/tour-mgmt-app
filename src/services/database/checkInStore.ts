@@ -172,6 +172,7 @@ function mapRowToCheckIn(row: Record<string, unknown>): CheckIn {
     stageId: row.stageId as string,
     timestamp: row.timestamp as string,
     checkedInBy: row.checkedInBy as string,
+    checkedInByName: row.checkedInByName as string | undefined,
     method: row.method as CheckInMethod,
     isNotRiding: (row.isNotRiding as number) === 1,
     isQuitRiding: (row.isQuitRiding as number) === 1,

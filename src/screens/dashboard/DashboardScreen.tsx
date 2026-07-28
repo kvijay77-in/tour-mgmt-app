@@ -10,14 +10,13 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
-  Animated,
-  PanResponder,
   Modal,
   ActivityIndicator,
   Alert,
   useWindowDimensions,
 } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -35,7 +34,6 @@ import {
   CheckIn,
   RiderStatus,
   CheckInStatus,
-  Permission,
   UserRole,
   StageType,
   Stage,
@@ -44,15 +42,17 @@ import {
   isCancelledCheckIn,
 } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
-import { SortIcon } from '../../components/common/SortIcon';
+// SortIcon not used in this file (kept in StageFilterBar)
 import { AppMenu } from '../../components/common/AppMenu';
-import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
+import StageFilterBar from '../../components/dashboard/StageFilterBar';
+import { getPitStopStageNumbersFromRoles, isPitStopUserRole } from '../../utils/permissions';
 import { AppStackParamList } from '../../types/navigation';
 import {
   clearPitStopContextStageNumber,
   loadPitStopContextStageNumber,
   savePitStopContextStageNumber,
 } from '../../services/config/pitStopContextService';
+import { useRideSession } from '../../context/RideSessionContext';
 
 const { width: WINDOW_WIDTH } = Dimensions.get('window');
 const ENABLE_OFFLINE_RIDER_PROFILE_CACHE = false;
@@ -195,6 +195,7 @@ function getCheckInDedupKey(checkIn: CheckIn): string {
 export default function DashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
   const {
     user,
@@ -208,7 +209,15 @@ export default function DashboardScreen() {
   const [allRiderStatuses, setAllRiderStatuses] = useState<RiderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stageViewId, setStageViewId] = useState<string | undefined>(undefined);
+  // Shared session state (ride, selection, checkIns)
+  const {
+    selectedStageNumber,
+    selectedSpecial,
+    setCurrentRide,
+    setSelectedStage,
+    setSelectedSpecial,
+    setCheckIns,
+  } = useRideSession();
   const [isSorted, setIsSorted] = useState<boolean>(false);
   const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
   const [selectedRiderStatus, setSelectedRiderStatus] = useState<RiderStatus | null>(null);
@@ -229,8 +238,7 @@ export default function DashboardScreen() {
   const lastServerPullAtRef = useRef(0);
   const shouldSkipNextFocusRefreshRef = useRef(false);
 
-  // RBAC: can this user perform check-ins?
-  const canCheckIn = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
+  // RBAC: can this user perform check-ins? (used in CheckInScreen)
   const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
   const isSuperUser = user?.userRole === UserRole.SUPER_USER;
   const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
@@ -416,7 +424,14 @@ export default function DashboardScreen() {
     setRide(targetRide);
     setAllRiderStatuses(buildRiderStatuses(targetRide, roster, checkIns));
     lastServerPullAtRef.current = Date.now();
-  }, []);
+    try {
+      setCurrentRide(targetRide, isHistorical);
+      setCheckIns(Array.isArray(checkIns) ? checkIns : []);
+    } catch (err) {
+      // Context may not be available in some test scenarios; fail silently
+      logger.info('Dashboard', 'RideSessionContext update skipped', err);
+    }
+  }, [setCurrentRide, setCheckIns, isHistorical]);
 
   // Load a specific ride's dashboard progress using preloaded rider roster.
   const loadRideDashboard = useCallback(async (
@@ -654,7 +669,18 @@ export default function DashboardScreen() {
 
       return buildRiderStatuses(ride, roster, mergedCheckIns);
     });
-  }, [ride, riders]);
+
+    try {
+      setCheckIns((prev) => {
+        const map = new Map(prev.map((ci) => [getCheckInDedupKey(ci), ci]));
+        const incomingKey = getCheckInDedupKey(checkIn);
+        if (!map.has(incomingKey)) map.set(incomingKey, checkIn);
+        return Array.from(map.values()).filter((ci) => ci.rideId === ride.rideId);
+      });
+    } catch (err) {
+      logger.info('Dashboard', 'setCheckIns skipped', err);
+    }
+  }, [ride, riders, setCheckIns]);
 
   useEffect(() => {
     const unsubscribe = subscribeDashboardCheckInEvent(({ checkIn }) => {
@@ -696,48 +722,11 @@ export default function DashboardScreen() {
       pinchScale.current = 1;
     });
 
-  // FAB draggable position
-  const pan = useRef(new Animated.ValueXY({ x: width - 76, y: width - 76 })).current;
-  const [isDragging, setIsDragging] = useState(false);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      // Let taps pass through to the FAB button; only capture real drag gestures.
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gesture) => {
-        return Math.abs(gesture.dx) > 4 || Math.abs(gesture.dy) > 4;
-      },
-      onPanResponderGrant: () => {
-        pan.setOffset({
-          // @ts-ignore - accessing private _value property
-          x: pan.x._value,
-          // @ts-ignore - accessing private _value property
-          y: pan.y._value,
-        });
-        pan.setValue({ x: 0, y: 0 });
-      },
-      onPanResponderMove: (_, gesture) => {
-        setIsDragging(true);
-        Animated.event([null, { dx: pan.x, dy: pan.y }], {
-          useNativeDriver: false,
-        })(_, gesture);
-      },
-      onPanResponderRelease: () => {
-        pan.flattenOffset();
-        setTimeout(() => setIsDragging(false), 100);
-      },
-    })
-  ).current;
-
-  // Toggle stage view - clicking again deactivates
-  const toggleStageView = (stageId: string) => {
-    setStageViewId(stageViewId === stageId ? undefined : stageId);
-  };
-
+  // Compute selected stage object from session-selected stage number
   const selectedStage = useMemo(() => {
-    if (!stageViewId || !ride) return undefined;
-    return ride.stages.find((s) => s.stageId === stageViewId);
-  }, [stageViewId, ride]);
+    if (selectedStageNumber === null || !ride) return undefined;
+    return ride.stages.find((s) => s.stageNumber === selectedStageNumber);
+  }, [selectedStageNumber, ride]);
 
   const hasRegularCheckInAtStage = useCallback((riderStatus: RiderStatus, stageNumber: number): boolean => {
     const targetStage = ride?.stages.find((stage) => stage.stageNumber === stageNumber);
@@ -1126,20 +1115,7 @@ export default function DashboardScreen() {
     ];
   };
 
-  const getStageButtonStyle = (stage: { stageId: string; stageNumber: number }) => {
-    const isActive = stageViewId === stage.stageId;
-    const bgColor = getStageColor(stage.stageNumber, ride?.stages.length ?? 0);
-    
-    return [
-      styles.stageBtn,
-      { 
-        backgroundColor: bgColor,
-        opacity: isActive ? 1 : 0.6,
-        borderWidth: isActive ? 2 : 0,
-        borderColor: COLORS.white,
-      }
-    ];
-  };
+  // stage button styling is handled by StageFilterBar component
 
   const getGridColumns = useCallback((currentZoomLevel: 1 | 2 | 3 | 4) => {
     const isTablet = width >= 768;
@@ -1212,7 +1188,7 @@ export default function DashboardScreen() {
   return (
     <View style={styles.container}>
       {/* Compact Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <View style={styles.headerRow}>
           <View style={styles.headerTitleRow}>
             <TouchableOpacity
@@ -1232,27 +1208,30 @@ export default function DashboardScreen() {
             )}
           </View>
           <View style={styles.headerActions}>
+            {isHistorical && (
+              <TouchableOpacity
+                onPress={() => { void fetchDashboard({ allowHistoricalFallback: false }); }}
+                style={styles.menuButton}
+              >
+                <MaterialIcons name="today" size={22} color={COLORS.white} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => setShowHeaderMenu(true)} style={styles.menuButton}>
               <MaterialIcons name="menu" size={22} color={COLORS.white} />
             </TouchableOpacity>
           </View>
         </View>
-        <View style={styles.statsRow}>
-          {ride.stages.map((stage) => (
-            <View key={stage.stageId} style={styles.statChip}>
-              <Text style={styles.statChipValue}>{stageCounts[stage.stageId] || 0}</Text>
-              <Text style={styles.statChipLabel}>{getStageLabel(stage.stageNumber, ride.stages.length)}</Text>
-            </View>
-          ))}
-          <View style={styles.statChip}>
-            <Text style={styles.statChipValue}>{stageCounts['NR']}</Text>
-            <Text style={styles.statChipLabel}>NR</Text>
-          </View>
-          <View style={styles.statChip}>
-            <Text style={styles.statChipValue}>{stageCounts['QR']}</Text>
-            <Text style={styles.statChipLabel}>QR</Text>
-          </View>
-        </View>
+        <StageFilterBar
+          stages={ride.stages}
+          stageCounts={stageCounts}
+          totalStages={ride.stages.length}
+          selectedStageNumber={selectedStageNumber}
+          selectedSpecial={selectedSpecial}
+          isSorted={isSorted}
+          onToggleSort={toggleSort}
+          onSelectStage={(n) => { setSelectedStage(n); if (n !== null) setSelectedSpecial(null); }}
+          onSelectSpecial={(s) => { setSelectedSpecial(s); if (s !== null) setSelectedStage(null); }}
+        />
       </View>
 
       {/* Rider Grid - Maximum space with Pinch Zoom */}
@@ -1663,87 +1642,7 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Footer with Sort and Stage View Toggles */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.sortButton, isSorted && styles.sortButtonActive]}
-          onPress={toggleSort}
-        >
-          <SortIcon 
-            size={24} 
-            color={isSorted ? COLORS.primary : COLORS.gray[500]} 
-          />
-        </TouchableOpacity>
-        
-        <ScrollView 
-          horizontal 
-          style={styles.stageScroll}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.stageContent}
-        >
-          {ride.stages.map((stage) => (
-            <TouchableOpacity
-              key={stage.stageId}
-              style={getStageButtonStyle(stage)}
-              onPress={() => toggleStageView(stage.stageId)}
-            >
-              <Text style={styles.stageBtnText}>
-                {getStageLabel(stage.stageNumber, ride.stages.length)}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Floating Action Button for QR Scanner - Draggable (hidden for historical rides and non-checkin roles) */}
-      {!isHistorical && canCheckIn && ride && (
-        <Animated.View
-          style={[
-            styles.fab,
-            {
-              transform: [{ translateX: pan.x }, { translateY: pan.y }],
-            },
-          ]}
-          {...panResponder.panHandlers}
-        >
-          <TouchableOpacity
-            style={styles.fabButton}
-            disabled={isDragging}
-            onPress={() => {
-              if (!isDragging) {
-                shouldSkipNextFocusRefreshRef.current = true;
-                navigation.navigate('CheckIn', {
-                  ride,
-                  managedPitStopStageNumber: managedPitStopStageNumber ?? undefined,
-                });
-              }
-            }}
-          >
-            <MaterialIcons name="qr-code-scanner" size={28} color={COLORS.white} />
-          </TouchableOpacity>
-        </Animated.View>
-      )}
-
-      {isHistorical && (
-        <Animated.View
-          style={[
-            styles.fab,
-            {
-              right: 16,
-              bottom: 76,
-            },
-          ]}
-        >
-          <TouchableOpacity
-            style={styles.fabButton}
-            onPress={() => {
-              void fetchDashboard({ allowHistoricalFallback: false });
-            }}
-          >
-            <MaterialIcons name="today" size={28} color={COLORS.white} />
-          </TouchableOpacity>
-        </Animated.View>
-      )}
+      {/* Footer and FAB removed — replaced by StageFilterBar in header */}
 
       {/* Pit Stop Context Picker */}
       <Modal
@@ -1828,7 +1727,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: COLORS.primary,
-    paddingTop: 50,
     paddingBottom: 12,
     paddingHorizontal: 16,
   },
@@ -2282,11 +2180,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 8,
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    height: 60,
+    minHeight: 60,
     gap: 12,
   },
   sortButton: {

@@ -379,6 +379,9 @@ export interface CheckIn {
   /** User who performed the check-in */
   checkedInBy: string;
   
+  /** Optional display name of the user who performed the check-in (backend may provide) */
+  checkedInByName?: string;
+  
   /** Check-in method */
   method: CheckInMethod;
 
