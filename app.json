@@ -6,17 +6,10 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "scheme": "checkin-app",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "associatedDomains": [
-        "applinks:setup.checkin-app.example.com",
         "applinks:setup.checkin-app.example.com"
       ],
       "bundleIdentifier": "com.kvijay77.tourmgmt",
@@ -31,7 +24,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "intentFilters": [
         {
@@ -59,13 +51,24 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+            [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
       [
         "expo-camera",
         {
           "cameraPermission": "Camera access is required to scan the organisation setup QR code."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {
