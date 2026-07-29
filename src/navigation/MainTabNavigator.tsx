@@ -10,7 +10,7 @@ import { useRideSession } from '../context/RideSessionContext';
 
 const Tab = createMaterialTopTabNavigator<MainTabParamList>();
 
-function CustomTabBar(props: MaterialTopTabBarProps<MainTabParamList>) {
+function CustomTabBar(props: MaterialTopTabBarProps) {
   const { state, navigation } = props;
   const insets = useSafeAreaInsets();
   const { isHistorical } = useRideSession();
@@ -22,7 +22,7 @@ function CustomTabBar(props: MaterialTopTabBarProps<MainTabParamList>) {
         const focused = state.index === index;
         const onPress = () => {
           if (route.name === 'CheckIn' && isHistorical) return;
-          const event = navigation.emit({ type: 'tabPress', target: route.key });
+          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
           if (!focused && !event.defaultPrevented) {
             navigation.navigate(route.name);
           }
@@ -45,7 +45,14 @@ function CustomTabBar(props: MaterialTopTabBarProps<MainTabParamList>) {
 
 export default function MainTabNavigator() {
   return (
-    <Tab.Navigator tabBarPosition="bottom" tabBar={(props) => <CustomTabBar {...props} />} screenOptions={{ swipeEnabled: true }}>
+    <Tab.Navigator
+      tabBarPosition="bottom"
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={{
+        swipeEnabled: true,
+        lazy: false,
+      }}
+    >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="CheckIn" component={CheckInScreen} />
       <Tab.Screen name="Log" component={CheckInLogScreen} />

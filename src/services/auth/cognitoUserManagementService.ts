@@ -364,14 +364,26 @@ export async function listCognitoUsersWithRoles(): Promise<CognitoManagedUser[]>
     | undefined
   >(response);
 
-  const rawUsers = Array.isArray(payload)
-    ? payload
-    : payload?.users ??
-      payload?.Users ??
-      payload?.items ??
-      payload?.data?.users ??
-      payload?.data?.Users ??
-      [];
+  function extractManagedUserArray(value: unknown): ManagedUserApiModel[] {
+    if (Array.isArray(value)) return value as ManagedUserApiModel[];
+    if (!isObjectRecord(value)) return [];
+
+    const asUsers = value as UsersResponse & Record<string, unknown>;
+    if (Array.isArray(asUsers.users)) return asUsers.users as ManagedUserApiModel[];
+    if (Array.isArray((asUsers as any).Users)) return (asUsers as any).Users as ManagedUserApiModel[];
+    if (Array.isArray((asUsers as any).items)) return (asUsers as any).items as ManagedUserApiModel[];
+
+    const nested = (asUsers as any).data;
+    if (isObjectRecord(nested)) {
+      if (Array.isArray(nested.users)) return nested.users as ManagedUserApiModel[];
+      if (Array.isArray(nested.Users)) return nested.Users as ManagedUserApiModel[];
+      if (Array.isArray(nested.items)) return nested.items as ManagedUserApiModel[];
+    }
+
+    return [];
+  }
+
+  const rawUsers = extractManagedUserArray(payload);
 
   if (!Array.isArray(rawUsers) || rawUsers.length === 0) {
     logger.warn(TAG, 'User list payload parsed as empty', {

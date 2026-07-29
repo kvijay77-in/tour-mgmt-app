@@ -46,7 +46,7 @@ export default function StageFilterBar({
           style={[styles.sortButton, isSorted && styles.sortButtonActive]}
           onPress={onToggleSort}
         >
-          <SortIcon size={20} color={isSorted ? COLORS.primary : COLORS.gray[500]} />
+          <SortIcon size={18} color={isSorted ? COLORS.white : COLORS.gray[500]} />
         </TouchableOpacity>
 
         {stages.map((stage) => {
@@ -86,33 +86,33 @@ export default function StageFilterBar({
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 6,
     backgroundColor: COLORS.primary,
   },
   content: {
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: 6,
+    paddingVertical: 6,
   },
   sortButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.gray[100],
-    marginRight: 8,
+    marginRight: 6,
   },
   sortButtonActive: {
-    backgroundColor: COLORS.primary + '15',
+    backgroundColor: COLORS.primary + '22',
   },
   stageBtn: {
-    minWidth: 56,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    marginRight: 8,
+    minWidth: 48,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginRight: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, Switch } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Switch, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import StageFilterBar from '../../components/dashboard/StageFilterBar';
 import { useRideSession } from '../../context/RideSessionContext';
@@ -7,12 +10,15 @@ import { getCheckInsByRide } from '../../services/database/checkInStore';
 import { subscribeDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { getRiderById } from '../../services/database/riderStore';
 import { CheckIn, CheckInMethod, isCancelledCheckIn } from '../../types/models';
+import { AppStackParamList } from '../../types/navigation';
 import { COLORS } from '../../constants/colors';
 
 export default function CheckInLogScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const {
     currentRide,
+    isHistorical,
     checkIns: contextCheckIns,
     selectedStageNumber,
     selectedSpecial,
@@ -162,47 +168,114 @@ export default function CheckInLogScreen() {
 
   if (!currentRide) {
     return (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>Select a ride from the Dashboard to view the Check-In log.</Text>
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+          <View style={styles.headerRow}>
+            <Text style={styles.rideTitle}>No active ride</Text>
+          </View>
+        </View>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>Select a ride from the Dashboard to view the Check-In log.</Text>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: Math.max(insets.top, 12) }]}> 
-      <StageFilterBar
-        stages={currentRide.stages}
-        stageCounts={stageCounts}
-        totalStages={currentRide.stages.length}
-        selectedStageNumber={selectedStageNumber}
-        selectedSpecial={selectedSpecial}
-        isSorted={false}
-        onToggleSort={() => {}}
-        onSelectStage={(n) => setSelectedStage(n)}
-        onSelectSpecial={(s) => setSelectedSpecial(s)}
-      />
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.rideTitleButton}
+            onPress={() => navigation.navigate('RideInfo', { ride: currentRide, source: 'dashboard' })}
+            accessibilityRole="button"
+            accessibilityLabel="Open ride details"
+            accessibilityHint="Shows details for the selected ride"
+          >
+            <Text style={styles.rideTitle}>{currentRide.name}</Text>
+            <MaterialIcons name="info-outline" size={18} color={COLORS.white} />
+          </TouchableOpacity>
 
-      <View style={styles.controlsRow}>
-        <View style={{ flex: 1 }} />
-        <View style={styles.nameToggle}>
-          <Text style={styles.nameToggleLabel}>Show name</Text>
-          <Switch value={showName} onValueChange={setShowName} />
+          {isHistorical && (
+            <View style={styles.historicalBadge}>
+              <Text style={styles.historicalBadgeText}>Historical</Text>
+            </View>
+          )}
         </View>
+
+        <StageFilterBar
+          stages={currentRide.stages}
+          stageCounts={stageCounts}
+          totalStages={currentRide.stages.length}
+          selectedStageNumber={selectedStageNumber}
+          selectedSpecial={selectedSpecial}
+          isSorted={false}
+          onToggleSort={() => {}}
+          onSelectStage={(n) => setSelectedStage(n)}
+          onSelectSpecial={(s) => setSelectedSpecial(s)}
+        />
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(i) => i.checkInId}
-        renderItem={renderItem}
-        contentContainerStyle={{ padding: 12 }}
-        ItemSeparatorComponent={() => <View style={styles.sep} />}
-      />
+      <View style={styles.contentArea}>
+        <View style={styles.controlsRow}>
+          <View style={{ flex: 1 }} />
+          <View style={styles.nameToggle}>
+            <Text style={styles.nameToggleLabel}>Show name</Text>
+            <Switch value={showName} onValueChange={setShowName} />
+          </View>
+        </View>
+
+        <FlatList
+          data={filtered}
+          keyExtractor={(i) => i.checkInId}
+          renderItem={renderItem}
+          contentContainerStyle={{ padding: 12, paddingBottom: Math.max(insets.bottom, 12) }}
+          ItemSeparatorComponent={() => <View style={styles.sep} />}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  header: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  rideTitleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
+  rideTitle: {
+    color: COLORS.white,
+    fontSize: 20,
+    fontWeight: 'bold',
+    flexShrink: 1,
+  },
+  historicalBadge: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  historicalBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+  contentArea: {
+    flex: 1,
+  },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
   emptyText: { color: COLORS.textSecondary, textAlign: 'center' },
   controlsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },

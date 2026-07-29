@@ -47,11 +47,6 @@
         "android.permission.RECORD_AUDIO"
       ]
     },
-    "androidNavigationBar": {
-      "visible": "visible",
-      "barStyle": "dark-content",
-      "backgroundColor": "#00000000"
-    },
     "web": {
       "favicon": "./assets/favicon.png"
     },
@@ -74,7 +69,8 @@
       "expo-secure-store",
       "expo-sqlite",
       "expo-status-bar",
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "extra": {
       "eas": {

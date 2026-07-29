@@ -13,7 +13,7 @@ interface RideSessionState {
   setCurrentRide: (ride: Ride | null, historical?: boolean) => void;
   setSelectedStage: (n: number | null) => void;
   setSelectedSpecial: (s: SelectedSpecial) => void;
-  setCheckIns: (c: CheckIn[]) => void;
+  setCheckIns: React.Dispatch<React.SetStateAction<CheckIn[]>>;
   toggleAutoCheckIn: (val?: boolean) => void;
 }
 
@@ -36,7 +36,7 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     setCheckInsState([]);
   }
 
-  function setCheckIns(c: CheckIn[]) {
+  function setCheckIns(c: React.SetStateAction<CheckIn[]>) {
     setCheckInsState(c);
   }
 

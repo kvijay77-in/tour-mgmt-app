@@ -193,7 +193,7 @@ function getCheckInDedupKey(checkIn: CheckIn): string {
 }
 
 export default function DashboardScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { tour, isLoading: isTourLoading, error: tourError, refresh: refreshTour } = useTour();
@@ -611,12 +611,15 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     if (!isTourLoading && tour) {
-      fetchDashboard();
+      void fetchDashboard();
     } else if (!isTourLoading && !tour) {
       // Tour loading finished but no tour found — stop loading spinner
       setIsLoading(false);
     }
-  }, [isTourLoading, tour, fetchDashboard]);
+  // Avoid pinning the effect to `fetchDashboard` function identity which may
+  // change due to internal state updates (causing an infinite fetch loop).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTourLoading, tour]);
 
   // Focus refresh is targeted: skip known non-refresh returns and only pull
   // from server when the last successful sync is stale.
@@ -1727,19 +1730,19 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: COLORS.primary,
-    paddingBottom: 12,
-    paddingHorizontal: 16,
+    paddingBottom: 8,
+    paddingHorizontal: 12,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   headerTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     flex: 1,
   },
   rideTitleButton: {
@@ -1762,10 +1765,10 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   menuButton: {
-    padding: 4,
+    padding: 2,
   },
   rideTitle: {
     fontSize: 20,
@@ -1804,12 +1807,12 @@ const styles = StyleSheet.create({
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 12,
+    padding: 8,
   },
   riderIcon: {
     width: 1,
     height: 1,
-    margin: 3,
+    margin: 2,
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1873,13 +1876,13 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: COLORS.white,
     textAlign: 'center',
-    marginTop: 2,
+    marginTop: 1,
   },
   riderContactText: {
     fontSize: 8,
     color: COLORS.white,
     textAlign: 'center',
-    marginTop: 1,
+    marginTop: 0,
   },
   modalOverlay: {
     flex: 1,

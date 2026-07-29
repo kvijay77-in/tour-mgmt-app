@@ -5,8 +5,15 @@ async function playLocalSound(asset: number | string) {
     // Use dynamic import to avoid static compile-time failure if the package name differs.
     // `expo-audio` provides an Audio API similar to expo-av in SDK 57.
     // Fallback to no-op if audio can't be played.
-    const { Audio } = await import('expo-audio');
-    const sound = new Audio.Sound();
+    const mod = await import('expo-audio');
+    const AudioModule: any = (mod as any).Audio ?? (mod as any).default ?? mod;
+    const SoundCtor: any = AudioModule?.Sound ?? AudioModule;
+    if (!SoundCtor || typeof SoundCtor !== 'function') {
+      // Can't find a compatible Sound constructor — bail out gracefully.
+      return;
+    }
+
+    const sound = new SoundCtor.Sound ? new SoundCtor.Sound() : new SoundCtor();
     await sound.loadAsync(asset as unknown as number);
     await sound.playAsync();
     // do not unload immediately; let system manage caching

@@ -25,18 +25,21 @@ import {
   Switch,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
 import { useRideSession } from '../../context/RideSessionContext';
 import { HighlightedText } from '../../components/common/HighlightedText';
+import StageFilterBar from '../../components/dashboard/StageFilterBar';
 import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
 import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
 import { CheckIn, CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
+import { AppStackParamList } from '../../types/navigation';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
 import { getRiderById } from '../../services/database/riderStore';
@@ -181,9 +184,21 @@ type ErrorPresentation = 'error' | 'info' | 'warning';
 export default function CheckInScreen({ ride: propRide, managedPitStopStageNumber, onCheckInComplete, onClose }: CheckInScreenProps) {
   const { user } = useAuth();
   const { tour } = useTour();
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
-  const { currentRide, selectedStageNumber, setSelectedStage: setContextSelectedStage, autoCheckIn, toggleAutoCheckIn, setCheckIns, checkIns } = useRideSession();
+  const {
+    currentRide,
+    isHistorical,
+    selectedStageNumber,
+    selectedSpecial,
+    setSelectedStage: setContextSelectedStage,
+    setSelectedSpecial,
+    autoCheckIn,
+    toggleAutoCheckIn,
+    setCheckIns,
+    checkIns,
+  } = useRideSession();
   const isFocused = useIsFocused();
 
   const [phase, setPhase] = useState<Phase>('type_select');
@@ -228,6 +243,28 @@ export default function CheckInScreen({ ride: propRide, managedPitStopStageNumbe
   }, [isPitStopPrimaryRole, activeRide, pitStopRoleStageNumbers, managedPitStopStageNumber]);
 
   const hasSingleRegularPitStopStage = isPitStopPrimaryRole && allowedRegularStageNumbers.length === 1;
+
+  const stageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!activeRide) return counts;
+
+    for (const stage of activeRide.stages) {
+      counts[stage.stageId] = 0;
+    }
+
+    let nr = 0;
+    let qr = 0;
+    for (const ci of checkIns ?? []) {
+      if (ci.rideId !== activeRide.rideId) continue;
+      if (ci.isNotRiding) nr += 1;
+      else if (ci.isQuitRiding) qr += 1;
+      else if (ci.stageId && counts[ci.stageId] !== undefined) counts[ci.stageId] += 1;
+    }
+
+    counts.NR = nr;
+    counts.QR = qr;
+    return counts;
+  }, [activeRide, checkIns]);
 
   // Auto-select Start stage for NR
   useEffect(() => {
@@ -394,55 +431,7 @@ export default function CheckInScreen({ ride: propRide, managedPitStopStageNumbe
   // QR Scanning
   // -----------------------------------------------------------------------
 
-  const handleBarcodeScan = useCallback(
-    (result: BarcodeScanningResult) => {
-      if (processingRef.current) return;
-      const riderId = extractRiderIdFromQr(result.data);
-      if (!riderId) return;
-
-      processingRef.current = true;
-      // light feedback on scan
-      void playScanTick();
-      setScannedRiderId(riderId);
-      setPhase('confirming');
-
-      // Auto-commit when enabled in RideSession
-      if (autoCheckIn) {
-        void submitCheckIn();
-      }
-    },
-    [autoCheckIn, submitCheckIn],
-  );
-
-  const handleScanRetry = () => {
-    const newAttempts = scanAttempts + 1;
-    setScanAttempts(newAttempts);
-    processingRef.current = false;
-    setScannedRiderId('');
-
-    if (newAttempts >= MAX_SCAN_RETRIES) {
-      logger.info(TAG, `Max scan retries (${MAX_SCAN_RETRIES}) reached — showing manual entry`);
-      setPhase('manual_entry');
-    } else {
-      setPhase('scanning');
-    }
-  };
-
-  const switchToManualEntry = () => {
-    setPhase('manual_entry');
-  };
-
-  const confirmManualEntry = () => {
-    const trimmed = manualRiderId.trim();
-    if (!trimmed) return;
-    setScannedRiderId(trimmed);
-    setPhase('confirming');
-  };
-
-  // -----------------------------------------------------------------------
-  // Submit check-in
-  // -----------------------------------------------------------------------
-
+  // Submit check-in (declared before scanner handler to satisfy TDZ)
   const submitCheckIn = useCallback(async (overrideRequested: boolean = false) => {
     if (!tour || !scannedRiderId || !activeRide) return;
 
@@ -568,6 +557,53 @@ export default function CheckInScreen({ ride: propRide, managedPitStopStageNumbe
     blockWithValidationMessage,
     getValidationMessage,
   ]);
+
+  const handleBarcodeScan = useCallback(
+    (result: BarcodeScanningResult) => {
+      if (processingRef.current) return;
+      const riderId = extractRiderIdFromQr(result.data);
+      if (!riderId) return;
+
+      processingRef.current = true;
+      // light feedback on scan
+      void playScanTick();
+      setScannedRiderId(riderId);
+      setPhase('confirming');
+
+      // Auto-commit when enabled in RideSession
+      if (autoCheckIn) {
+        void submitCheckIn();
+      }
+    },
+    [autoCheckIn, submitCheckIn],
+  );
+
+  const handleScanRetry = () => {
+    const newAttempts = scanAttempts + 1;
+    setScanAttempts(newAttempts);
+    processingRef.current = false;
+    setScannedRiderId('');
+
+    if (newAttempts >= MAX_SCAN_RETRIES) {
+      logger.info(TAG, `Max scan retries (${MAX_SCAN_RETRIES}) reached — showing manual entry`);
+      setPhase('manual_entry');
+    } else {
+      setPhase('scanning');
+    }
+  };
+
+  const switchToManualEntry = () => {
+    setPhase('manual_entry');
+  };
+
+  const confirmManualEntry = () => {
+    const trimmed = manualRiderId.trim();
+    if (!trimmed) return;
+    setScannedRiderId(trimmed);
+    setPhase('confirming');
+  };
+
+
 
   // After a successful check-in, allow scanning the next rider
   const scanNextRider = () => {
@@ -905,32 +941,14 @@ export default function CheckInScreen({ ride: propRide, managedPitStopStageNumbe
   // Main render
   // -----------------------------------------------------------------------
 
-  const phaseTitle: Record<Phase, string> = {
-    type_select: 'Check-In',
-    stage_select: checkInType === 'quit_riding' ? 'Quit Riding' : 'Select Stage',
-    scanning: 'Scan QR Code',
-    manual_entry: 'Manual Entry',
-    confirming: 'Confirm',
-    success: 'Check-In Recorded',
-    error:
-      errorPresentation === 'warning'
-        ? 'Check-In Warning'
-        : errorPresentation === 'info'
-          ? 'Check-In Info'
-          : 'Check-In Failed',
-  };
-
   // If there's no active ride in context or props, show a placeholder.
   if (!activeRide) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
-          <View style={styles.headerButton} />
-          <Text style={styles.headerTitle}>Check-In</Text>
-          <View style={styles.headerButton} />
-        </View>
-        <View style={styles.contextBar}>
-          <Text style={styles.contextText}>No ride selected</Text>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}> 
+          <View style={styles.headerRow}>
+            <Text style={styles.rideTitle}>No active ride</Text>
+          </View>
         </View>
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 }}>
           <Text style={{ color: COLORS.textSecondary, textAlign: 'center' }}>Select a ride from the Dashboard to enable Check-In.</Text>
@@ -941,25 +959,43 @@ export default function CheckInScreen({ ride: propRide, managedPitStopStageNumbe
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
-        {phase !== 'type_select' && phase !== 'success' && phase !== 'error' && (
-          <TouchableOpacity onPress={resetToStart} style={styles.headerButton}>
-            <MaterialIcons name="restart-alt" size={24} color={COLORS.textSecondary} />
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}> 
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.rideTitleButton}
+            onPress={() => navigation.navigate('RideInfo', { ride: activeRide, source: 'dashboard' })}
+            accessibilityRole="button"
+            accessibilityLabel="Open ride details"
+            accessibilityHint="Shows details for the selected ride"
+          >
+            <Text style={styles.rideTitle}>{activeRide.name}</Text>
+            <MaterialIcons name="info-outline" size={18} color={COLORS.white} />
           </TouchableOpacity>
-        )}
-        {(phase === 'type_select' || phase === 'success' || phase === 'error') && (
-          <View style={styles.headerButton} />
-        )}
-        <Text style={styles.headerTitle}>{phaseTitle[phase]}</Text>
-        <TouchableOpacity onPress={() => onClose && onClose()} style={styles.headerButton}>
-          <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
-        </TouchableOpacity>
-      </View>
 
-      {/* Ride context bar */}
-      <View style={styles.contextBar}>
-        <Text style={styles.contextText}>{activeRide?.name ?? '—'} — {activeRide?.date ?? '—'} — Status: {activeRide?.status ?? '—'}</Text>
+          {isHistorical && (
+            <View style={styles.historicalBadge}>
+              <Text style={styles.historicalBadgeText}>Historical</Text>
+            </View>
+          )}
+        </View>
+
+        <StageFilterBar
+          stages={activeRide.stages}
+          stageCounts={stageCounts}
+          totalStages={activeRide.stages.length}
+          selectedStageNumber={selectedStageNumber}
+          selectedSpecial={selectedSpecial}
+          isSorted={false}
+          onToggleSort={() => {}}
+          onSelectStage={(n) => {
+            setContextSelectedStage(n);
+            if (n !== null) setSelectedSpecial(null);
+          }}
+          onSelectSpecial={(s) => {
+            setSelectedSpecial(s);
+            if (s !== null) setContextSelectedStage(null);
+          }}
+        />
       </View>
 
       {/* Content */}
@@ -989,35 +1025,38 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   header: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    backgroundColor: COLORS.primary,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    marginBottom: 6,
   },
-  headerButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
+  rideTitleButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
-  headerTitle: {
-    fontSize: 18,
+  rideTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.white,
+    flexShrink: 1,
+  },
+  historicalBadge: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  historicalBadgeText: {
+    fontSize: 10,
     fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  contextBar: {
-    backgroundColor: COLORS.gray[100],
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  contextText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
+    color: COLORS.white,
   },
   content: {
     flexGrow: 1,
@@ -1073,7 +1112,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: QR_SCANNER_COLORS.overlay,

@@ -81,7 +81,7 @@ export function AppMenu({
   onToggleSkippedHighlight,
   onLogout,
 }: AppMenuProps) {
-  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const panelWidth = Math.min(MAX_PANEL_WIDTH, windowWidth * PANEL_WIDTH_RATIO);
