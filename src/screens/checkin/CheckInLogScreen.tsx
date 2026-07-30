@@ -1,29 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, Switch, TouchableOpacity } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { MaterialIcons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import StageFilterBar from '../../components/dashboard/StageFilterBar';
+import { View, Text, StyleSheet, FlatList, Switch, Platform } from 'react-native';
 import { useRideSession } from '../../context/RideSessionContext';
 import { getCheckInsByRide } from '../../services/database/checkInStore';
 import { subscribeDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { getRiderById } from '../../services/database/riderStore';
 import { CheckIn, CheckInMethod, isCancelledCheckIn } from '../../types/models';
-import { AppStackParamList } from '../../types/navigation';
 import { COLORS } from '../../constants/colors';
 
+const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
+
 export default function CheckInLogScreen() {
-  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const insets = useSafeAreaInsets();
   const {
     currentRide,
-    isHistorical,
     checkIns: contextCheckIns,
     selectedStageNumber,
     selectedSpecial,
-    setSelectedStage,
-    setSelectedSpecial,
   } = useRideSession();
 
   const [localCheckIns, setLocalCheckIns] = useState<CheckIn[]>([]);
@@ -98,28 +89,12 @@ export default function CheckInLogScreen() {
         resolvedIdsRef.current.add(ci.riderId);
         void getRiderById(ci.riderId).then((r) => {
           if (r) setRiderNames((s) => ({ ...s, [ci.riderId]: r.name }));
-        }).catch(() => {});
+        }).catch(() => { });
       }
     });
 
     return () => unsub();
   }, [currentRide]);
-
-  const stageCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    if (!currentRide) return counts;
-    for (const s of currentRide.stages) counts[s.stageId] = 0;
-    let nr = 0;
-    let qr = 0;
-    for (const ci of localCheckIns) {
-      if (ci.isNotRiding) nr += 1;
-      else if (ci.isQuitRiding) qr += 1;
-      else if (ci.stageId && counts[ci.stageId] !== undefined) counts[ci.stageId] += 1;
-    }
-    counts['NR'] = nr;
-    counts['QR'] = qr;
-    return counts;
-  }, [localCheckIns, currentRide]);
 
   const filtered = useMemo(() => {
     return localCheckIns.filter((ci) => {
@@ -169,11 +144,6 @@ export default function CheckInLogScreen() {
   if (!currentRide) {
     return (
       <View style={styles.container}>
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-          <View style={styles.headerRow}>
-            <Text style={styles.rideTitle}>No active ride</Text>
-          </View>
-        </View>
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>Select a ride from the Dashboard to view the Check-In log.</Text>
         </View>
@@ -183,39 +153,6 @@ export default function CheckInLogScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
-        <View style={styles.headerRow}>
-          <TouchableOpacity
-            style={styles.rideTitleButton}
-            onPress={() => navigation.navigate('RideInfo', { ride: currentRide, source: 'dashboard' })}
-            accessibilityRole="button"
-            accessibilityLabel="Open ride details"
-            accessibilityHint="Shows details for the selected ride"
-          >
-            <Text style={styles.rideTitle}>{currentRide.name}</Text>
-            <MaterialIcons name="info-outline" size={18} color={COLORS.white} />
-          </TouchableOpacity>
-
-          {isHistorical && (
-            <View style={styles.historicalBadge}>
-              <Text style={styles.historicalBadgeText}>Historical</Text>
-            </View>
-          )}
-        </View>
-
-        <StageFilterBar
-          stages={currentRide.stages}
-          stageCounts={stageCounts}
-          totalStages={currentRide.stages.length}
-          selectedStageNumber={selectedStageNumber}
-          selectedSpecial={selectedSpecial}
-          isSorted={false}
-          onToggleSort={() => {}}
-          onSelectStage={(n) => setSelectedStage(n)}
-          onSelectSpecial={(s) => setSelectedSpecial(s)}
-        />
-      </View>
-
       <View style={styles.contentArea}>
         <View style={styles.controlsRow}>
           <View style={{ flex: 1 }} />
@@ -229,7 +166,7 @@ export default function CheckInLogScreen() {
           data={filtered}
           keyExtractor={(i) => i.checkInId}
           renderItem={renderItem}
-          contentContainerStyle={{ padding: 12, paddingBottom: Math.max(insets.bottom, 12) }}
+          contentContainerStyle={{ padding: 12 }}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
         />
       </View>
@@ -239,40 +176,6 @@ export default function CheckInLogScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  header: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 12,
-    paddingBottom: 8,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  rideTitleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-  rideTitle: {
-    color: COLORS.white,
-    fontSize: 20,
-    fontWeight: 'bold',
-    flexShrink: 1,
-  },
-  historicalBadge: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  historicalBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: COLORS.white,
-  },
   contentArea: {
     flex: 1,
   },
@@ -285,10 +188,10 @@ const styles = StyleSheet.create({
   leftCol: { flex: 1 },
   rightCol: { width: 180, alignItems: 'flex-end' },
   manualMarker: { width: 18, color: COLORS.danger, fontWeight: '700' },
-  riderId: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
-  riderName: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  stage: { fontSize: 13, fontWeight: '600', color: COLORS.textPrimary },
-  time: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  checkedBy: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  riderId: { fontSize: 14, color: COLORS.textPrimary, fontFamily: monospaceFont },
+  riderName: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2, fontFamily: monospaceFont },
+  stage: { fontSize: 13, fontWeight: '600', color: COLORS.textPrimary, fontFamily: monospaceFont },
+  time: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2, fontFamily: monospaceFont },
+  checkedBy: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2, fontFamily: monospaceFont },
   sep: { height: 1, backgroundColor: COLORS.border, marginVertical: 8 },
 });

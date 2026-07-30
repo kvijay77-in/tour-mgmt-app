@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import CheckInScreen from '../screens/checkin/CheckInScreen';
 import CheckInLogScreen from '../screens/checkin/CheckInLogScreen';
+import DashboardTabsHeader from '../components/dashboard/DashboardTabsHeader';
 import { MainTabParamList } from '../types/navigation';
 import { useRideSession } from '../context/RideSessionContext';
 
@@ -45,22 +46,28 @@ function CustomTabBar(props: MaterialTopTabBarProps) {
 
 export default function MainTabNavigator() {
   return (
-    <Tab.Navigator
-      tabBarPosition="bottom"
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        swipeEnabled: true,
-        lazy: false,
-      }}
-    >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="CheckIn" component={CheckInScreen} />
-      <Tab.Screen name="Log" component={CheckInLogScreen} />
-    </Tab.Navigator>
+    <View style={styles.container}>
+      <DashboardTabsHeader />
+      <Tab.Navigator
+        tabBarPosition="bottom"
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{
+          swipeEnabled: true,
+          lazy: false,
+        }}
+      >
+        <Tab.Screen name="Dashboard" component={DashboardScreen} />
+        <Tab.Screen name="CheckIn" component={CheckInScreen} />
+        <Tab.Screen name="Log" component={CheckInLogScreen} />
+      </Tab.Navigator>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,

@@ -9,11 +9,14 @@ interface RideSessionState {
   selectedStageNumber: number | null;
   selectedSpecial: SelectedSpecial;
   checkIns: CheckIn[];
+  isSorted: boolean;
   autoCheckIn: boolean;
   setCurrentRide: (ride: Ride | null, historical?: boolean) => void;
+  updateCurrentRide: (ride: Ride | null, historical?: boolean) => void;
   setSelectedStage: (n: number | null) => void;
   setSelectedSpecial: (s: SelectedSpecial) => void;
   setCheckIns: React.Dispatch<React.SetStateAction<CheckIn[]>>;
+  toggleSort: (val?: boolean) => void;
   toggleAutoCheckIn: (val?: boolean) => void;
 }
 
@@ -25,6 +28,7 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
   const [selectedStageNumber, setSelectedStageNumber] = useState<number | null>(null);
   const [selectedSpecial, setSelectedSpecial] = useState<SelectedSpecial>(null);
   const [checkIns, setCheckInsState] = useState<CheckIn[]>([]);
+  const [isSorted, setIsSorted] = useState(false);
   const [autoCheckIn, setAutoCheckIn] = useState(false);
 
   function setCurrentRide(ride: Ride | null, historical = false) {
@@ -34,6 +38,12 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     setSelectedStageNumber(null);
     setSelectedSpecial(null);
     setCheckInsState([]);
+    setIsSorted(false);
+  }
+
+  function updateCurrentRide(ride: Ride | null, historical = false) {
+    setCurrentRideState(ride);
+    setIsHistorical(historical);
   }
 
   function setCheckIns(c: React.SetStateAction<CheckIn[]>) {
@@ -45,17 +55,25 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     else setAutoCheckIn((s) => !s);
   }
 
+  function toggleSort(val?: boolean) {
+    if (typeof val === 'boolean') setIsSorted(val);
+    else setIsSorted((s) => !s);
+  }
+
   const value: RideSessionState = {
     currentRide,
     isHistorical,
     selectedStageNumber,
     selectedSpecial,
     checkIns,
+    isSorted,
     autoCheckIn,
     setCurrentRide,
+    updateCurrentRide,
     setSelectedStage: setSelectedStageNumber,
     setSelectedSpecial,
     setCheckIns,
+    toggleSort,
     toggleAutoCheckIn,
   };
 
