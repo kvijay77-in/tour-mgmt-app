@@ -107,7 +107,7 @@ export default function CheckInLogScreen() {
     });
   }, [localCheckIns, selectedStageNumber, selectedSpecial]);
 
-  const renderItem = useCallback(({ item }: { item: CheckIn }) => {
+  const renderItem = useCallback(({ item, index }: { item: CheckIn; index: number }) => {
     const riderName = riderNames[item.riderId] ?? '';
     let stageLabel = '—';
     if (item.isNotRiding) stageLabel = 'Not Riding';
@@ -117,26 +117,26 @@ export default function CheckInLogScreen() {
       stageLabel = s?.name ?? `PS${item.stageNumber}`;
     }
 
-    const time = new Date(item.createdAt ?? item.timestamp).toLocaleString();
+    const time = new Date(item.createdAt ?? item.timestamp).toLocaleTimeString();
     const checkedBy = item.checkedInByName ?? 'Not Available';
+    const isManual = item.method === CheckInMethod.MANUAL || item.isManualEntry;
+
+    const riderIdText = isManual ? `#${item.riderId}` : item.riderId;
+    const lineParts = [
+      riderIdText,
+      showName ? riderName || '—' : null,
+      stageLabel,
+      time,
+      checkedBy,
+    ].filter((value): value is string => Boolean(value));
+
+    const lineText = lineParts.join(' | ');
 
     return (
-      <View style={styles.row}>
-        <View style={styles.leftCol}>
-          {item.method === CheckInMethod.MANUAL || item.isManualEntry ? (
-            <Text style={styles.manualMarker}>*</Text>
-          ) : (
-            <Text style={styles.manualMarker} />
-          )}
-          <Text style={styles.riderId}>{item.riderId}</Text>
-          {showName && <Text style={styles.riderName}>{riderName}</Text>}
-        </View>
-
-        <View style={styles.rightCol}>
-          <Text style={styles.stage}>{stageLabel}</Text>
-          <Text style={styles.time}>{time}</Text>
-          <Text style={styles.checkedBy}>{checkedBy}</Text>
-        </View>
+      <View style={[styles.logRow, index % 2 === 0 ? styles.logRowEven : styles.logRowOdd]}>
+        <Text style={styles.logText} numberOfLines={1}>
+          {lineText}
+        </Text>
       </View>
     );
   }, [currentRide, riderNames, showName]);
@@ -156,9 +156,12 @@ export default function CheckInLogScreen() {
       <View style={styles.contentArea}>
         <View style={styles.controlsRow}>
           <View style={{ flex: 1 }} />
-          <View style={styles.nameToggle}>
-            <Text style={styles.nameToggleLabel}>Show name</Text>
-            <Switch value={showName} onValueChange={setShowName} />
+          <View style={styles.controlsGroup}>
+            <Text style={styles.legendText}># Manual Check-in</Text>
+            <View style={styles.nameToggle}>
+              <Text style={styles.nameToggleLabel}>Show name</Text>
+              <Switch value={showName} onValueChange={setShowName} />
+            </View>
           </View>
         </View>
 
@@ -166,8 +169,12 @@ export default function CheckInLogScreen() {
           data={filtered}
           keyExtractor={(i) => i.checkInId}
           renderItem={renderItem}
-          contentContainerStyle={{ padding: 12 }}
-          ItemSeparatorComponent={() => <View style={styles.sep} />}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={(
+            <View style={styles.emptyTableState}>
+              <Text style={styles.emptyTableText}>No check-ins found for the current filters.</Text>
+            </View>
+          )}
         />
       </View>
     </View>
@@ -182,16 +189,35 @@ const styles = StyleSheet.create({
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
   emptyText: { color: COLORS.textSecondary, textAlign: 'center' },
   controlsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
+  controlsGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  legendText: { fontSize: 11, color: COLORS.textSecondary, fontFamily: monospaceFont },
   nameToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   nameToggleLabel: { color: COLORS.textSecondary, marginRight: 8 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  leftCol: { flex: 1 },
-  rightCol: { width: 180, alignItems: 'flex-end' },
-  manualMarker: { width: 18, color: COLORS.danger, fontWeight: '700' },
-  riderId: { fontSize: 14, color: COLORS.textPrimary, fontFamily: monospaceFont },
-  riderName: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2, fontFamily: monospaceFont },
-  stage: { fontSize: 13, fontWeight: '600', color: COLORS.textPrimary, fontFamily: monospaceFont },
-  time: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2, fontFamily: monospaceFont },
-  checkedBy: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2, fontFamily: monospaceFont },
-  sep: { height: 1, backgroundColor: COLORS.border, marginVertical: 8 },
+  listContent: { paddingHorizontal: 12, paddingBottom: 12 },
+  logRow: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.border,
+  },
+  logRowEven: { backgroundColor: '#F8FAFC' },
+  logRowOdd: { backgroundColor: '#F3F8FF' },
+  logText: {
+    fontSize: 11,
+    color: COLORS.textPrimary,
+    fontFamily: monospaceFont,
+  },
+  headerText: { fontSize: 11, fontWeight: '700', color: COLORS.textPrimary, fontFamily: monospaceFont },
+  emptyTableState: {
+    paddingVertical: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+  },
+  emptyTableText: { color: COLORS.textSecondary, textAlign: 'center' },
 });
