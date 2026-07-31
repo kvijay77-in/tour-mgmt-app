@@ -1,5 +1,11 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Ride, CheckIn } from '../types/models';
+import {
+  DEFAULT_SCAN_PAUSE_SECONDS,
+  loadScanPauseSeconds,
+  normalizeScanPauseSeconds,
+  saveScanPauseSeconds,
+} from '../services/config/scanPauseConfigService';
 
 type SelectedSpecial = 'NR' | 'QR' | null;
 
@@ -11,10 +17,12 @@ interface RideSessionState {
   checkIns: CheckIn[];
   isSorted: boolean;
   autoCheckIn: boolean;
+  scanPauseSeconds: number;
   setCurrentRide: (ride: Ride | null, historical?: boolean) => void;
   updateCurrentRide: (ride: Ride | null, historical?: boolean) => void;
   setSelectedStage: (n: number | null) => void;
   setSelectedSpecial: (s: SelectedSpecial) => void;
+  setScanPauseSeconds: (seconds: number) => void;
   setCheckIns: React.Dispatch<React.SetStateAction<CheckIn[]>>;
   toggleSort: (val?: boolean) => void;
   toggleAutoCheckIn: (val?: boolean) => void;
@@ -30,6 +38,20 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
   const [checkIns, setCheckInsState] = useState<CheckIn[]>([]);
   const [isSorted, setIsSorted] = useState(false);
   const [autoCheckIn, setAutoCheckIn] = useState(false);
+  const [scanPauseSeconds, setScanPauseSecondsState] = useState(DEFAULT_SCAN_PAUSE_SECONDS);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const persistedValue = await loadScanPauseSeconds();
+      if (!mounted) return;
+      setScanPauseSecondsState(normalizeScanPauseSeconds(persistedValue));
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   function setCurrentRide(ride: Ride | null, historical = false) {
     setCurrentRideState(ride);
@@ -60,6 +82,12 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     else setIsSorted((s) => !s);
   }
 
+  function setScanPauseSeconds(seconds: number) {
+    const normalizedValue = normalizeScanPauseSeconds(seconds);
+    setScanPauseSecondsState(normalizedValue);
+    void saveScanPauseSeconds(normalizedValue);
+  }
+
   const value: RideSessionState = {
     currentRide,
     isHistorical,
@@ -68,10 +96,12 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     checkIns,
     isSorted,
     autoCheckIn,
+    scanPauseSeconds,
     setCurrentRide,
     updateCurrentRide,
     setSelectedStage: setSelectedStageNumber,
     setSelectedSpecial,
+    setScanPauseSeconds,
     setCheckIns,
     toggleSort,
     toggleAutoCheckIn,

@@ -39,6 +39,8 @@ import { getRiderById } from '../../services/database/riderStore';
 import { loadPitStopContextStageNumber } from '../../services/config/pitStopContextService';
 import { playSuccess, playFailure, playScanTick } from '../../services/feedback/feedbackService';
 
+const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
+
 const TAG = 'CheckInScreen';
 const RECENT_CHECKINS_LIMIT = 5;
 
@@ -75,8 +77,6 @@ interface RecentCheckInEntry {
   riderName: string;
   ts: number;
 }
-
-const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
 function getConflictMessage(error: unknown): string | null {
   const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
@@ -117,6 +117,7 @@ export default function CheckInScreen() {
     setSelectedStage: setContextSelectedStage,
     autoCheckIn,
     toggleAutoCheckIn,
+    scanPauseSeconds,
     setCheckIns,
     checkIns,
   } = useRideSession();
@@ -136,7 +137,18 @@ export default function CheckInScreen() {
   const [recentCheckIns, setRecentCheckIns] = useState<RecentCheckInEntry[]>([]);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const processingRef = useRef(false);
+  const scanCooldownUntilRef = useRef(0);
+  const scanCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStartAppliedRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (scanCooldownTimerRef.current) {
+        clearTimeout(scanCooldownTimerRef.current);
+        scanCooldownTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Determine available check-in types based on role
   const canCheckInRegular = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
@@ -520,10 +532,23 @@ export default function CheckInScreen() {
   const handleBarcodeScan = useCallback(
     (result: BarcodeScanningResult) => {
       if (processingRef.current) return;
+
+      const now = Date.now();
+      if (now < scanCooldownUntilRef.current) return;
+
       const riderId = extractRiderIdFromQr(result.data);
       if (!riderId) return;
 
       processingRef.current = true;
+      scanCooldownUntilRef.current = now + (scanPauseSeconds * 1000);
+      if (scanCooldownTimerRef.current) {
+        clearTimeout(scanCooldownTimerRef.current);
+      }
+      scanCooldownTimerRef.current = setTimeout(() => {
+        processingRef.current = false;
+        scanCooldownTimerRef.current = null;
+      }, scanPauseSeconds * 1000);
+
       void playScanTick();
       setPendingMethod(CheckInMethod.QR_SCAN);
       setScannedRiderId(riderId);
@@ -533,7 +558,7 @@ export default function CheckInScreen() {
         void submitCheckIn(riderId, CheckInMethod.QR_SCAN);
       }
     },
-    [autoCheckIn, submitCheckIn],
+    [autoCheckIn, scanPauseSeconds, submitCheckIn],
   );
 
   const confirmManualEntry = () => {
@@ -1121,7 +1146,8 @@ const styles = StyleSheet.create({
   confirmRiderId: {
     fontSize: 13,
     color: COLORS.textPrimary,
-    fontFamily: monospaceFont,
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
+    fontWeight: '400',
   },
   confirmButtonsRow: {
     flexDirection: 'row',
@@ -1160,11 +1186,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   recentRiderId: {
-    fontFamily: monospaceFont,
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
     fontSize: 13,
     color: COLORS.textPrimary,
   },
   recentRiderName: {
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
     fontSize: 13,
     color: COLORS.textPrimary,
   },

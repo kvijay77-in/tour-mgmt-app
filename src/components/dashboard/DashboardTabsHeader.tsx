@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  Modal,
+  ScrollView,
+  ActivityIndicator,
+  TextInput,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -15,6 +25,10 @@ import {
   loadPitStopContextStageNumber,
   savePitStopContextStageNumber,
 } from '../../services/config/pitStopContextService';
+import {
+  MIN_SCAN_PAUSE_SECONDS,
+  normalizeScanPauseSeconds,
+} from '../../services/config/scanPauseConfigService';
 import { getPitStopStageNumbersFromRoles, isPitStopUserRole } from '../../utils/permissions';
 import { AppStackParamList } from '../../types/navigation';
 import { CheckIn, CheckInStatus, Ride, RideStatus, Stage, StageType, UserRole } from '../../types/models';
@@ -94,16 +108,20 @@ export default function DashboardTabsHeader() {
     selectedSpecial,
     checkIns,
     isSorted,
+    scanPauseSeconds,
     setCurrentRide,
     updateCurrentRide,
     setSelectedStage,
     setSelectedSpecial,
+    setScanPauseSeconds,
     toggleSort,
   } = useRideSession();
 
   const [allRides, setAllRides] = useState<Ride[]>([]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showPitStopContextPicker, setShowPitStopContextPicker] = useState(false);
+  const [showScanPauseConfigModal, setShowScanPauseConfigModal] = useState(false);
+  const [scanPauseInput, setScanPauseInput] = useState(String(scanPauseSeconds));
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const [showPitStopManagementModal, setShowPitStopManagementModal] = useState(false);
   const [selectedPitStopStageNumber, setSelectedPitStopStageNumber] = useState<number | null>(null);
@@ -239,6 +257,27 @@ export default function DashboardTabsHeader() {
     setManagedPitStopStageNumber(stageNumber);
     setShowPitStopContextPicker(false);
   }, []);
+
+  const handleOpenScanPauseConfig = useCallback(() => {
+    setScanPauseInput(String(scanPauseSeconds));
+    setShowScanPauseConfigModal(true);
+  }, [scanPauseSeconds]);
+
+  const handleSaveScanPauseConfig = useCallback(() => {
+    const parsed = Number.parseInt(scanPauseInput, 10);
+    if (!Number.isFinite(parsed)) {
+      Alert.alert('Invalid value', `Enter pause time in seconds (minimum ${MIN_SCAN_PAUSE_SECONDS}).`);
+      return;
+    }
+
+    if (parsed < MIN_SCAN_PAUSE_SECONDS) {
+      Alert.alert('Invalid value', `Minimum pause time is ${MIN_SCAN_PAUSE_SECONDS} seconds.`);
+      return;
+    }
+
+    setScanPauseSeconds(normalizeScanPauseSeconds(parsed));
+    setShowScanPauseConfigModal(false);
+  }, [scanPauseInput, setScanPauseSeconds]);
 
   const getPitStopActionErrorMessage = useCallback((err: unknown): string => {
     const isApiErr = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
@@ -412,8 +451,64 @@ export default function DashboardTabsHeader() {
         showSkippedToggle={false}
         isSkippedHighlightEnabled={false}
         onToggleSkippedHighlight={() => {}}
+        showScanPauseConfigOption={true}
+        scanPauseSeconds={scanPauseSeconds}
+        onOpenScanPauseConfig={handleOpenScanPauseConfig}
         onLogout={logout}
       />
+
+      <Modal
+        visible={showScanPauseConfigModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowScanPauseConfigModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowScanPauseConfigModal(false)}
+        >
+          <TouchableOpacity
+            style={styles.scanPauseCard}
+            activeOpacity={1}
+            onPress={() => {
+              // Prevent closing when pressing inside modal card.
+            }}
+          >
+            <Text style={styles.scanPauseTitle}>QR scan pause</Text>
+            <Text style={styles.scanPauseSubtitle}>
+              Set cooldown in seconds between scans of the same or any QR code.
+            </Text>
+
+            <Text style={styles.scanPauseInputLabel}>Pause time (seconds)</Text>
+            <TextInput
+              style={styles.scanPauseInput}
+              value={scanPauseInput}
+              onChangeText={(value) => setScanPauseInput(value.replace(/[^0-9]/g, ''))}
+              keyboardType="number-pad"
+              maxLength={3}
+              placeholder={`${MIN_SCAN_PAUSE_SECONDS}`}
+              placeholderTextColor={COLORS.textDisabled}
+            />
+            <Text style={styles.scanPauseHint}>Minimum value: {MIN_SCAN_PAUSE_SECONDS} seconds</Text>
+
+            <View style={styles.scanPauseActionRow}>
+              <TouchableOpacity
+                style={[styles.scanPauseActionButton, styles.scanPauseCancelButton]}
+                onPress={() => setShowScanPauseConfigModal(false)}
+              >
+                <Text style={styles.scanPauseCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.scanPauseActionButton, styles.scanPauseSaveButton]}
+                onPress={handleSaveScanPauseConfig}
+              >
+                <Text style={styles.scanPauseSaveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal
         visible={showPitStopManagementModal}
@@ -791,5 +886,79 @@ const styles = StyleSheet.create({
   pitStopManagementSubmittingText: {
     fontSize: 12,
     color: COLORS.textSecondary,
+  },
+  scanPauseCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    width: '88%',
+    maxWidth: 420,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+  },
+  scanPauseTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  scanPauseSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  scanPauseInputLabel: {
+    marginTop: 12,
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  scanPauseInput: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    backgroundColor: COLORS.white,
+  },
+  scanPauseHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+  },
+  scanPauseActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  scanPauseActionButton: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  scanPauseCancelButton: {
+    backgroundColor: COLORS.gray[100],
+  },
+  scanPauseSaveButton: {
+    backgroundColor: COLORS.primary,
+  },
+  scanPauseCancelButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  scanPauseSaveButtonText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

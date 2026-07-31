@@ -9,6 +9,7 @@ import { COLORS } from '../../constants/colors';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
+
 export default function CheckInLogScreen() {
   const {
     currentRide,
@@ -110,7 +111,7 @@ export default function CheckInLogScreen() {
   const renderItem = useCallback(({ item, index }: { item: CheckIn; index: number }) => {
     const riderName = riderNames[item.riderId] ?? '';
     let stageLabel = '—';
-    if (item.isNotRiding) stageLabel = 'Not Riding';
+    if (item.isNotRiding) stageLabel = 'NR';
     else if (item.isQuitRiding) stageLabel = 'Quit';
     else if (currentRide) {
       const s = currentRide.stages.find((x) => x.stageNumber === item.stageNumber);
@@ -121,7 +122,7 @@ export default function CheckInLogScreen() {
     const checkedBy = item.checkedInByName ?? 'Not Available';
     const isManual = item.method === CheckInMethod.MANUAL || item.isManualEntry;
 
-    const riderIdText = isManual ? `#${item.riderId}` : item.riderId;
+    const riderIdText = isManual ? `# ${item.riderId}` : `  ${item.riderId}`;
     const lineParts = [
       riderIdText,
       showName ? riderName || '—' : null,
@@ -155,9 +156,8 @@ export default function CheckInLogScreen() {
     <View style={styles.container}>
       <View style={styles.contentArea}>
         <View style={styles.controlsRow}>
-          <View style={{ flex: 1 }} />
+          <Text style={styles.legendText}># Manual Check-in</Text>
           <View style={styles.controlsGroup}>
-            <Text style={styles.legendText}># Manual Check-in</Text>
             <View style={styles.nameToggle}>
               <Text style={styles.nameToggleLabel}>Show name</Text>
               <Switch value={showName} onValueChange={setShowName} />
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
   },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
   emptyText: { color: COLORS.textSecondary, textAlign: 'center' },
-  controlsRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8 },
   controlsGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   legendText: { fontSize: 11, color: COLORS.textSecondary, fontFamily: monospaceFont },
   nameToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontFamily: monospaceFont,
   },
-  headerText: { fontSize: 11, fontWeight: '700', color: COLORS.textPrimary, fontFamily: monospaceFont },
+  headerText: { fontSize: 11, fontWeight: '700', color: COLORS.textPrimary },
   emptyTableState: {
     paddingVertical: 24,
     borderWidth: 1,
