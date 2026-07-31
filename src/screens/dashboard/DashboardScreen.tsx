@@ -228,18 +228,23 @@ export default function DashboardScreen() {
     return ridersLoadPromiseRef.current;
   }, [tour, riders]);
 
-  const applyDashboardProgress = useCallback((targetRide: Ride, roster: Rider[], checkIns: CheckIn[]) => {
+  const applyDashboardProgress = useCallback((
+    targetRide: Ride,
+    roster: Rider[],
+    checkIns: CheckIn[],
+    historical: boolean
+  ) => {
     setRide(targetRide);
     setAllRiderStatuses(buildRiderStatuses(targetRide, roster, checkIns));
     lastServerPullAtRef.current = Date.now();
     try {
-      setCurrentRide(targetRide, isHistorical);
+      setCurrentRide(targetRide, historical);
       setCheckIns(Array.isArray(checkIns) ? checkIns : []);
     } catch (err) {
       // Context may not be available in some test scenarios; fail silently
       logger.info('Dashboard', 'RideSessionContext update skipped', err);
     }
-  }, [setCurrentRide, setCheckIns, isHistorical]);
+  }, [setCurrentRide, setCheckIns]);
 
   // Load a specific ride's dashboard progress using preloaded rider roster.
   const loadRideDashboard = useCallback(async (
@@ -285,7 +290,7 @@ export default function DashboardScreen() {
       }
 
       const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
-      applyDashboardProgress(targetRide, roster, checkIns);
+      applyDashboardProgress(targetRide, roster, checkIns, historical);
     } catch (err) {
       logger.error('Dashboard', 'loadRideDashboard failed', err);
       let message: string;
@@ -360,7 +365,7 @@ export default function DashboardScreen() {
         }
 
         const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
-        applyDashboardProgress(todayRide, roster, checkIns);
+        applyDashboardProgress(todayRide, roster, checkIns, false);
       } else if (allowHistoricalFallback && sortedRides.length > 0) {
         // Fall back to the most recent ride (historical/read-only)
         await loadRideDashboard(sortedRides[0], true);

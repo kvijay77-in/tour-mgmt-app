@@ -35,10 +35,10 @@ import { CheckInMethod, Permission, RideStatus, Stage, StageType } from '../../t
 import { CheckInRequest } from '../../types/api';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
-import { getRiderById } from '../../services/database/riderStore';
 import { loadPitStopContextStageNumber } from '../../services/config/pitStopContextService';
 import { loadRecentCheckIns, saveRecentCheckIns } from '../../services/config/recentCheckInsService';
 import { playSuccess, playFailure, playScanTick } from '../../services/feedback/feedbackService';
+import { useNameDirectory } from '../../context/NameDirectoryContext';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
@@ -111,6 +111,7 @@ function getConflictMessage(error: unknown): string | null {
 export default function CheckInScreen() {
   const { user } = useAuth();
   const { tour } = useTour();
+  const { getRiderDisplayName } = useNameDirectory();
   const [permission, requestPermission] = useCameraPermissions();
   const {
     currentRide: activeRide,
@@ -130,7 +131,6 @@ export default function CheckInScreen() {
   const [checkInType, setCheckInType] = useState<CheckInType | null>('regular');
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
   const [scannedRiderId, setScannedRiderId] = useState<string>('');
-  const [scannedRiderName, setScannedRiderName] = useState<string>('');
   const [pendingMethod, setPendingMethod] = useState<CheckInMethod>(CheckInMethod.QR_SCAN);
   const [manualRiderId, setManualRiderId] = useState<string>('');
   const [showManualEntry, setShowManualEntry] = useState(false);
@@ -154,7 +154,16 @@ export default function CheckInScreen() {
       try {
         const persisted = await loadRecentCheckIns(user.userId);
         if (!mounted) return;
-        setRecentCheckIns(persisted.slice(0, RECENT_CHECKINS_LIMIT));
+        setRecentCheckIns(
+          persisted
+            .slice(0, RECENT_CHECKINS_LIMIT)
+            .map((entry) => ({
+              riderId: entry.riderId,
+              riderName: entry.riderName ?? 'Unknown',
+              ts: entry.ts,
+              stage: entry.stage,
+            })),
+        );
       } catch {
         // ignore persistence errors
       }
@@ -236,26 +245,10 @@ export default function CheckInScreen() {
     setSelectedStage(stage ?? null);
   }, [selectedStageNumber, activeRide, checkInType]);
 
-  // Resolve rider name from local cache for the confirmation card
-  useEffect(() => {
-    let mounted = true;
-    if (!scannedRiderId) {
-      setScannedRiderName('');
-      return undefined;
-    }
-
-    (async () => {
-      try {
-        const r = await getRiderById(scannedRiderId);
-        if (!mounted) return;
-        setScannedRiderName(r?.name ?? '');
-      } catch (err) {
-        logger.warn(TAG, 'Failed to resolve rider name', err);
-      }
-    })();
-
-    return () => { mounted = false; };
-  }, [scannedRiderId]);
+  const scannedRiderDisplay = useMemo(
+    () => (scannedRiderId ? getRiderDisplayName(scannedRiderId) : { name: '', isAnomaly: false }),
+    [scannedRiderId, getRiderDisplayName],
+  );
 
   // For PS_n users, default-select their managed pit-stop stage once a ride is active.
   useEffect(() => {
@@ -331,7 +324,6 @@ export default function CheckInScreen() {
 
   const resetPendingEntry = () => {
     setScannedRiderId('');
-    setScannedRiderName('');
     setManualRiderId('');
     setShowManualEntry(false);
     setStatusMessage(null);
@@ -514,13 +506,7 @@ export default function CheckInScreen() {
       void playSuccess();
       logger.info(TAG, `Check-in recorded: ${riderId} at ${effectiveStage?.name ?? 'N/A'} (${checkInType})`);
 
-      let riderName = scannedRiderName;
-      try {
-        const r = await getRiderById(riderId);
-        riderName = r?.name ?? riderName;
-      } catch {
-        // best-effort name lookup for the recent list; keep whatever was already resolved
-      }
+      const riderName = getRiderDisplayName(riderId).name;
 
       const stageLabel =
         checkInType === 'regular'
@@ -551,12 +537,12 @@ export default function CheckInScreen() {
     activeRide,
     checkInType,
     selectedStage,
-    scannedRiderName,
     checkIns,
     setCheckIns,
     getValidationMessage,    dismissStatusMessage,
     showStatusMessage,
     acknowledgeStatusAndReadyForNextScan,
+    getRiderDisplayName,
   ]);
 
   // -----------------------------------------------------------------------
@@ -772,30 +758,9 @@ export default function CheckInScreen() {
                 </View>
               </View>
             ) : showScannerReview ? (
-              <View style={styles.scannerManualContainer}>
-                <Text style={styles.scannerManualTitle}>Confirm check-in</Text>
-                <View style={styles.confirmCard}>
-                  <View style={styles.confirmRow}>
-                    <Text style={styles.confirmLabel}>Rider ID</Text>
-                    <Text style={styles.confirmRiderId}>{scannedRiderId}</Text>
-                  </View>
-                  {scannedRiderName ? (
-                    <View style={styles.confirmRow}>
-                      <Text style={styles.confirmLabel}>Name</Text>
-                      <Text style={styles.confirmValue}>{scannedRiderName}</Text>
-                    </View>
-                  ) : null}
-                  {checkInType && checkInType !== 'quit_riding' && (
-                    <View style={styles.confirmRow}>
-                      <Text style={styles.confirmLabel}>Stage</Text>
-                      <Text style={styles.confirmValue}>{stageDisplayName}</Text>
-                    </View>
-                  )}
-                  <View style={styles.confirmRow}>
-                    <Text style={styles.confirmLabel}>Type</Text>
-                    <Text style={styles.confirmValue}>{typeLabel}</Text>
-                  </View>
-                </View>
+              <View style={styles.scannerActionContainer}>
+                <Text style={styles.scannerManualTitle}>Scanner paused</Text>
+                <Text style={styles.scannerMessageText}>Confirm or rescan to continue.</Text>
                 <View style={styles.scannerMessageActions}>
                   <TouchableOpacity
                     style={[styles.secondaryButton, styles.scannerMessageButton]}
@@ -816,11 +781,6 @@ export default function CheckInScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
-              </View>
-            ) : showAutoSubmitting ? (
-              <View style={styles.scannerMessageContainer}>
-                <ActivityIndicator size="small" color={COLORS.primary} />
-                <Text style={styles.scannerMessageText}>Checking in {scannedRiderId}…</Text>
               </View>
             ) : (
               <>
@@ -865,12 +825,10 @@ export default function CheckInScreen() {
               <Text style={styles.confirmLabel}>Rider ID</Text>
               <Text style={styles.confirmRiderId}>{scannedRiderId}</Text>
             </View>
-            {scannedRiderName ? (
-              <View style={styles.confirmRow}>
-                <Text style={styles.confirmLabel}>Name</Text>
-                <Text style={styles.confirmValue}>{scannedRiderName}</Text>
-              </View>
-            ) : null}
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Name</Text>
+              <Text style={scannedRiderDisplay.isAnomaly ? styles.confirmValueAnomaly : styles.confirmValue}>{scannedRiderDisplay.name}</Text>
+            </View>
             {checkInType && checkInType !== 'quit_riding' && (
               <View style={styles.confirmRow}>
                 <Text style={styles.confirmLabel}>Stage</Text>
@@ -904,7 +862,7 @@ export default function CheckInScreen() {
             <Text key={`${entry.riderId}-${entry.ts}-${idx}`} style={styles.recentLine} numberOfLines={1}>
               <Text style={styles.recentRiderId}>{entry.riderId}</Text>
               <Text> - </Text>
-              <Text style={styles.recentRiderName}>{entry.riderName || 'Unknown'}</Text>
+              <Text style={entry.riderName === 'Unknown' ? styles.recentRiderNameAnomaly : styles.recentRiderName}>{entry.riderName || 'Unknown'}</Text>
               <Text> - </Text>
               <Text style={styles.recentStage}>{entry.stage}</Text>
             </Text>
@@ -1003,6 +961,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
   },
   scannerManualContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: COLORS.white,
+  },
+  scannerActionContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1179,23 +1144,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
+  confirmValueAnomaly: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.danger,
+  },
   confirmRiderId: {
     fontSize: 13,
     color: COLORS.textPrimary,
     fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
     fontWeight: '400',
   },
-  confirmButtonsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  confirmButton: {
-    flex: 1,
-  },
-  rescanButton: {
-    width: 110,
-  },
-
   // Section 3 — recent check-ins
   recentSection: {
     maxHeight: 150,
@@ -1230,6 +1189,11 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
     fontSize: 13,
     color: COLORS.textPrimary,
+  },
+  recentRiderNameAnomaly: {
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
+    fontSize: 13,
+    color: COLORS.danger,
   },
   recentStage: {
     fontSize: 13,

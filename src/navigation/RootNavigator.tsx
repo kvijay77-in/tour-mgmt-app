@@ -15,6 +15,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../context/AuthContext';
 import { TourProvider } from '../context/TourContext';
+import { NameDirectoryProvider } from '../context/NameDirectoryContext';
 import { COLORS } from '../constants/colors';
 import AuthNavigator from './AuthNavigator';
 import AppNavigator from './AppNavigator';
@@ -36,8 +37,10 @@ export default function RootNavigator() {
 
   return (
     <TourProvider>
-      <StatusBar style="auto" />
-      <AppNavigator />
+      <NameDirectoryProvider>
+        <StatusBar style="auto" />
+        <AppNavigator />
+      </NameDirectoryProvider>
     </TourProvider>
   );
 }

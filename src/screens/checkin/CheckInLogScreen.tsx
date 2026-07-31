@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Switch, Platform } from 'react-native';
 import { useRideSession } from '../../context/RideSessionContext';
 import { getCheckInsByRide } from '../../services/database/checkInStore';
 import { subscribeDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
-import { getRiderById } from '../../services/database/riderStore';
 import { CheckIn, CheckInMethod, isCancelledCheckIn } from '../../types/models';
 import { COLORS } from '../../constants/colors';
+import { useNameDirectory } from '../../context/NameDirectoryContext';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
@@ -17,11 +17,10 @@ export default function CheckInLogScreen() {
     selectedStageNumber,
     selectedSpecial,
   } = useRideSession();
+  const { getRiderDisplayName, getAppUserDisplayName } = useNameDirectory();
 
   const [localCheckIns, setLocalCheckIns] = useState<CheckIn[]>([]);
   const [showName, setShowName] = useState(true);
-  const [riderNames, setRiderNames] = useState<Record<string, string>>({});
-  const resolvedIdsRef = useRef<Set<string>>(new Set());
 
   // Load initial data from context or DB
   useEffect(() => {
@@ -34,19 +33,6 @@ export default function CheckInLogScreen() {
         const filtered = contextCheckIns.filter((ci) => !isCancelledCheckIn(ci));
         if (!mounted) return;
         setLocalCheckIns(filtered.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1)));
-        // resolve rider names
-        const ids = Array.from(new Set(filtered.map((c) => c.riderId)));
-        for (const id of ids) {
-          if (resolvedIdsRef.current.has(id)) continue;
-          resolvedIdsRef.current.add(id);
-          try {
-            const r = await getRiderById(id);
-            if (!mounted) return;
-            if (r) setRiderNames((s) => ({ ...s, [id]: r.name }));
-          } catch {
-            // ignore
-          }
-        }
         return;
       }
 
@@ -55,16 +41,6 @@ export default function CheckInLogScreen() {
         if (!mounted) return;
         const filtered = rows.filter((ci) => !isCancelledCheckIn(ci));
         setLocalCheckIns(filtered.sort((a, b) => (b.timestamp > a.timestamp ? 1 : -1)));
-        const ids = Array.from(new Set(filtered.map((c) => c.riderId)));
-        for (const id of ids) {
-          try {
-            const r = await getRiderById(id);
-            if (!mounted) return;
-            if (r) setRiderNames((s) => ({ ...s, [id]: r.name }));
-          } catch {
-            // ignore
-          }
-        }
       } catch {
         // silently ignore DB read errors here
       }
@@ -84,14 +60,12 @@ export default function CheckInLogScreen() {
       const ci = evt.checkIn;
       if (ci.rideId !== currentRide.rideId) return;
       if (isCancelledCheckIn(ci)) return;
-      setLocalCheckIns((prev) => [ci, ...prev]);
-      // resolve rider name if unknown
-      if (!resolvedIdsRef.current.has(ci.riderId)) {
-        resolvedIdsRef.current.add(ci.riderId);
-        void getRiderById(ci.riderId).then((r) => {
-          if (r) setRiderNames((s) => ({ ...s, [ci.riderId]: r.name }));
-        }).catch(() => { });
-      }
+      setLocalCheckIns((prev) => {
+        if (prev.some((existing) => existing.checkInId === ci.checkInId)) {
+          return prev;
+        }
+        return [ci, ...prev];
+      });
     });
 
     return () => unsub();
@@ -109,7 +83,7 @@ export default function CheckInLogScreen() {
   }, [localCheckIns, selectedStageNumber, selectedSpecial]);
 
   const renderItem = useCallback(({ item, index }: { item: CheckIn; index: number }) => {
-    const riderName = riderNames[item.riderId] ?? '';
+    const riderDisplay = getRiderDisplayName(item.riderId);
     let stageLabel = '—';
     if (item.isNotRiding) stageLabel = 'NR';
     else if (item.isQuitRiding) stageLabel = 'Quit';
@@ -119,28 +93,26 @@ export default function CheckInLogScreen() {
     }
 
     const time = new Date(item.createdAt ?? item.timestamp).toLocaleTimeString();
-    const checkedBy = item.checkedInByName ?? 'Not Available';
+    const checkedBy = getAppUserDisplayName(item.checkedInBy);
     const isManual = item.method === CheckInMethod.MANUAL || item.isManualEntry;
 
     const riderIdText = isManual ? `# ${item.riderId}` : `  ${item.riderId}`;
-    const lineParts = [
-      riderIdText,
-      showName ? riderName || '—' : null,
-      stageLabel,
-      time,
-      checkedBy,
-    ].filter((value): value is string => Boolean(value));
-
-    const lineText = lineParts.join(' | ');
 
     return (
       <View style={[styles.logRow, index % 2 === 0 ? styles.logRowEven : styles.logRowOdd]}>
         <Text style={styles.logText} numberOfLines={1}>
-          {lineText}
+          <Text>{riderIdText}</Text>
+          {showName ? (
+            <Text>
+              {' | '}
+              <Text style={riderDisplay.isAnomaly ? styles.logAnomalyText : undefined}>{riderDisplay.name}</Text>
+            </Text>
+          ) : null}
+          <Text>{` | ${stageLabel} | ${time} | ${checkedBy}`}</Text>
         </Text>
       </View>
     );
-  }, [currentRide, riderNames, showName]);
+  }, [currentRide, getAppUserDisplayName, getRiderDisplayName, showName]);
 
   if (!currentRide) {
     return (
@@ -208,6 +180,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.textPrimary,
     fontFamily: monospaceFont,
+  },
+  logAnomalyText: {
+    color: COLORS.danger,
   },
   headerText: { fontSize: 11, fontWeight: '700', color: COLORS.textPrimary },
   emptyTableState: {
