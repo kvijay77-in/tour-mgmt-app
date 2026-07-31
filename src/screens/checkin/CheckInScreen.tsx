@@ -11,7 +11,6 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
-  Alert,
   View,
   Text,
   StyleSheet,
@@ -59,9 +58,16 @@ function extractRiderIdFromQr(rawValue?: string): string | null {
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
 type StatusKind = 'error' | 'info' | 'warning';
 
+interface StatusAction {
+  label: string;
+  onPress: () => void;
+}
+
 interface StatusMessage {
   kind: StatusKind;
   text: string;
+  primaryAction?: StatusAction;
+  secondaryAction?: StatusAction;
 }
 
 interface RecentCheckInEntry {
@@ -71,6 +77,34 @@ interface RecentCheckInEntry {
 }
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
+
+function getConflictMessage(error: unknown): string | null {
+  const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
+    ? (error as { statusCode?: unknown }).statusCode
+    : undefined;
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string'
+      ? (error as { message: string }).message
+      : '';
+  const normalized = message.toLowerCase();
+  const isConflictLikeStatus = statusCode === 400 || statusCode === 409 || statusCode === 422;
+  const hasConflictLikeMessage =
+    normalized.includes('duplicate') ||
+    normalized.includes('already checked') ||
+    normalized.includes('already exists') ||
+    normalized.includes('already in') ||
+    normalized.includes('already recorded') ||
+    normalized.includes('checked in at') ||
+    normalized.includes('not riding') ||
+    normalized.includes('quit riding');
+
+  if (!isConflictLikeStatus && !hasConflictLikeMessage) {
+    return null;
+  }
+
+  return message || 'The check-in request was blocked because the rider already has an existing check-in.';
+}
 
 export default function CheckInScreen() {
   const { user } = useAuth();
@@ -90,7 +124,7 @@ export default function CheckInScreen() {
   const insets = useSafeAreaInsets();
   const bottomInsetPadding = Math.max(insets.bottom, 12);
 
-  const [checkInType, setCheckInType] = useState<CheckInType>('regular');
+  const [checkInType, setCheckInType] = useState<CheckInType | null>('regular');
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
   const [scannedRiderId, setScannedRiderId] = useState<string>('');
   const [scannedRiderName, setScannedRiderName] = useState<string>('');
@@ -207,7 +241,11 @@ export default function CheckInScreen() {
     autoStartAppliedRef.current = true;
   }, [checkInType, hasSingleRegularPitStopStage, activeRide, allowedRegularStageNumbers, setContextSelectedStage]);
 
-  const getValidationMessage = useCallback((type: CheckInType, stage: Stage | null): string | null => {
+  const getValidationMessage = useCallback((type: CheckInType | null, stage: Stage | null): string | null => {
+    if (!type) {
+      return 'Select a check-in type to enable QR scanner.';
+    }
+
     if (type === 'not_riding') {
       if (!activeRide || activeRide.status !== RideStatus.OPEN) {
         return `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`;
@@ -248,6 +286,10 @@ export default function CheckInScreen() {
 
   const stageValidationMessage = activeRide ? getValidationMessage(checkInType, selectedStage) : null;
 
+  const dismissStatusMessage = useCallback(() => {
+    setStatusMessage(null);
+  }, []);
+
   const resetPendingEntry = () => {
     setScannedRiderId('');
     setScannedRiderName('');
@@ -257,12 +299,30 @@ export default function CheckInScreen() {
     processingRef.current = false;
   };
 
+  const acknowledgeStatusAndReadyForNextScan = useCallback(() => {
+    resetPendingEntry();
+  }, []);
+
   const handleSelectType = (type: CheckInType, enabled: boolean) => {
     if (!enabled) {
       const reason = type === 'not_riding'
         ? `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`
         : `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
-      setStatusMessage({ kind: 'warning', text: reason });
+      showStatusMessage({
+        kind: 'warning',
+        text: reason,
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
+      return;
+    }
+
+    // Toggle-off behavior: tapping the same active type disables scanner until a type is selected again.
+    if (checkInType === type) {
+      setCheckInType(null);
+      resetPendingEntry();
       return;
     }
 
@@ -277,8 +337,23 @@ export default function CheckInScreen() {
   // Submit
   // -----------------------------------------------------------------------
 
+  const showStatusMessage = useCallback((message: StatusMessage) => {
+    setStatusMessage(message);
+  }, []);
+
   const submitCheckIn = useCallback(async (riderId: string, method: CheckInMethod, overrideRequested: boolean = false) => {
     if (!tour || !riderId || !activeRide) return;
+    if (!checkInType) {
+      showStatusMessage({
+        kind: 'warning',
+        text: 'Select a check-in type to continue.',
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
+      return;
+    }
 
     const effectiveStage =
       checkInType === 'not_riding'
@@ -286,13 +361,27 @@ export default function CheckInScreen() {
         : selectedStage;
 
     if (checkInType !== 'quit_riding' && !effectiveStage) {
-      setStatusMessage({ kind: 'warning', text: 'Select a stage from the Dashboard header to enable check-in.' });
+      showStatusMessage({
+        kind: 'warning',
+        text: 'Select a stage from the Dashboard header to enable check-in.',
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
       return;
     }
 
     const validationError = getValidationMessage(checkInType, effectiveStage);
     if (validationError) {
-      setStatusMessage({ kind: 'warning', text: validationError });
+      showStatusMessage({
+        kind: 'warning',
+        text: validationError,
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
       return;
     }
 
@@ -316,26 +405,50 @@ export default function CheckInScreen() {
             isQuitRiding: false,
           };
 
-      const outcome = overrideRequested
-        ? await overrideInteractiveCheckIn(tour.tourId, request)
-        : await createInteractiveCheckIn(tour.tourId, request);
+      let outcome: Awaited<ReturnType<typeof createInteractiveCheckIn>> | Awaited<ReturnType<typeof overrideInteractiveCheckIn>>;
+      try {
+        outcome = overrideRequested
+          ? await overrideInteractiveCheckIn(tour.tourId, request)
+          : await createInteractiveCheckIn(tour.tourId, request);
+      } catch (error) {
+        const conflictMessage = getConflictMessage(error);
+        if (conflictMessage) {
+          logger.info(TAG, 'Check-in conflict handled in screen layer', {
+            riderId,
+            checkInType,
+            stageNumber: effectiveStage?.stageNumber ?? null,
+          });
+          showStatusMessage({
+            kind: 'info',
+            text: conflictMessage,
+            primaryAction: {
+              label: 'OK',
+              onPress: acknowledgeStatusAndReadyForNextScan,
+            },
+          });
+          void playFailure('warning');
+          return;
+        }
+        throw error;
+      }
 
       if (outcome.kind === 'override_required') {
         setIsSubmitting(false);
-        Alert.alert(
-          'Override existing check-in?',
-          `${outcome.message}\n\nCancel keeps the current check-in unchanged. Override will replace it with the new status.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Override',
-              style: 'destructive',
-              onPress: () => {
-                void submitCheckIn(riderId, method, true);
-              },
+        showStatusMessage({
+          kind: 'warning',
+          text: outcome.message,
+          secondaryAction: {
+            label: 'Cancel',
+            onPress: acknowledgeStatusAndReadyForNextScan,
+          },
+          primaryAction: {
+            label: 'Override',
+            onPress: () => {
+              dismissStatusMessage();
+              void submitCheckIn(riderId, method, true);
             },
-          ],
-        );
+          },
+        });
         return;
       }
 
@@ -345,9 +458,13 @@ export default function CheckInScreen() {
           checkInType,
           stageNumber: effectiveStage?.stageNumber ?? null,
         });
-        setStatusMessage({
+        showStatusMessage({
           kind: outcome.reason === 'quit_riding' || outcome.reason === 'not_riding' ? 'warning' : 'info',
           text: outcome.message,
+          primaryAction: {
+            label: 'OK',
+            onPress: acknowledgeStatusAndReadyForNextScan,
+          },
         });
         void playFailure('warning');
         return;
@@ -371,7 +488,14 @@ export default function CheckInScreen() {
     } catch (err) {
       logger.error(TAG, 'Check-in submission failed', err);
       const message = err instanceof Error ? err.message : 'Check-in failed. Please try again.';
-      setStatusMessage({ kind: 'error', text: message });
+      showStatusMessage({
+        kind: 'error',
+        text: message,
+        primaryAction: {
+          label: 'OK',
+          onPress: acknowledgeStatusAndReadyForNextScan,
+        },
+      });
       void playFailure('error');
     } finally {
       setIsSubmitting(false);
@@ -384,7 +508,9 @@ export default function CheckInScreen() {
     scannedRiderName,
     checkIns,
     setCheckIns,
-    getValidationMessage,
+    getValidationMessage,    dismissStatusMessage,
+    showStatusMessage,
+    acknowledgeStatusAndReadyForNextScan,
   ]);
 
   // -----------------------------------------------------------------------
@@ -473,13 +599,14 @@ export default function CheckInScreen() {
     });
   }
 
-  const typeLabel = checkInType === 'not_riding' ? 'Not Riding' : checkInType === 'quit_riding' ? 'Quit Riding' : 'Check-In';
+  const typeLabel = checkInType === 'not_riding' ? 'Not Riding' : checkInType === 'quit_riding' ? 'Quit Riding' : checkInType === 'regular' ? 'Regular' : '—';
   const stageDisplayName = selectedStage?.name
     ?? (selectedStageNumber != null ? activeRide.stages.find((s) => s.stageNumber === selectedStageNumber)?.name : undefined)
     ?? '—';
 
-  const showConfirmCard = !!scannedRiderId && (!autoCheckIn || !!statusMessage);
-  const showAutoSubmitting = !!scannedRiderId && autoCheckIn && isSubmitting && !statusMessage;
+  const showInfoCard = !!scannedRiderId && !statusMessage && !showManualEntry && !isSubmitting;
+  const showScannerReview = !!scannedRiderId && !autoCheckIn && !statusMessage && !showManualEntry && !isSubmitting;
+  const showAutoSubmitting = !!scannedRiderId && isSubmitting && !statusMessage && !showManualEntry;
 
   const statusColor = statusMessage
     ? statusMessage.kind === 'error' ? COLORS.danger : statusMessage.kind === 'warning' ? COLORS.warning : COLORS.primary
@@ -487,6 +614,7 @@ export default function CheckInScreen() {
   const statusIconName = statusMessage
     ? statusMessage.kind === 'error' ? 'error' : statusMessage.kind === 'warning' ? 'warning-amber' : 'info-outline'
     : 'info-outline';
+  const isScannerMessageActive = Boolean(statusMessage);
 
   return (
     <KeyboardAvoidingView
@@ -528,48 +656,138 @@ export default function CheckInScreen() {
           </View>
         ) : (
           <View style={styles.scannerContainer}>
-            {isFocused && (
-              <CameraView
-                style={styles.camera}
-                facing="back"
-                barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-                onBarcodeScanned={scannedRiderId ? undefined : handleBarcodeScan}
-              />
-            )}
-            <View style={styles.scannerOverlay}>
-              <View style={styles.scannerFrame} />
-            </View>
-          </View>
-        )}
-
-        {canManualCheckIn && !stageValidationMessage && !scannedRiderId && (
-          <View style={styles.manualEntryArea}>
-            <TouchableOpacity onPress={() => setShowManualEntry((s) => !s)}>
-              <Text style={styles.manualEntryLinkText}>
-                {showManualEntry ? 'Cancel manual entry' : 'Enter Rider ID manually'}
-              </Text>
-            </TouchableOpacity>
-            {showManualEntry && (
-              <View style={styles.manualInputRow}>
-                <TextInput
-                  style={styles.manualInput}
-                  value={manualRiderId}
-                  onChangeText={setManualRiderId}
-                  placeholder="e.g. R1, R57"
-                  placeholderTextColor={COLORS.textDisabled}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  autoFocus
-                  onSubmitEditing={confirmManualEntry}
-                />
-                <TouchableOpacity
-                  style={[styles.primaryButton, styles.manualSubmitButton, !manualRiderId.trim() && styles.disabledButton]}
-                  onPress={confirmManualEntry}
-                  disabled={!manualRiderId.trim()}
-                >
-                  <Text style={styles.primaryButtonText}>Go</Text>
-                </TouchableOpacity>
+            {isScannerMessageActive ? (
+              <View style={styles.scannerMessageContainer}>
+                <View style={styles.scannerMessageHeader}>
+                  <MaterialIcons name={statusIconName} size={20} color={statusColor} />
+                  <Text style={[styles.scannerMessageTitle, { color: statusColor }]}>QR Code scanner</Text>
+                </View>
+                <Text style={styles.scannerMessageText}>{statusMessage?.text}</Text>
+                <View style={styles.scannerMessageActions}>
+                  {statusMessage?.secondaryAction ? (
+                    <TouchableOpacity
+                      style={[styles.secondaryButton, styles.scannerMessageButton]}
+                      onPress={statusMessage.secondaryAction.onPress}
+                    >
+                      <Text style={styles.secondaryButtonText}>{statusMessage.secondaryAction.label}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {statusMessage?.primaryAction ? (
+                    <TouchableOpacity
+                      style={[styles.primaryButton, styles.scannerMessageButton]}
+                      onPress={statusMessage.primaryAction.onPress}
+                    >
+                      <Text style={styles.primaryButtonText}>{statusMessage.primaryAction.label}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </View>
+            ) : showManualEntry ? (
+              <View style={styles.scannerManualContainer}>
+                <Text style={styles.scannerManualTitle}>Manual check-in</Text>
+                <Text style={styles.scannerMessageText}>Enter the rider ID to continue without scanning.</Text>
+                <View style={styles.manualInputRow}>
+                  <TextInput
+                    style={styles.manualInput}
+                    value={manualRiderId}
+                    onChangeText={setManualRiderId}
+                    placeholder="e.g. R1, R57"
+                    placeholderTextColor={COLORS.textDisabled}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    autoFocus
+                    onSubmitEditing={confirmManualEntry}
+                  />
+                  <TouchableOpacity
+                    style={[styles.primaryButton, styles.manualSubmitButton, !manualRiderId.trim() && styles.disabledButton]}
+                    onPress={confirmManualEntry}
+                    disabled={!manualRiderId.trim()}
+                  >
+                    <Text style={styles.primaryButtonText}>Go</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.scannerMessageActions}>
+                  <TouchableOpacity style={[styles.secondaryButton, styles.scannerMessageButton]} onPress={() => setShowManualEntry(false)}>
+                    <Text style={styles.secondaryButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : showScannerReview ? (
+              <View style={styles.scannerManualContainer}>
+                <Text style={styles.scannerManualTitle}>Confirm check-in</Text>
+                <View style={styles.confirmCard}>
+                  <View style={styles.confirmRow}>
+                    <Text style={styles.confirmLabel}>Rider ID</Text>
+                    <Text style={styles.confirmRiderId}>{scannedRiderId}</Text>
+                  </View>
+                  {scannedRiderName ? (
+                    <View style={styles.confirmRow}>
+                      <Text style={styles.confirmLabel}>Name</Text>
+                      <Text style={styles.confirmValue}>{scannedRiderName}</Text>
+                    </View>
+                  ) : null}
+                  {checkInType && checkInType !== 'quit_riding' && (
+                    <View style={styles.confirmRow}>
+                      <Text style={styles.confirmLabel}>Stage</Text>
+                      <Text style={styles.confirmValue}>{stageDisplayName}</Text>
+                    </View>
+                  )}
+                  <View style={styles.confirmRow}>
+                    <Text style={styles.confirmLabel}>Type</Text>
+                    <Text style={styles.confirmValue}>{typeLabel}</Text>
+                  </View>
+                </View>
+                <View style={styles.scannerMessageActions}>
+                  <TouchableOpacity
+                    style={[styles.secondaryButton, styles.scannerMessageButton]}
+                    onPress={handleRescan}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={styles.secondaryButtonText}>Rescan</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.primaryButton, styles.scannerMessageButton, isSubmitting && styles.disabledButton]}
+                    onPress={() => void submitCheckIn(scannedRiderId, pendingMethod)}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator color={COLORS.white} size="small" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Confirm</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : showAutoSubmitting ? (
+              <View style={styles.scannerMessageContainer}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={styles.scannerMessageText}>Checking in {scannedRiderId}…</Text>
+              </View>
+            ) : (
+              <>
+                {isFocused && (
+                  <CameraView
+                    style={styles.camera}
+                    facing="back"
+                    barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                    onBarcodeScanned={scannedRiderId ? undefined : handleBarcodeScan}
+                  />
+                )}
+                <View style={styles.scannerOverlay}>
+                  <View style={styles.scannerFrame} />
+                  {canManualCheckIn && (
+                    <TouchableOpacity
+                      style={styles.manualPromptButton}
+                      onPress={() => {
+                        setManualRiderId('');
+                        setShowManualEntry(true);
+                      }}
+                    >
+                      <Text style={styles.manualEntryLinkText}>Enter Rider ID manually</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </>
             )}
           </View>
         )}
@@ -582,54 +800,29 @@ export default function CheckInScreen() {
           <Switch value={autoCheckIn} onValueChange={(v: boolean) => toggleAutoCheckIn(v)} />
         </View>
 
-        {statusMessage && (
-          <View style={styles.statusBanner}>
-            <MaterialIcons name={statusIconName} size={18} color={statusColor} />
-            <Text style={[styles.statusText, { color: statusColor }]}>{statusMessage.text}</Text>
+        {showInfoCard ? (
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Rider ID</Text>
+              <Text style={styles.confirmRiderId}>{scannedRiderId}</Text>
+            </View>
+            {scannedRiderName ? (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>Name</Text>
+                <Text style={styles.confirmValue}>{scannedRiderName}</Text>
+              </View>
+            ) : null}
+            {checkInType && checkInType !== 'quit_riding' && (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>Stage</Text>
+                <Text style={styles.confirmValue}>{stageDisplayName}</Text>
+              </View>
+            )}
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Type</Text>
+              <Text style={styles.confirmValue}>{typeLabel}</Text>
+            </View>
           </View>
-        )}
-
-        {showConfirmCard ? (
-          <>
-            <View style={styles.confirmCard}>
-              <View style={styles.confirmRow}>
-                <Text style={styles.confirmLabel}>Rider ID</Text>
-                <Text style={styles.confirmRiderId}>{scannedRiderId}</Text>
-              </View>
-              {scannedRiderName ? (
-                <View style={styles.confirmRow}>
-                  <Text style={styles.confirmLabel}>Name</Text>
-                  <Text style={styles.confirmValue}>{scannedRiderName}</Text>
-                </View>
-              ) : null}
-              {checkInType !== 'quit_riding' && (
-                <View style={styles.confirmRow}>
-                  <Text style={styles.confirmLabel}>Stage</Text>
-                  <Text style={styles.confirmValue}>{stageDisplayName}</Text>
-                </View>
-              )}
-              <View style={styles.confirmRow}>
-                <Text style={styles.confirmLabel}>Type</Text>
-                <Text style={styles.confirmValue}>{typeLabel}</Text>
-              </View>
-            </View>
-            <View style={styles.confirmButtonsRow}>
-              <TouchableOpacity
-                style={[styles.primaryButton, styles.confirmButton, isSubmitting && styles.disabledButton]}
-                onPress={() => void submitCheckIn(scannedRiderId, pendingMethod)}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color={COLORS.white} size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Confirm</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.secondaryButton, styles.rescanButton]} onPress={handleRescan} disabled={isSubmitting}>
-                <Text style={styles.secondaryButtonText}>Re-scan</Text>
-              </TouchableOpacity>
-            </View>
-          </>
         ) : showAutoSubmitting ? (
           <View style={styles.autoSubmittingRow}>
             <ActivityIndicator size="small" color={COLORS.primary} />
@@ -741,6 +934,64 @@ const styles = StyleSheet.create({
     minHeight: 160,
     backgroundColor: COLORS.gray[100],
   },
+  scannerMessageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: COLORS.white,
+  },
+  scannerManualContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: COLORS.white,
+  },
+  scannerMessageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  scannerMessageTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  scannerManualTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  scannerMessageText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  scannerMessageActions: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  scannerMessageButton: {
+    minWidth: 96,
+    paddingHorizontal: 14,
+  },
+  manualPromptButton: {
+    position: 'absolute',
+    bottom: 16,
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
   camera: {
     flex: 1,
   },
@@ -805,11 +1056,13 @@ const styles = StyleSheet.create({
 
   // Section 2 — middle
   middleSection: {
+    height: 220,
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 10,
     borderTopWidth: 1,
     borderTopColor: COLORS.gray[100],
+    justifyContent: 'center',
   },
   autoCheckRow: {
     flexDirection: 'row',
@@ -820,20 +1073,6 @@ const styles = StyleSheet.create({
   autoCheckLabel: {
     fontSize: 13,
     color: COLORS.textSecondary,
-    fontWeight: '600',
-  },
-  statusBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: COLORS.gray[100],
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
-  },
-  statusText: {
-    flex: 1,
-    fontSize: 13,
     fontWeight: '600',
   },
   placeholderHint: {

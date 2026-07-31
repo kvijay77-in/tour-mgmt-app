@@ -18,6 +18,7 @@ import {
   openTodayRide,
   startTodayRide,
 } from '../../services/api/rideApi';
+import { publishDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { Ride, RideStatus } from '../../types/models';
 import { logger } from '../../utils/logger';
 
@@ -126,6 +127,7 @@ export default function RideStatusManagementScreen({
       await withSubmission(async () => {
         await openTodayRide(tourId);
       });
+      publishDashboardRefreshEvent({ reason: 'ride_status_changed', rideId: todayRide.rideId });
     } catch (err) {
       logger.error(TAG, 'handleOpenRide failed', err);
       Alert.alert('Unable to open ride', getFriendlyError(err));
@@ -142,6 +144,7 @@ export default function RideStatusManagementScreen({
       await withSubmission(async () => {
         await startTodayRide(tourId);
       });
+      publishDashboardRefreshEvent({ reason: 'ride_status_changed', rideId: todayRide.rideId });
     } catch (err) {
       logger.error(TAG, 'handleStartRide failed', err);
       Alert.alert('Unable to start ride', getFriendlyError(err));

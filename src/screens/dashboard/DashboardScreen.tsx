@@ -21,7 +21,7 @@ import { useTour } from '../../context/TourContext';
 import { listRides } from '../../services/api/rideApi';
 import { getDashboardProgress } from '../../services/api/dashboardApi';
 import { getRideRiderDetails, listRiders } from '../../services/api/riderApi';
-import { subscribeDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
+import { subscribeDashboardCheckInEvent, subscribeDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
 import {
@@ -498,6 +498,14 @@ export default function DashboardScreen() {
 
     return unsubscribe;
   }, [applyLocalCheckInUpdate]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDashboardRefreshEvent(() => {
+      void fetchDashboard();
+    });
+
+    return unsubscribe;
+  }, [fetchDashboard]);
 
   // Pinch gesture for zoom
   const baseScale = useRef(1);
