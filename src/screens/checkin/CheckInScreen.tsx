@@ -37,6 +37,7 @@ import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } fro
 import { logger } from '../../utils/logger';
 import { getRiderById } from '../../services/database/riderStore';
 import { loadPitStopContextStageNumber } from '../../services/config/pitStopContextService';
+import { loadRecentCheckIns, saveRecentCheckIns } from '../../services/config/recentCheckInsService';
 import { playSuccess, playFailure, playScanTick } from '../../services/feedback/feedbackService';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
@@ -76,6 +77,7 @@ interface RecentCheckInEntry {
   riderId: string;
   riderName: string;
   ts: number;
+  stage: string;
 }
 
 function getConflictMessage(error: unknown): string | null {
@@ -140,6 +142,31 @@ export default function CheckInScreen() {
   const scanCooldownUntilRef = useRef(0);
   const scanCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStartAppliedRef = useRef(false);
+
+  // Load persisted recent check-ins for the signed-in user
+  useEffect(() => {
+    let mounted = true;
+    if (!user) {
+      setRecentCheckIns([]);
+      return () => { mounted = false; };
+    }
+    (async () => {
+      try {
+        const persisted = await loadRecentCheckIns(user.userId);
+        if (!mounted) return;
+        setRecentCheckIns(persisted.slice(0, RECENT_CHECKINS_LIMIT));
+      } catch {
+        // ignore persistence errors
+      }
+    })();
+    return () => { mounted = false; };
+  }, [user]);
+
+  // Persist recent check-ins whenever they change for the current user
+  useEffect(() => {
+    if (!user) return;
+    void saveRecentCheckIns(user.userId, recentCheckIns);
+  }, [recentCheckIns, user]);
 
   useEffect(() => {
     return () => {
@@ -495,7 +522,14 @@ export default function CheckInScreen() {
         // best-effort name lookup for the recent list; keep whatever was already resolved
       }
 
-      setRecentCheckIns((prev) => [{ riderId, riderName, ts: Date.now() }, ...prev].slice(0, RECENT_CHECKINS_LIMIT));
+      const stageLabel =
+        checkInType === 'regular'
+          ? (effectiveStage?.name ?? 'Unknown')
+          : checkInType === 'not_riding'
+            ? 'Not Riding'
+            : 'Quit Riding';
+
+      setRecentCheckIns((prev) => [{ riderId, riderName, ts: Date.now(), stage: stageLabel }, ...prev].slice(0, RECENT_CHECKINS_LIMIT));
       resetPendingEntry();
     } catch (err) {
       logger.error(TAG, 'Check-in submission failed', err);
@@ -871,6 +905,8 @@ export default function CheckInScreen() {
               <Text style={styles.recentRiderId}>{entry.riderId}</Text>
               <Text> - </Text>
               <Text style={styles.recentRiderName}>{entry.riderName || 'Unknown'}</Text>
+              <Text> - </Text>
+              <Text style={styles.recentStage}>{entry.stage}</Text>
             </Text>
           ))
         )}
@@ -1194,6 +1230,10 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
     fontSize: 13,
     color: COLORS.textPrimary,
+  },
+  recentStage: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
 
   // Buttons
