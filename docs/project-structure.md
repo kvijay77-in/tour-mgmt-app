@@ -21,6 +21,8 @@ tour-mgmt-app/
 │   ├── docs-index.md
 │   ├── project-structure.md
 │   ├── release-guide.md
+│   ├── Requirements-ID-format.md
+│   ├── idcode-backend-api-change-request.md
 │   └── Images/
 │   ├── dashboard-backend-api-change-request.md
 │
@@ -65,6 +67,7 @@ tour-mgmt-app/
 │   │   │   ├── rideApi.ts          # Ride endpoints
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
+│   │   │   ├── configApi.ts        # Generic app configuration API helpers
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 │   │   ├── config/                 # Runtime org configuration service
 │   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence
@@ -72,6 +75,10 @@ tour-mgmt-app/
 │   │   ├── auth/                   # AWS Cognito authentication and user management
 │   │   │   └── cognitoUserManagementService.ts # Admin create/list/enable/disable/delete/update via Cognito APIs
 │   │   ├── database/               # SQLite for offline support
+│   │   │   ├── appConfigStore.ts   # AppConfig SQLite persistence and lookups
+│   │   │   └── riderPersonalCodeStore.ts # Rider personalCode mapping persistence
+│   │   ├── idcode/                 # Production ID code parsing and resolution service
+│   │   │   └── idCodeService.ts
 │   │   ├── sync/                   # Data synchronization service
 │   │   └── qrcode/                 # QR code scanning service
 │   │
@@ -82,6 +89,7 @@ tour-mgmt-app/
 │   │
 │   ├── context/                    # React Context providers
 │   │   ├── AuthContext.tsx         # Authentication context
+│   │   ├── AppConfigContext.tsx    # ID code config bootstrap context
 │   │   ├── TourContext.tsx         # Active tour context (resolves tourId at startup)
 │   │   ├── OfflineContext.tsx      # Offline mode context
 │   │   └── RoleContext.tsx         # RBAC role context
@@ -100,6 +108,7 @@ tour-mgmt-app/
 │   │
 │   ├── constants/                  # Application constants
 │   │   ├── colors.ts               # Color scheme constants
+│   │   ├── idCodes.ts              # ID code constants, defaults, and error messages
 │   │   ├── roles.ts                # Role definitions
 │   │   └── stages.ts               # Ride stage definitions
 │   │

@@ -15,6 +15,7 @@ This document provides the analysis and design for integrating the `tour-data-ap
 - [7. Security Considerations](#7-security-considerations)
 - [8. Open Questions and Decisions](#8-open-questions-and-decisions)
 - [9. Suggested Backend Enhancements](#9-suggested-backend-enhancements-tour-data-api)
+- [10. ID Code Configuration and Mapping](#10-id-code-configuration-and-mapping)
 
 ---
 
@@ -138,6 +139,26 @@ A `tourId` is required for most API calls. This will be resolved once at app sta
 3. All subsequent API calls use this `tourId`
 
 If no active tour exists, the app shows an appropriate message.
+
+### 2.5 Shared AppConfig and Rider Personal Code Integration
+
+Production scan support requires two additional backend-fed datasets:
+
+1. Shared configuration from AppConfig via `GET /v1/config`:
+  - `ID_CODE_FORMAT`
+  - `ID_CODE_TYPE`
+2. Rider `personalCode` mapping from existing rider names endpoint:
+  - `GET /v1/tours/{tourId}/riders/names`
+
+App behavior:
+- Fetch both configuration partitions after every sign-in.
+- Persist config locally in SQLite for offline scan continuity.
+- Read rider names payload and persist `personalCode` to Rider ID mapping locally.
+- Use only local mapping during scan resolution (no per-scan network dependency).
+
+Fallback behavior:
+- If config API is unavailable, app uses built-in default SUBSTRING config and default type map.
+- If rider names payload lacks `personalCode`, production scan cannot resolve Rider ID and must fail fast.
 
 ---
 
@@ -413,6 +434,27 @@ CREATE TABLE IF NOT EXISTS pending_operations (
   retryCount INTEGER DEFAULT 0,
   lastAttemptAt TEXT
 );
+
+-- Shared app configuration cache (loaded after sign-in)
+CREATE TABLE IF NOT EXISTS app_config (
+  configType TEXT NOT NULL,
+  configId TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  configJson TEXT NOT NULL,
+  version INTEGER,
+  updatedAt TEXT,
+  lastSyncedAt TEXT,
+  PRIMARY KEY (configType, configId)
+);
+
+-- personalCode to Rider ID mapping cache for scan resolution
+CREATE TABLE IF NOT EXISTS rider_personal_codes (
+  personalCode TEXT PRIMARY KEY,
+  riderId TEXT NOT NULL,
+  tourId TEXT NOT NULL,
+  lastSyncedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
 ```
 
 ### 4.2.1 Storage Estimation and Optimisation
@@ -426,6 +468,8 @@ CREATE TABLE IF NOT EXISTS pending_operations (
 | `rides` | 1 (active) + 7 (history) | ~1 KB | ~8 KB |
 | `check_ins` | 600 per ride × 8 rides | ~350 bytes | ~1.7 MB |
 | `pending_operations` | 0–50 (transient) | ~500 bytes | ~25 KB |
+| `app_config` | <20 | ~350 bytes | ~7 KB |
+| `rider_personal_codes` | ~100 | ~80 bytes | ~8 KB |
 | **Total** | | | **~1.8 MB** |
 
 SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximately **2–3 MB** for a full tour's data. This is negligible on modern mobile devices (which typically have 64–256 GB storage).
@@ -672,6 +716,20 @@ A user attempts to create a `Quit Riding` check-in for a rider who is already ma
 
 > **Note:** All conflict scenarios are designed to be resolved automatically — no manual intervention or reconciliation process is required. However, the timestamp-based scenarios (rider quit, ride closed) depend on backend enhancements listed in §9. Until those enhancements are implemented, the sync service will flag these as `FAILED` with descriptive error messages for the organising team to review.
 
+### 4.6 ID Code Refresh Cadence and Offline Behavior
+
+Refresh cadence:
+1. On every successful sign-in, fetch `ID_CODE_FORMAT` and `ID_CODE_TYPE` from `GET /v1/config`.
+2. During the same sign-in flow, fetch `GET /v1/tours/{tourId}/riders/names` and persist `personalCode` mapping.
+3. Optional manual refresh can reuse the same endpoints for operational checks.
+
+Offline behavior:
+1. Scan resolution uses cached `app_config` and `rider_personal_codes` from SQLite.
+2. If the config API is unavailable, built-in defaults keep production parsing operational.
+3. No live network lookup is attempted for personalCode mapping misses during scan flow.
+
+This keeps scan latency predictable and ensures scan-path continuity in low-connectivity conditions.
+
 ---
 
 ## 5. Environment Configuration
@@ -808,6 +866,39 @@ Frontend follow-up:
 | Late-sync for closed rides (§9.2) | Eliminates manual resolution for offline check-ins after ride closure | **High** |
 | Duplicate check-in handling (§9.3) | Clean user experience for duplicate attempts | **Medium** |
 | ETag propagation in frontend client (§9.4) | Enables full conditional-fetch optimization in frontend refresh orchestration | **Medium** |
+
+## 10. ID Code Configuration and Mapping
+
+This section defines the data-integration contract for production QR scan resolution.
+
+### 10.1 Shared AppConfig Source
+
+- Backend stores app-agnostic config in externally managed `AppConfig` DynamoDB table.
+- App reads via `GET /v1/config` after sign-in.
+- Required partitions for scan flow:
+  - `ID_CODE_FORMAT`
+  - `ID_CODE_TYPE`
+
+### 10.2 Rider Personal Code Mapping
+
+- App reads rider names from `GET /v1/tours/{tourId}/riders/names`.
+- Each item should include optional `personalCode`.
+- App stores local mapping: `personalCode -> riderId`.
+- Scan flow depends on local mapping and does not call backend per scan.
+
+### 10.3 Local SQLite Persistence
+
+Two additive tables support this integration:
+- `app_config` for generic config cache
+- `rider_personal_codes` for personalCode to Rider ID resolution
+
+These are loaded at sign-in, persisted for offline use, and reused for fast scan-time lookup.
+
+### 10.4 Fallback and Rollout Behavior
+
+- If `GET /v1/config` is unavailable, app uses built-in default ID code format definitions.
+- If `personalCode` is absent in rider names payload, production scan cannot resolve Rider ID and must block.
+- Legacy development QR parsing remains available only when `EXPO_PUBLIC_QR_DEV_FORMAT=true`.
 
 ---
 

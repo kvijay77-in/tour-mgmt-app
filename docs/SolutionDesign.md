@@ -35,6 +35,7 @@ This is an evolving document and hence latest info must be referred to at all ti
 - [State Management](#state-management)
 - [Authentication](#authentication)
 - [Backend Integration](#backend-integration)
+- [ID Code Scan Resolution](#id-code-scan-resolution)
 - [Offline Architecture](#offline-architecture)
 - [Navigation Structure](#navigation-structure)
 - [Styling Strategy](#styling-strategy)
@@ -358,6 +359,48 @@ Implemented Dashboard Phase 4 behavior:
 - Alternative: expose a minimal read-only endpoint `GET /v1/tours/{tourId}/users?fields=cognitoUserName,displayName` restricted to check-in roles.
 
 See [docs/dashboard-backend-api-change-request.md](dashboard-backend-api-change-request.md) for a formal request and implementation guidance.
+
+---
+
+## ID Code Scan Resolution
+
+Production QR scan flow resolves Rider ID in-app using config + local mapping.
+
+### Flow
+
+1. Scan raw QR text.
+2. Load active ID format config (SUBSTRING or REGEX).
+3. Extract 5-character ID Code from raw text.
+4. Split ID Code into:
+  - typeCode (position 1)
+  - personalCode (positions 2 to 5)
+5. Resolve typeCode through ID_CODE_TYPE config.
+6. Validate type is RIDER.
+7. Resolve personalCode to tour Rider ID using local SQLite mapping.
+8. Continue existing check-in flow with resolved Rider ID.
+
+If validation fails:
+- Non-RIDER type must be blocked with message: Invalid ID type. Only Rider ID allowed.
+- Unparseable payload must be treated as invalid QR input.
+- Missing personalCode mapping must fail fast with no network retry lookup.
+
+### Post-sign-in bootstrap
+
+After sign-in, app loads and persists:
+- ID_CODE_FORMAT config
+- ID_CODE_TYPE config
+- rider personalCode to Rider ID mapping from rider names payload
+
+Bootstrap is best-effort and non-blocking:
+- If config API is unavailable, app uses built-in default SUBSTRING config and default type map.
+- Rider mapping still depends on names payload containing personalCode.
+
+### Environment behavior
+
+- Default mode (unset or false): production ID Code parsing.
+- Dev override mode (true): EXPO_PUBLIC_QR_DEV_FORMAT=true uses legacy development QR parsing.
+
+This toggle exists only for controlled development/testing compatibility.
 ---
 
 ## Offline Architecture
