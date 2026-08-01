@@ -14,17 +14,17 @@ export interface RecentCheckInRecord {
   stage: string;
 }
 
-function keyFor(userId: string) {
-  return `${STORE_KEY_PREFIX}:${userId}`;
+function keyFor(storageKey: string) {
+  return `${STORE_KEY_PREFIX}:${storageKey}`;
 }
 
-export async function loadRecentCheckIns(userId: string): Promise<RecentCheckInRecord[]> {
+export async function loadRecentCheckIns(storageKey: string): Promise<RecentCheckInRecord[]> {
   try {
-    const raw = await SecureStore.getItemAsync(keyFor(userId));
+    const raw = await SecureStore.getItemAsync(keyFor(storageKey));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
-      await SecureStore.deleteItemAsync(keyFor(userId));
+      await SecureStore.deleteItemAsync(keyFor(storageKey));
       return [];
     }
 
@@ -43,17 +43,17 @@ export async function loadRecentCheckIns(userId: string): Promise<RecentCheckInR
   }
 }
 
-export async function saveRecentCheckIns(userId: string, items: RecentCheckInRecord[]): Promise<void> {
+export async function saveRecentCheckIns(storageKey: string, items: RecentCheckInRecord[]): Promise<void> {
   try {
-    await SecureStore.setItemAsync(keyFor(userId), JSON.stringify(items));
+    await SecureStore.setItemAsync(keyFor(storageKey), JSON.stringify(items));
   } catch {
     // best-effort persistence; ignore failures
   }
 }
 
-export async function clearRecentCheckIns(userId: string): Promise<void> {
+export async function clearRecentCheckIns(storageKey: string): Promise<void> {
   try {
-    await SecureStore.deleteItemAsync(keyFor(userId));
+    await SecureStore.deleteItemAsync(keyFor(storageKey));
   } catch {
     // ignore
   }

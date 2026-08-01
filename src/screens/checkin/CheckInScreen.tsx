@@ -137,22 +137,33 @@ export default function CheckInScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
   const [recentCheckIns, setRecentCheckIns] = useState<RecentCheckInEntry[]>([]);
+  const [recentCheckInsLoadedForUserId, setRecentCheckInsLoadedForUserId] = useState<string | null>(null);
   const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const processingRef = useRef(false);
   const scanCooldownUntilRef = useRef(0);
   const scanCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStartAppliedRef = useRef(false);
+  const currentUserStorageKey = user?.username ?? user?.userId ?? null;
+  const legacyUserStorageKey = user?.username && user?.userId && user.username !== user.userId ? user.userId : null;
 
   // Load persisted recent check-ins for the signed-in user
   useEffect(() => {
     let mounted = true;
-    if (!user) {
+
+    setRecentCheckIns([]);
+    setRecentCheckInsLoadedForUserId(null);
+
+    if (!currentUserStorageKey) {
       setRecentCheckIns([]);
       return () => { mounted = false; };
     }
+
     (async () => {
       try {
-        const persisted = await loadRecentCheckIns(user.userId);
+        let persisted = await loadRecentCheckIns(currentUserStorageKey);
+        if (persisted.length === 0 && legacyUserStorageKey) {
+          persisted = await loadRecentCheckIns(legacyUserStorageKey);
+        }
         if (!mounted) return;
         setRecentCheckIns(
           persisted
@@ -164,18 +175,26 @@ export default function CheckInScreen() {
               stage: entry.stage,
             })),
         );
+        if (persisted.length > 0) {
+          void saveRecentCheckIns(currentUserStorageKey, persisted);
+        }
       } catch {
         // ignore persistence errors
+      } finally {
+        if (mounted) {
+          setRecentCheckInsLoadedForUserId(currentUserStorageKey);
+        }
       }
     })();
     return () => { mounted = false; };
-  }, [user]);
+  }, [currentUserStorageKey, legacyUserStorageKey]);
 
   // Persist recent check-ins whenever they change for the current user
   useEffect(() => {
-    if (!user) return;
-    void saveRecentCheckIns(user.userId, recentCheckIns);
-  }, [recentCheckIns, user]);
+    if (!currentUserStorageKey) return;
+    if (recentCheckInsLoadedForUserId !== currentUserStorageKey) return;
+    void saveRecentCheckIns(currentUserStorageKey, recentCheckIns);
+  }, [currentUserStorageKey, recentCheckIns, recentCheckInsLoadedForUserId]);
 
   useEffect(() => {
     return () => {
