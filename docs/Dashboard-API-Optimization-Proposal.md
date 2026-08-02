@@ -52,6 +52,8 @@ Proposed response shape:
 - summary
 - dataVersion (for diagnostics/cache tracing)
 
+> **Update:** A `cancelled[]` array (same shape as `checkIns[]`, entries with `status="CANCELLED"` plus `prevStatus`/`cancelledAt`/`cancelledBy`) was added alongside `checkIns[]` to support the Check-In Log tab's Cancel Entry feature. See [Data Integration Design → Dashboard API Split](DataIntegrationDesign.md#325-dashboard-api-split-implemented-in-phase-3) for the current contract.
+
 Example:
 {
   "success": true,

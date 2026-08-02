@@ -51,7 +51,8 @@ tour-mgmt-app/
 │   │   │   ├── ErrorBoundary.tsx
 │   │   │   └── SortIcon.tsx
 │   │   ├── dashboard/              # Dashboard specific components
-│   │   │   └── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
+│   │   │   ├── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
+│   │   │   └── RiderCardModal.tsx  # Shared rider card popup (Dashboard tab + Check-In Log tab)
 │   │   └── checkin/                # Check-in specific components
 │   │
 │   ├── navigation/                 # Navigation configuration (native stack only — no tabs/drawer)
@@ -69,6 +70,8 @@ tour-mgmt-app/
 │   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
 │   │   │   ├── configApi.ts        # Generic app configuration API helpers
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
+│   │   ├── dashboard/              # Dashboard cross-screen pub/sub events
+│   │   │   └── dashboardEvents.ts  # Local check-in/cancel event bus (Dashboard ⇄ Check-In Log live sync)
 │   │   ├── config/                 # Runtime org configuration service
 │   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence
 │   │   │   └── pitStopContextService.ts # Persist/clear selected pit-stop stage context
@@ -103,6 +106,7 @@ tour-mgmt-app/
 │   ├── utils/                      # Helper utility functions
 │   │   ├── logger.ts               # Structured, level-gated logging utility
 │   │   ├── permissions.ts          # RBAC permission utilities
+│   │   ├── riderStatus.ts          # Shared RiderStatus derivation (Dashboard grid + RiderCardModal)
 │   │   ├── validators.ts           # Input validation
 │   │   └── formatters.ts           # Data formatting utilities
 │   │

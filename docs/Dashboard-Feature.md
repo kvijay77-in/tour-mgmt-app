@@ -15,6 +15,7 @@ Dashboard screen specification covering the grid display, stage views, sorting, 
   - [Color Coding](#5-color-coding)
   - [Floating Action Button](#6-floating-action-button-fab)
   - [UI Layout](#7-ui-layout)
+  - [Check-In Log Tab](#8-check-in-log-tab)
 - [Technical Notes](#technical-notes)
 
 ---
@@ -110,6 +111,24 @@ Located in the header, displays cumulative counts:
 - Stage view toggle buttons (horizontal scroll)
 - Height: 60px, accommodates unlimited stages
 
+### 8. Check-In Log Tab
+
+The Check-In Log tab (`src/screens/checkin/CheckInLogScreen.tsx`) shows a chronological, filterable list of check-in entries for the current ride.
+
+**Row interaction:**
+- Tapping a row opens an action sheet with two options: **Rider Card** and **Cancel Entry**.
+- **Rider Card** opens the same read-only rider popup used on the Dashboard tab (shared `RiderCardModal` component) — no cancel-related info is shown.
+- **Cancel Entry** is disabled for rows that are already cancelled. Otherwise it opens a Yes/No confirmation dialog.
+
+**Cancel Entry flow:**
+1. Confirming calls the existing cancel-check-in API (`POST /v1/tours/{tourId}/rides/{rideId}/checkins/{checkInId}/cancel`, see [Data Integration Design](DataIntegrationDesign.md#325-dashboard-api-split-implemented-in-phase-3)) — the same endpoint used by the Start-stage override flow.
+2. On success, the entry is updated to `CANCELLED` (with `prevStatus`, `cancelledAt`, `cancelledBy`) in place — **no new check-in entry is created**.
+3. A success/failure confirmation popup is shown.
+4. The change is published locally so the Dashboard rider grid updates immediately without a full reload (mirrors the existing check-in live-update pattern).
+
+**Display:**
+- Cancelled entries remain visible in the log with a **red strikeout** over the row text, instead of being hidden.
+
 ## Technical Notes
 - Uses split API orchestration for Dashboard load:
   - Ride list drives today-ride resolution and selector options (no overlapping today-ride lookup call on initial load)
@@ -125,6 +144,9 @@ Located in the header, displays cumulative counts:
 - Responsive grid adjusts to screen width
 - State management: React hooks (useState, useRef)
 - Check-in offline queue/sync remains SQLite-backed; Dashboard Phase 3 display path uses API split-load strategy described in [Data Integration Design](DataIntegrationDesign.md)
+- The rider card popup is implemented once as a shared component (`src/components/dashboard/RiderCardModal.tsx`) and reused by both the Dashboard tab (rider icon tap) and the Check-In Log tab (row action sheet's "Rider Card" option); shared rider-status derivation logic lives in `src/utils/riderStatus.ts`
+- Cancel Entry (Check-In Log tab) publishes a dedicated local event (`DashboardCancelEvent` in `src/services/dashboard/dashboardEvents.ts`) so the Dashboard grid reflects a cancellation immediately, mirroring the existing check-in live-update event
+- Cancelled entries are a server-only concept today; offline display/cancellation of entries while offline is out of scope and deferred to a future enhancement
 
 ### Backend Change Request: `checkedInByName`
 

@@ -15,6 +15,8 @@ interface RideSessionState {
   selectedStageNumber: number | null;
   selectedSpecial: SelectedSpecial;
   checkIns: CheckIn[];
+  /** Cancelled check-in entries for the current ride (Check-In Log tab only) */
+  cancelledCheckIns: CheckIn[];
   isSorted: boolean;
   autoCheckIn: boolean;
   scanPauseSeconds: number;
@@ -24,6 +26,7 @@ interface RideSessionState {
   setSelectedSpecial: (s: SelectedSpecial) => void;
   setScanPauseSeconds: (seconds: number) => void;
   setCheckIns: React.Dispatch<React.SetStateAction<CheckIn[]>>;
+  setCancelledCheckIns: React.Dispatch<React.SetStateAction<CheckIn[]>>;
   toggleSort: (val?: boolean) => void;
   toggleAutoCheckIn: (val?: boolean) => void;
 }
@@ -36,6 +39,7 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
   const [selectedStageNumber, setSelectedStageNumber] = useState<number | null>(null);
   const [selectedSpecial, setSelectedSpecial] = useState<SelectedSpecial>(null);
   const [checkIns, setCheckInsState] = useState<CheckIn[]>([]);
+  const [cancelledCheckIns, setCancelledCheckInsState] = useState<CheckIn[]>([]);
   const [isSorted, setIsSorted] = useState(false);
   const [autoCheckIn, setAutoCheckIn] = useState(false);
   const [scanPauseSeconds, setScanPauseSecondsState] = useState(DEFAULT_SCAN_PAUSE_SECONDS);
@@ -60,6 +64,7 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     setSelectedStageNumber(null);
     setSelectedSpecial(null);
     setCheckInsState([]);
+    setCancelledCheckInsState([]);
     setIsSorted(false);
   }
 
@@ -70,6 +75,10 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
 
   function setCheckIns(c: React.SetStateAction<CheckIn[]>) {
     setCheckInsState(c);
+  }
+
+  function setCancelledCheckIns(c: React.SetStateAction<CheckIn[]>) {
+    setCancelledCheckInsState(c);
   }
 
   function toggleAutoCheckIn(val?: boolean) {
@@ -94,6 +103,7 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     selectedStageNumber,
     selectedSpecial,
     checkIns,
+    cancelledCheckIns,
     isSorted,
     autoCheckIn,
     scanPauseSeconds,
@@ -103,6 +113,7 @@ export function RideSessionProvider({ children }: { children: ReactNode }) {
     setSelectedSpecial,
     setScanPauseSeconds,
     setCheckIns,
+    setCancelledCheckIns,
     toggleSort,
     toggleAutoCheckIn,
   };

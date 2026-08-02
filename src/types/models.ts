@@ -402,6 +402,9 @@ export interface CheckIn {
 
   /** Optional backend status field when a cancelled record is materialized explicitly */
   status?: string;
+
+  /** Status the entry held before it was cancelled (only present on cancelled records) */
+  prevStatus?: string;
   
   /** Location coordinates (if available) */
   location?: {
@@ -586,6 +589,8 @@ export interface DashboardSummary {
 export interface DashboardProgressData {
   rideId: string;
   checkIns: CheckIn[];
+  /** Cancelled check-in entries for this ride (status=CANCELLED, prevStatus set) */
+  cancelled: CheckIn[];
   summary: DashboardSummary;
   dataVersion?: string;
 }

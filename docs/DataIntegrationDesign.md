@@ -276,6 +276,24 @@ Implemented payload contracts used by frontend:
   "data": {
     "rideId": "RIDE001",
     "checkIns": [],
+    "cancelled": [
+      {
+        "rideId": "RIDE001",
+        "checkInId": "R57#001#2026-07-23T09:00:00Z",
+        "cancelledAt": "2026-07-23T09:31:00Z",
+        "cancelledBy": "user-123",
+        "checkedInBy": "user-456",
+        "createdAt": "2026-07-23T09:00:00Z",
+        "isManualEntry": false,
+        "isNotRiding": false,
+        "isQuitRiding": false,
+        "method": "QR_SCAN",
+        "prevStatus": "CHECKED_IN",
+        "riderId": "R57",
+        "status": "CANCELLED",
+        "timestamp": "2026-07-23T09:00:00Z"
+      }
+    ],
     "summary": {
       "totalRiders": 100,
       "checkedIn": 75,
@@ -288,6 +306,17 @@ Implemented payload contracts used by frontend:
   "timestamp": "2026-07-23T10:00:00Z"
 }
 ```
+
+`cancelled` carries CANCELLED-status entries separately from `checkIns` (which only lists active/current entries), so the Check-In Log tab can display cancelled entries with strikeout without a second API call. Consumed only by the Check-In Log tab; the Dashboard rider grid uses `checkIns`.
+
+**Cancel Check-in Request** (`POST /v1/tours/{tourId}/rides/{rideId}/checkins/{checkInId}/cancel`):
+```json
+{
+  "status": "CANCELLED",
+  "prevStatus": "CHECKED_IN"
+}
+```
+Used by the Check-In Log tab's "Cancel Entry" action (see [Dashboard-Feature.md](Dashboard-Feature.md)) and reuses the same endpoint originally built for the Start-stage override flow. Does not create a new check-in entry; the existing entry transitions to CANCELLED.
 
 **Rider Details Response** (`GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details`):
 ```json

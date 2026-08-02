@@ -41,6 +41,7 @@ This page provides a guide to all project documentation.
 
 ### For Understanding Features
 - **Dashboard details**: [Dashboard Feature](Dashboard-Feature.md) — grid, stages, sorting, zoom, color coding
+- **Check-In Log tab (Rider Card / Cancel Entry)**: [Dashboard Feature → Check-In Log Tab](Dashboard-Feature.md#8-check-in-log-tab)
 - **Check-in process**: [Requirements → Check-In](Requirements.md#check-in)
 - **Role-based access**: [Requirements → Role Based App Access](Requirements.md#role-based-app-access)
 - **Ride status transitions (Admin)**: [Requirements → Ride Status Management](Requirements.md#ride-status-management)

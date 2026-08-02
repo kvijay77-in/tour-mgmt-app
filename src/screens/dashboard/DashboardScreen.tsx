@@ -10,7 +10,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
-  Modal,
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
@@ -20,19 +19,19 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useTour } from '../../context/TourContext';
 import { listRides } from '../../services/api/rideApi';
 import { getDashboardProgress } from '../../services/api/dashboardApi';
-import { getRideRiderDetails, listRiders } from '../../services/api/riderApi';
-import { subscribeDashboardCheckInEvent, subscribeDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
+import { listRiders } from '../../services/api/riderApi';
+import { subscribeDashboardCheckInEvent, subscribeDashboardCancelEvent, subscribeDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
+import { buildRiderStatuses, resolveStageForCheckIn } from '../../utils/riderStatus';
+import RiderCardModal from '../../components/dashboard/RiderCardModal';
 import {
   Ride,
   Rider,
   CheckIn,
   RiderStatus,
   CheckInStatus,
-  Stage,
   RideStatus,
-  RiderDetailsData,
   isCancelledCheckIn,
 } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
@@ -40,63 +39,7 @@ import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from
 import { useRideSession } from '../../context/RideSessionContext';
 
 const { width: WINDOW_WIDTH } = Dimensions.get('window');
-const ENABLE_OFFLINE_RIDER_PROFILE_CACHE = false;
 const STALE_SESSION_REFRESH_MS = 2 * 60 * 1000;
-
-/**
- * Build RiderStatus[] from dashboard API response data.
- */
-function buildRiderStatuses(ride: Ride, riders: Rider[], checkIns: CheckIn[]): RiderStatus[] {
-  if (!Array.isArray(riders)) {
-    logger.error('Dashboard', 'buildRiderStatuses received a non-array rider roster');
-    return [];
-  }
-
-  return riders.map((rider) => {
-    const riderCheckIns = checkIns
-      .filter((ci) => {
-        const matchesRider = ci.riderId === rider.riderId;
-        const matchesRide = typeof ci.rideId !== 'string' || ci.rideId === ride.rideId;
-
-        return matchesRider && matchesRide && !isCancelledCheckIn(ci);
-      })
-      .sort((a, b) => a.stageNumber - b.stageNumber);
-
-    // Determine overall status
-    let overallStatus = CheckInStatus.NOT_CHECKED_IN;
-    const nrCheckIn = riderCheckIns.find((ci) => ci.isNotRiding);
-    const qrCheckIn = riderCheckIns.find((ci) => ci.isQuitRiding);
-
-    if (nrCheckIn) {
-      overallStatus = CheckInStatus.NOT_RIDING;
-    } else if (qrCheckIn) {
-      overallStatus = CheckInStatus.QUIT_RIDING;
-    } else if (riderCheckIns.length > 0) {
-      overallStatus = CheckInStatus.CHECKED_IN;
-    }
-
-    // Last non-special check-in determines the last stage reached
-    const regularCheckIns = riderCheckIns.filter((ci) => !ci.isNotRiding && !ci.isQuitRiding);
-    const lastRegularCheckIn = regularCheckIns.length > 0
-      ? regularCheckIns[regularCheckIns.length - 1]
-      : undefined;
-
-    const lastStage = lastRegularCheckIn ? resolveStageForCheckIn(ride, lastRegularCheckIn) : undefined;
-
-    const lastCheckIn = riderCheckIns.length > 0
-      ? riderCheckIns[riderCheckIns.length - 1]
-      : undefined;
-
-    return {
-      rider,
-      ride,
-      lastCheckIn,
-      overallStatus,
-      lastStage,
-      checkInHistory: riderCheckIns,
-    };
-  });
-}
 
 /**
  * Natural compare for rider IDs (e.g. R2 < R10).
@@ -106,48 +49,6 @@ function compareRiderIdsNatural(a: string, b: string): number {
     numeric: true,
     sensitivity: 'base',
   });
-}
-
-function normalizeStageNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function resolveStageForCheckIn(ride: Ride | null, checkIn: CheckIn): Stage | undefined {
-  if (!ride) {
-    return undefined;
-  }
-
-  if (checkIn.stageId) {
-    const stageById = ride.stages.find((stage) => stage.stageId === checkIn.stageId);
-    if (stageById) {
-      return stageById;
-    }
-  }
-
-  const normalizedStageNumber = normalizeStageNumber(checkIn.stageNumber);
-  if (normalizedStageNumber === null) {
-    return undefined;
-  }
-
-  const exactMatch = ride.stages.find((stage) => stage.stageNumber === normalizedStageNumber);
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  if (normalizedStageNumber > 0) {
-    return ride.stages.find((stage) => stage.stageNumber === normalizedStageNumber - 1);
-  }
-
-  return undefined;
 }
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {
@@ -195,12 +96,10 @@ export default function DashboardScreen() {
     isSorted,
     setCurrentRide,
     setCheckIns,
+    setCancelledCheckIns,
   } = useRideSession();
   const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3 | 4>(1);
   const [selectedRiderStatus, setSelectedRiderStatus] = useState<RiderStatus | null>(null);
-  const [selectedRiderDetails, setSelectedRiderDetails] = useState<RiderDetailsData | null>(null);
-  const [isRiderDetailsLoading, setIsRiderDetailsLoading] = useState(false);
-  const [riderDetailsError, setRiderDetailsError] = useState<string | null>(null);
   const [isRiderCardVisible, setIsRiderCardVisible] = useState(false);
   const [isSkippedHighlightEnabled] = useState(true);
 
@@ -232,6 +131,7 @@ export default function DashboardScreen() {
     targetRide: Ride,
     roster: Rider[],
     checkIns: CheckIn[],
+    cancelled: CheckIn[],
     historical: boolean
   ) => {
     setRide(targetRide);
@@ -240,11 +140,12 @@ export default function DashboardScreen() {
     try {
       setCurrentRide(targetRide, historical);
       setCheckIns(Array.isArray(checkIns) ? checkIns : []);
+      setCancelledCheckIns(Array.isArray(cancelled) ? cancelled : []);
     } catch (err) {
       // Context may not be available in some test scenarios; fail silently
       logger.info('Dashboard', 'RideSessionContext update skipped', err);
     }
-  }, [setCurrentRide, setCheckIns]);
+  }, [setCurrentRide, setCheckIns, setCancelledCheckIns]);
 
   // Load a specific ride's dashboard progress using preloaded rider roster.
   const loadRideDashboard = useCallback(async (
@@ -290,7 +191,8 @@ export default function DashboardScreen() {
       }
 
       const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
-      applyDashboardProgress(targetRide, roster, checkIns, historical);
+      const cancelled = Array.isArray(data.cancelled) ? data.cancelled : [];
+      applyDashboardProgress(targetRide, roster, checkIns, cancelled, historical);
     } catch (err) {
       logger.error('Dashboard', 'loadRideDashboard failed', err);
       let message: string;
@@ -365,7 +267,8 @@ export default function DashboardScreen() {
         }
 
         const checkIns = Array.isArray(data.checkIns) ? data.checkIns : [];
-        applyDashboardProgress(todayRide, roster, checkIns, false);
+        const cancelled = Array.isArray(data.cancelled) ? data.cancelled : [];
+        applyDashboardProgress(todayRide, roster, checkIns, cancelled, false);
       } else if (allowHistoricalFallback && sortedRides.length > 0) {
         // Fall back to the most recent ride (historical/read-only)
         await loadRideDashboard(sortedRides[0], true);
@@ -494,6 +397,43 @@ export default function DashboardScreen() {
     }
   }, [ride, riders, setCheckIns]);
 
+  // A check-in cancelled from the Check-In Log tab should update the grid
+  // (rider reverts to its prior status) without a full dashboard reload.
+  const applyLocalCancelUpdate = useCallback((cancelledCheckIn: CheckIn) => {
+    if (!ride || cancelledCheckIn.rideId !== ride.rideId) {
+      return;
+    }
+
+    setAllRiderStatuses((prevStatuses) => {
+      const checkInByKey = new Map<string, CheckIn>();
+
+      prevStatuses
+        .flatMap((status) => status.checkInHistory)
+        .forEach((existingCheckIn) => {
+          checkInByKey.set(getCheckInDedupKey(existingCheckIn), existingCheckIn);
+        });
+
+      checkInByKey.set(getCheckInDedupKey(cancelledCheckIn), cancelledCheckIn);
+
+      const roster = riders.length > 0 ? riders : prevStatuses.map((status) => status.rider);
+      const mergedCheckIns = Array.from(checkInByKey.values()).filter((entry) => entry.rideId === ride.rideId);
+
+      return buildRiderStatuses(ride, roster, mergedCheckIns);
+    });
+
+    try {
+      setCheckIns((prev) => prev.filter((ci) => ci.checkInId !== cancelledCheckIn.checkInId));
+      setCancelledCheckIns((prev) => {
+        if (prev.some((ci) => ci.checkInId === cancelledCheckIn.checkInId)) {
+          return prev;
+        }
+        return [cancelledCheckIn, ...prev];
+      });
+    } catch (err) {
+      logger.info('Dashboard', 'setCancelledCheckIns skipped', err);
+    }
+  }, [ride, riders, setCheckIns, setCancelledCheckIns]);
+
   useEffect(() => {
     const unsubscribe = subscribeDashboardCheckInEvent(({ checkIn }) => {
       // Returning from Check-In should not force a full reload.
@@ -503,6 +443,15 @@ export default function DashboardScreen() {
 
     return unsubscribe;
   }, [applyLocalCheckInUpdate]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeDashboardCancelEvent(({ checkIn }) => {
+      shouldSkipNextFocusRefreshRef.current = true;
+      applyLocalCancelUpdate(checkIn);
+    });
+
+    return unsubscribe;
+  }, [applyLocalCancelUpdate]);
 
   useEffect(() => {
     const unsubscribe = subscribeDashboardRefreshEvent(() => {
@@ -597,88 +546,17 @@ export default function DashboardScreen() {
       && !hasRegularCheckInAtStage(riderStatus, selectedStage.stageNumber);
   }, [hasRegularCheckInAfterStage, hasRegularCheckInAtStage, isSkippedHighlightEnabled, selectedStage]);
 
-  // Handle rider icon tap
-  const getDashboardErrorMessage = useCallback((err: unknown, fallback: string): string => {
-    const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
-    if (isApiError) {
-      const apiErr = err as ApiError;
-      if (apiErr.errorCode === 'CONFIG_ERROR') return apiErr.message;
-      if (apiErr.statusCode === 0) return 'Unable to reach the server. Please check your internet connection and try again.';
-      if (apiErr.statusCode >= 500) return 'The server encountered an error. Please try again later.';
-      return apiErr.message || fallback;
-    }
-    if (isNetworkError(err)) {
-      return 'Unable to reach the server. Please check your internet connection and try again.';
-    }
-    return 'An unexpected error occurred. Please try again.';
-  }, []);
-
-  const loadSelectedRiderDetails = useCallback(async (riderStatus: RiderStatus) => {
-    if (!tour || !ride) return;
-
-    setIsRiderDetailsLoading(true);
-    setRiderDetailsError(null);
-    setSelectedRiderDetails(null);
-
-    try {
-      const details = await getRideRiderDetails(tour.tourId, ride.rideId, riderStatus.rider.riderId);
-      if (!details) {
-        setRiderDetailsError('Rider details are not available for this rider.');
-        return;
-      }
-
-      // The rider-details endpoint returns a timeline already scoped to this
-      // rider + ride, so individual entries may omit riderId/rideId. Backfill
-      // them so the shared buildRiderStatuses() matching logic (also used for
-      // the full roster, where entries always carry riderId/rideId) works
-      // correctly here too.
-      const normalizedDetails: RiderDetailsData = {
-        ...details,
-        checkInTimeline: details.checkInTimeline.map((checkIn) => ({
-          ...checkIn,
-          riderId: checkIn.riderId || details.rider.riderId,
-          rideId: checkIn.rideId || ride.rideId,
-        })),
-      };
-
-      // Privacy requirement: keep rider details in-memory only.
-      setSelectedRiderDetails(normalizedDetails);
-
-      if (ENABLE_OFFLINE_RIDER_PROFILE_CACHE) {
-        // Future enhancement placeholder: optional offline rider-profile cache path.
-      }
-    } catch (err) {
-      logger.error('Dashboard', 'loadSelectedRiderDetails failed', err);
-      setRiderDetailsError(getDashboardErrorMessage(err, 'Failed to load rider details. Please try again.'));
-    } finally {
-      setIsRiderDetailsLoading(false);
-    }
-  }, [tour, ride, getDashboardErrorMessage]);
-
   const handleCloseRiderCard = useCallback(() => {
     setIsRiderCardVisible(false);
     setSelectedRiderStatus(null);
-    setSelectedRiderDetails(null);
-    setRiderDetailsError(null);
-    setIsRiderDetailsLoading(false);
   }, []);
 
   const handleRiderTap = (riderStatus: RiderStatus) => {
     if (zoomLevel === 1 || zoomLevel === 2) {
       setSelectedRiderStatus(riderStatus);
       setIsRiderCardVisible(true);
-      void loadSelectedRiderDetails(riderStatus);
     }
   };
-
-  const selectedRider = useMemo(() => {
-    if (!ride || !selectedRiderStatus || !selectedRiderDetails) {
-      return null;
-    }
-
-    const [status] = buildRiderStatuses(ride, [selectedRiderDetails.rider], selectedRiderDetails.checkInTimeline);
-    return status ?? null;
-  }, [ride, selectedRiderStatus, selectedRiderDetails]);
 
   // Sort riders based on requirements
   const sortRiders = (riders: RiderStatus[]): RiderStatus[] => {
@@ -792,77 +670,6 @@ export default function DashboardScreen() {
     
     return STAGE_VIEW_COLORS.notCheckedInAtStage; // White with border
   };
-
-  const getStageLabel = (stageNumber: number, totalStages: number): string => {
-    if (stageNumber === 0) return 'Start';
-    if (stageNumber === totalStages - 1) return 'Finish';
-    return `PS${stageNumber}`;
-  };
-
-  const formatDateTimeForDisplay = (value?: string): string => {
-    if (!value) return 'N/A';
-
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-
-    return parsed.toLocaleString();
-  };
-
-  const getLatestCheckInForStage = useCallback((riderStatus: RiderStatus, stageNumber: number): CheckIn | undefined => {
-    const targetStage = ride?.stages.find((stage) => stage.stageNumber === stageNumber);
-    if (!targetStage) {
-      return undefined;
-    }
-
-    let latestCheckIn: CheckIn | undefined;
-
-    riderStatus.checkInHistory.forEach((checkIn) => {
-      const matchedStage = resolveStageForCheckIn(ride, checkIn);
-      if (matchedStage?.stageId !== targetStage.stageId || isCancelledCheckIn(checkIn)) return;
-
-      if (!latestCheckIn) {
-        latestCheckIn = checkIn;
-        return;
-      }
-
-      if (new Date(checkIn.timestamp).getTime() > new Date(latestCheckIn.timestamp).getTime()) {
-        latestCheckIn = checkIn;
-      }
-    });
-
-    return latestCheckIn;
-  }, [ride]);
-
-  const getLatestSpecialCheckIn = useCallback(
-    (riderStatus: RiderStatus, kind: 'NR' | 'QR'): CheckIn | undefined => {
-      let latestCheckIn: CheckIn | undefined;
-
-      riderStatus.checkInHistory.forEach((checkIn) => {
-        if (isCancelledCheckIn(checkIn)) return;
-
-        const matches = kind === 'NR' ? checkIn.isNotRiding : checkIn.isQuitRiding;
-        if (!matches) return;
-
-        if (!latestCheckIn) {
-          latestCheckIn = checkIn;
-          return;
-        }
-
-        if (new Date(checkIn.timestamp).getTime() > new Date(latestCheckIn.timestamp).getTime()) {
-          latestCheckIn = checkIn;
-        }
-      });
-
-      return latestCheckIn;
-    },
-    []
-  );
-
-  const getStageDisplayName = useCallback((stage: Stage, totalStages: number): string => {
-    const name = stage.name?.trim();
-    if (name) return name;
-    return getStageLabel(stage.stageNumber, totalStages);
-  }, []);
 
   // Style helpers for dynamic colors and sizes
   const getRiderIconStyle = (riderStatus: RiderStatus) => {
@@ -1041,180 +848,13 @@ export default function DashboardScreen() {
       </GestureDetector>
 
       {/* Rider Card Modal for Level 1 & 2 */}
-      <Modal
+      <RiderCardModal
         visible={isRiderCardVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCloseRiderCard}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={handleCloseRiderCard}
-        >
-          <TouchableOpacity
-            style={[
-              styles.riderCard,
-              {
-                width: Math.min(width * 0.92, 460),
-                maxHeight: height * 0.9,
-              },
-            ]}
-            activeOpacity={1}
-            onPress={() => {
-              // Keep modal open while interacting inside the rider card.
-            }}
-          >
-            {isRiderDetailsLoading && (
-              <View style={styles.riderCardLoadingState}>
-                <ActivityIndicator size="small" color={COLORS.primary} />
-                <Text style={styles.riderCardLoadingText}>Loading rider details...</Text>
-              </View>
-            )}
-
-            {!isRiderDetailsLoading && riderDetailsError && selectedRiderStatus && (
-              <View style={styles.riderCardLoadingState}>
-                <Text style={styles.riderCardErrorText}>{riderDetailsError}</Text>
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={() => {
-                    void loadSelectedRiderDetails(selectedRiderStatus);
-                  }}
-                >
-                  <Text style={styles.retryButtonText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {!isRiderDetailsLoading && !riderDetailsError && selectedRider && (
-              <ScrollView
-                style={styles.riderCardScroll}
-                contentContainerStyle={styles.riderCardScrollContent}
-                showsVerticalScrollIndicator={true}
-              >
-                <View style={styles.riderCardHeader}>
-                  <MaterialIcons
-                    name="account-circle"
-                    size={80}
-                    color={COLORS.gray[400]}
-                    style={styles.riderCardIcon}
-                  />
-                  <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
-                  <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
-                  <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
-                </View>
-
-                <View style={styles.riderCardSection}>
-                  {selectedRider.overallStatus === CheckInStatus.NOT_RIDING ? (
-                    (() => {
-                      const notRidingCheckIn = getLatestSpecialCheckIn(selectedRider, 'NR');
-                      return (
-                        <>
-                          <Text style={styles.riderCardSectionTitle}>Not Riding</Text>
-                          <Text style={styles.riderSpecialStatusTime}>
-                            {notRidingCheckIn
-                              ? `Marked at ${formatDateTimeForDisplay(notRidingCheckIn.timestamp)}`
-                              : 'Marked as Not Riding'}
-                          </Text>
-                        </>
-                      );
-                    })()
-                  ) : (
-                    <>
-                      <Text style={styles.riderCardSectionTitle}>Stage Check-ins</Text>
-                      {(() => {
-                        const sortedStages = [...ride.stages].sort((a, b) => a.stageNumber - b.stageNumber);
-
-                        if (selectedRider.overallStatus === CheckInStatus.QUIT_RIDING) {
-                          const quitCheckIn = getLatestSpecialCheckIn(selectedRider, 'QR');
-                          const quitTime = quitCheckIn
-                            ? new Date(quitCheckIn.timestamp).getTime()
-                            : Number.POSITIVE_INFINITY;
-
-                          const regularStages = sortedStages.filter((stage) => {
-                            const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
-                            if (!checkIn || checkIn.isNotRiding || checkIn.isQuitRiding) return false;
-                            return new Date(checkIn.timestamp).getTime() <= quitTime;
-                          });
-
-                          return (
-                            <>
-                              {regularStages.map((stage) => {
-                                const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
-                                const stageColor = getStageColor(stage.stageNumber, ride.stages.length);
-
-                                return (
-                                  <View key={stage.stageId} style={styles.riderStageRow}>
-                                    <View style={styles.riderStageHeaderRow}>
-                                      <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}>
-                                        <Text style={styles.riderStageNameChipText}>
-                                          {getStageDisplayName(stage, ride.stages.length)}
-                                        </Text>
-                                      </View>
-                                    </View>
-                                    <Text style={styles.riderStageTime}>{formatDateTimeForDisplay(checkIn?.timestamp)}</Text>
-                                  </View>
-                                );
-                              })}
-
-                              <View style={styles.riderStageRow}>
-                                <View style={styles.riderStageHeaderRow}>
-                                  <View style={[styles.riderStageNameChip, styles.riderQuitChip]}>
-                                    <Text style={styles.riderStageNameChipText}>Quit Riding</Text>
-                                  </View>
-                                </View>
-                                <Text style={styles.riderStageTime}>
-                                  {quitCheckIn
-                                    ? formatDateTimeForDisplay(quitCheckIn.timestamp)
-                                    : 'Marked as Quit Riding'}
-                                </Text>
-                              </View>
-                            </>
-                          );
-                        }
-
-                        return sortedStages.map((stage) => {
-                          const checkIn = getLatestCheckInForStage(selectedRider, stage.stageNumber);
-                          const stageColor = getStageColor(stage.stageNumber, ride.stages.length);
-                          const isSkippedStage = hasRegularCheckInAfterStage(selectedRider, stage.stageNumber)
-                            && !hasRegularCheckInAtStage(selectedRider, stage.stageNumber);
-
-                          return (
-                            <View key={stage.stageId} style={styles.riderStageRow}>
-                              <View style={styles.riderStageHeaderRow}>
-                                <View style={[styles.riderStageNameChip, { backgroundColor: stageColor }]}> 
-                                  <Text style={styles.riderStageNameChipText}>
-                                    {getStageDisplayName(stage, ride.stages.length)}
-                                  </Text>
-                                </View>
-                                {isSkippedStage && (
-                                  <View style={styles.riderStageWarningBadge}>
-                                    <Text style={styles.riderStageWarningMark}>!</Text>
-                                  </View>
-                                )}
-                              </View>
-                              <Text style={styles.riderStageTime}>
-                                {checkIn ? formatDateTimeForDisplay(checkIn.timestamp) : 'Not checked in'}
-                              </Text>
-                            </View>
-                          );
-                        });
-                      })()}
-                    </>
-                  )}
-                </View>
-
-                <TouchableOpacity 
-                  style={styles.closeButton}
-                  onPress={handleCloseRiderCard}
-                >
-                  <Text style={styles.closeButtonText}>Close</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            )}
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        tourId={tour?.tourId}
+        ride={ride}
+        riderId={selectedRiderStatus?.rider.riderId ?? null}
+        onClose={handleCloseRiderCard}
+      />
     </View>
   );
 }
@@ -1407,150 +1047,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     textAlign: 'center',
     marginTop: 0,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  riderCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 14,
-    width: WINDOW_WIDTH * 0.88,
-    maxWidth: 420,
-    maxHeight: '80%',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  riderCardScroll: {
-    flexGrow: 0,
-  },
-  riderCardScrollContent: {
-    paddingBottom: 4,
-  },
-  riderCardLoadingState: {
-    minHeight: 180,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    gap: 10,
-  },
-  riderCardLoadingText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
-  riderCardErrorText: {
-    fontSize: 14,
-    color: COLORS.textPrimary,
-    textAlign: 'center',
-  },
-  riderCardHeader: {
-    alignItems: 'center',
-  },
-  riderCardIcon: {
-    marginBottom: 8,
-  },
-  riderCardId: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-    marginBottom: 6,
-  },
-  riderCardName: {
-    fontSize: 16,
-    color: COLORS.textPrimary,
-    marginBottom: 2,
-  },
-  riderCardContact: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginBottom: 12,
-  },
-  riderCardSection: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 14,
-  },
-  riderCardSectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: 8,
-  },
-  riderStageRow: {
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLight,
-  },
-  riderStageHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  riderStageNameChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
-  },
-  riderQuitChip: {
-    backgroundColor: COLORS.danger,
-  },
-  riderStageNameChipText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: COLORS.white,
-  },
-  riderStageTime: {
-    marginTop: 4,
-    fontSize: 11,
-    color: COLORS.textSecondary,
-  },
-  riderStageWarningBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 22,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    backgroundColor: '#FFF8E1',
-  },
-  riderStageWarningMark: {
-    fontSize: 14,
-    lineHeight: 14,
-    fontWeight: '900',
-    color: '#92400E',
-  },
-  riderSpecialStatusTime: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-  },
-  closeButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignSelf: 'center',
-  },
-  closeButtonText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: 'bold',
   },
   ridePickerContainer: {
     backgroundColor: COLORS.white,
