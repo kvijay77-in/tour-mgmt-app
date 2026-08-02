@@ -9,6 +9,7 @@ import { apiClient } from './apiClient';
 export interface RiderNameDirectoryEntry {
   riderId: string;
   name: string | null;
+  personalCode?: string | null;
 }
 
 export interface CognitoUserNameEntry {
@@ -51,18 +52,24 @@ export async function listTourRiderNames(tourId: string): Promise<RiderNameDirec
   const response = await apiClient.get<unknown>(`/v1/tours/${tourId}/riders/names`);
   const items = extractArrayPayload(response.data);
 
-  return items
-    .map((item) => {
-      if (!item || typeof item !== 'object') return null;
-      const row = item as Record<string, unknown>;
-      const riderId = normalizeString(row.riderId);
-      if (!riderId) return null;
-      return {
-        riderId,
-        name: normalizeString(row.name),
-      };
-    })
-    .filter((item): item is RiderNameDirectoryEntry => item !== null);
+  const parsed: RiderNameDirectoryEntry[] = [];
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const riderId = normalizeString(row.riderId);
+    if (!riderId) continue;
+
+    const normalizedPersonalCode = normalizeString(row.personalCode);
+
+    parsed.push({
+      riderId,
+      name: normalizeString(row.name),
+      personalCode: normalizedPersonalCode ? normalizedPersonalCode.toUpperCase() : null,
+    });
+  }
+
+  return parsed;
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   Platform,
   KeyboardAvoidingView,
   Switch,
+  Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useIsFocused } from '@react-navigation/native';
@@ -39,24 +40,12 @@ import { loadPitStopContextStageNumber } from '../../services/config/pitStopCont
 import { loadRecentCheckIns, saveRecentCheckIns } from '../../services/config/recentCheckInsService';
 import { playSuccess, playFailure, playScanTick } from '../../services/feedback/feedbackService';
 import { useNameDirectory } from '../../context/NameDirectoryContext';
+import { resolveScannedRiderId } from '../../services/idcode/idCodeService';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
 const TAG = 'CheckInScreen';
 const RECENT_CHECKINS_LIMIT = 5;
-
-/**
- * Supported QR payload formats:
- * 1) "R123" (riderId only)
- * 2) "R123|..." (pipe-delimited; first segment is riderId)
- */
-function extractRiderIdFromQr(rawValue?: string): string | null {
-  const value = rawValue?.trim();
-  if (!value) return null;
-
-  const riderId = value.includes('|') ? value.split('|')[0]?.trim() : value;
-  return riderId || null;
-}
 
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
 type StatusKind = 'error' | 'info' | 'warning';
@@ -575,27 +564,57 @@ export default function CheckInScreen() {
       const now = Date.now();
       if (now < scanCooldownUntilRef.current) return;
 
-      const riderId = extractRiderIdFromQr(result.data);
-      if (!riderId) return;
-
       processingRef.current = true;
-      scanCooldownUntilRef.current = now + (scanPauseSeconds * 1000);
-      if (scanCooldownTimerRef.current) {
-        clearTimeout(scanCooldownTimerRef.current);
-      }
-      scanCooldownTimerRef.current = setTimeout(() => {
+
+      const releaseScanLock = () => {
         processingRef.current = false;
-        scanCooldownTimerRef.current = null;
-      }, scanPauseSeconds * 1000);
+        scanCooldownUntilRef.current = 0;
+        if (scanCooldownTimerRef.current) {
+          clearTimeout(scanCooldownTimerRef.current);
+          scanCooldownTimerRef.current = null;
+        }
+      };
 
       void playScanTick();
-      setPendingMethod(CheckInMethod.QR_SCAN);
-      setScannedRiderId(riderId);
-      setStatusMessage(null);
+      void (async () => {
+        try {
+          const resolution = await resolveScannedRiderId(result.data);
+          if (!resolution.ok) {
+            void playFailure('error');
+            Alert.alert('Scan Error', resolution.message, [{ text: 'OK', onPress: releaseScanLock }], {
+              cancelable: false,
+            });
+            return;
+          }
 
-      if (autoCheckIn) {
-        void submitCheckIn(riderId, CheckInMethod.QR_SCAN);
-      }
+          const resolvedRiderId = resolution.riderId;
+          const scanWindowMs = scanPauseSeconds * 1000;
+          scanCooldownUntilRef.current = Date.now() + scanWindowMs;
+          if (scanCooldownTimerRef.current) {
+            clearTimeout(scanCooldownTimerRef.current);
+          }
+          scanCooldownTimerRef.current = setTimeout(() => {
+            processingRef.current = false;
+            scanCooldownTimerRef.current = null;
+          }, scanWindowMs);
+
+          setPendingMethod(CheckInMethod.QR_SCAN);
+          setScannedRiderId(resolvedRiderId);
+          setStatusMessage(null);
+
+          if (autoCheckIn) {
+            void submitCheckIn(resolvedRiderId, CheckInMethod.QR_SCAN);
+          }
+        } catch (error) {
+          logger.error(TAG, 'Failed to resolve scanned rider ID', error);
+          void playFailure('error');
+
+          const message = error instanceof Error ? error.message : 'Failed to process scanned QR code.';
+          Alert.alert('Scan Error', message, [{ text: 'OK', onPress: releaseScanLock }], {
+            cancelable: false,
+          });
+        }
+      })();
     },
     [autoCheckIn, scanPauseSeconds, submitCheckIn],
   );

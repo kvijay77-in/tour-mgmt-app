@@ -10,6 +10,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { useAuth } from './AuthContext';
 import { useTour } from './TourContext';
 import { listTourRiderNames, listCognitoUserNames } from '../services/api/nameDirectoryApi';
+import { replaceRiderPersonalCodes } from '../services/database/riderPersonalCodeStore';
 import { logger } from '../utils/logger';
 
 const TAG = 'NameDirectoryContext';
@@ -91,6 +92,16 @@ export function NameDirectoryProvider({ children }: { children: React.ReactNode 
     (async () => {
       try {
         const entries = await listTourRiderNames(tourId);
+
+        const personalCodeEntries = entries
+          .filter((entry): entry is typeof entry & { personalCode: string } => Boolean(entry.personalCode))
+          .map((entry) => ({
+            personalCode: entry.personalCode,
+            riderId: entry.riderId,
+          }));
+
+        await replaceRiderPersonalCodes(tourId, personalCodeEntries);
+
         if (!mounted) return;
 
         const map: Record<string, string | null> = {};

@@ -50,7 +50,8 @@
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
         "EXPO_PUBLIC_LOG_LEVEL": "WARN",
-        "EXPO_PUBLIC_API_DEBUG_GET": "false"
+        "EXPO_PUBLIC_API_DEBUG_GET": "false",
+        "EXPO_PUBLIC_QR_DEV_FORMAT": "false"
       }
     },
     "production": {
@@ -63,7 +64,9 @@
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
         "EXPO_PUBLIC_LOG_LEVEL": "WARN",
-        "EXPO_PUBLIC_API_DEBUG_GET": "false"      }
+        "EXPO_PUBLIC_API_DEBUG_GET": "false",
+        "EXPO_PUBLIC_QR_DEV_FORMAT": "false"
+      }
     }
   },
   "submit": {
