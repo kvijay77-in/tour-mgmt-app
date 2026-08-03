@@ -142,6 +142,18 @@ EXPO_PUBLIC_USE_MOCK_DATA=true
 
 This returns synthetic test data from the service layer — all screens work normally. Set to any other value or remove to use the real backend API. See the [Development Guide](docs/development-guide.md#development-with-mock-data) for details.
 
+### QR Scan Format Mode
+
+Production QR parsing is enabled by default.
+
+Use the env toggle below only when you need legacy dev QR behavior:
+
+```
+EXPO_PUBLIC_QR_DEV_FORMAT=true
+```
+
+Unset it (or set `false`) to keep production parsing active.
+
 ## 📁 Project Structure
 
 For detailed project organization and folder structure, see [docs/project-structure.md](docs/project-structure.md).

@@ -64,7 +64,12 @@ Following sections elaborates on what features required in the app together with
 # Rider Profile  
 Each Rider registered for the tour will be assigned a unique Rider ID which must be used for all tracking purposes in this app. Rider ID together with some additional info about the Rider will be stored in a table for various purposes. Assignment of Rider ID and collecting and storing Rider info is out of scope for this app. This data expected to be available for the app to use and no modification of this data can be allowed in the app.
 
-QR Code will be generated for each Rider that will embed Rider ID and other information as required and provided to the respective Rider before the tour commences.
+ID terminology used in this app:
+- Rider ID: tour-scoped identifier used in all check-in payloads and dashboard tracking (example: R123).
+- Rider Personal Code: permanent profile-level code stored with rider profile and exposed by rider APIs (example: D220).
+- Rider ID Code: transient QR-derived code composed of type + personalCode (example: 1D220). This value is not persisted.
+
+QR Code will be generated for each Rider and in production carries an ID Code value that must be resolved to Rider ID for app processing.
 
 # Dashboard
 This is the Home Screen for the app. A sample mock up for visualization purpose is available [here](./Images/Dashboard_sample.png).
@@ -132,7 +137,14 @@ In Level 1 and 2, when an Rider icon is clicked, full Rider card pop-up should a
 # Check-In
 This is the key process to track riders in each ride. Tracking is done by registering the riders at every stage as they cycle along the planned route and reach the destination to finish the ride.
 
-Check-in process (at all stages) required to be done by scanning the Rider's QR code to get the Rider ID and record the time when the scanning was done. This needs to be updated in a table to allow persistence and make data available centrally to allow other App users to get live status of the progress in the app Dashboard.
+Check-in process (at all stages) required to be done by scanning the Rider's QR code and recording the time when the scanning was done. In production, scanned QR text yields a Rider ID Code that must be parsed and resolved to Rider ID before creating check-in records. This needs to be updated in a table to allow persistence and make data available centrally to allow other App users to get live status of the progress in the app Dashboard.
+
+Production scan resolution rules:
+- QR contains ID Code (example: 1D220).
+- ID Code type must resolve to RIDER.
+- If type is not RIDER, block with message: Invalid ID type. Only Rider ID allowed.
+- For RIDER type, resolve personalCode to tour Rider ID using preloaded local mapping.
+- If mapping is missing, block and do not create check-in.
 
 There can be 2 special cases as part of the check in:  
 * Not Riding
@@ -143,6 +155,18 @@ Special cases should also be handled using QR Code scanning. User must select th
 A manual check-in option should be available to allow 'Quit Riding' check in remotely where QR Code scanning is not possible.
 
 A fallback option should be automatically activated when QR Code scanning fails with 2 to 3 retries. This should allow manually inputting Rider ID as per the check in option. This is a sub-feature of check in and not same as manual check in option.
+
+Manual and fallback entry behavior remains unchanged:
+- Manual and fallback entry use Rider ID directly.
+- ID Code parsing rules apply only to camera scan input.
+
+## Future Placeholder: Cycle ID Code
+
+Cycle ID Code support is not implemented yet. The type mapping is reserved for future use.
+
+## Future Placeholder: Baggage ID Code
+
+Baggage ID Code support is not implemented yet. The type mapping is reserved for future use.
 
 ## Start - Flag Off  
 On each day of the tour, before the ride is Started/Flagged off all riders must be checked in to ensure all riders who will ride for the day are accounted for. Check-in can be done by any designated tour admin team member with access to the app and applicable role permission.  
@@ -355,9 +379,16 @@ Data model and fields to be determined as part of design and development stage.
 # Backend
 Data model and APIs for data access is provided by solution developed by the repo - [Backend](https://github.com/kvijay77-in/tour-data-api). Read through it's requirements and how it is implemented. Follow guidelines and recommendations in this repo for any data access implementation. Ensure data privacy and security is not compromised for any reason. 
 
+**API Gap / Change Request:**
+
+- The CheckIn `checkedInBy` field is currently a Cognito username which non-admin clients cannot map to a human-friendly display name. Recommend the backend include an optional `checkedInByName` string on CheckIn payloads returned by `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress` and check-in creation responses when available.
+- Alternative: expose a minimal read-only mapping endpoint `GET /v1/tours/{tourId}/users?fields=cognitoUserName,displayName` restricted to check-in roles. Clients should fallback to `"Not Available"` when the field is absent.
+
 # Others
 Mobile device permission is only required for Camera to scan QR Code. 
 Check if local database requires storage permission??
+
+UI layout must account for safe areas and system bars on all supported platforms. On Android edge-to-edge devices, top headers must not overlap the status bar and bottom-anchored controls (footer actions, tab bars, and primary action rows) must remain fully visible above the navigation bar.
 
 ---
 

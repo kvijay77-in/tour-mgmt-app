@@ -21,7 +21,10 @@ tour-mgmt-app/
 │   ├── docs-index.md
 │   ├── project-structure.md
 │   ├── release-guide.md
+│   ├── Requirements-ID-format.md
+│   ├── idcode-backend-api-change-request.md
 │   └── Images/
+│   ├── dashboard-backend-api-change-request.md
 │
 ├── src/
 │   ├── screens/                    # Screen components
@@ -48,7 +51,8 @@ tour-mgmt-app/
 │   │   │   ├── ErrorBoundary.tsx
 │   │   │   └── SortIcon.tsx
 │   │   ├── dashboard/              # Dashboard specific components
-│   │   │   └── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
+│   │   │   ├── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
+│   │   │   └── RiderCardModal.tsx  # Shared rider card popup (Dashboard tab + Check-In Log tab)
 │   │   └── checkin/                # Check-in specific components
 │   │
 │   ├── navigation/                 # Navigation configuration (native stack only — no tabs/drawer)
@@ -64,13 +68,20 @@ tour-mgmt-app/
 │   │   │   ├── rideApi.ts          # Ride endpoints
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
+│   │   │   ├── configApi.ts        # Generic app configuration API helpers
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
+│   │   ├── dashboard/              # Dashboard cross-screen pub/sub events
+│   │   │   └── dashboardEvents.ts  # Local check-in/cancel event bus (Dashboard ⇄ Check-In Log live sync)
 │   │   ├── config/                 # Runtime org configuration service
 │   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence
 │   │   │   └── pitStopContextService.ts # Persist/clear selected pit-stop stage context
 │   │   ├── auth/                   # AWS Cognito authentication and user management
 │   │   │   └── cognitoUserManagementService.ts # Admin create/list/enable/disable/delete/update via Cognito APIs
 │   │   ├── database/               # SQLite for offline support
+│   │   │   ├── appConfigStore.ts   # AppConfig SQLite persistence and lookups
+│   │   │   └── riderPersonalCodeStore.ts # Rider personalCode mapping persistence
+│   │   ├── idcode/                 # Production ID code parsing and resolution service
+│   │   │   └── idCodeService.ts
 │   │   ├── sync/                   # Data synchronization service
 │   │   └── qrcode/                 # QR code scanning service
 │   │
@@ -81,6 +92,7 @@ tour-mgmt-app/
 │   │
 │   ├── context/                    # React Context providers
 │   │   ├── AuthContext.tsx         # Authentication context
+│   │   ├── AppConfigContext.tsx    # ID code config bootstrap context
 │   │   ├── TourContext.tsx         # Active tour context (resolves tourId at startup)
 │   │   ├── OfflineContext.tsx      # Offline mode context
 │   │   └── RoleContext.tsx         # RBAC role context
@@ -94,11 +106,13 @@ tour-mgmt-app/
 │   ├── utils/                      # Helper utility functions
 │   │   ├── logger.ts               # Structured, level-gated logging utility
 │   │   ├── permissions.ts          # RBAC permission utilities
+│   │   ├── riderStatus.ts          # Shared RiderStatus derivation (Dashboard grid + RiderCardModal)
 │   │   ├── validators.ts           # Input validation
 │   │   └── formatters.ts           # Data formatting utilities
 │   │
 │   ├── constants/                  # Application constants
 │   │   ├── colors.ts               # Color scheme constants
+│   │   ├── idCodes.ts              # ID code constants, defaults, and error messages
 │   │   ├── roles.ts                # Role definitions
 │   │   └── stages.ts               # Ride stage definitions
 │   │

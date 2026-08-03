@@ -1,18 +1,16 @@
 /**
- * CheckInScreen — QR-code-based rider check-in.
+ * CheckInScreen — QR-code-based rider check-in (Check-In tab).
  *
- * Flow:
- * 1. Select check-in type (regular, Not Riding, Quit Riding)
- * 2. Scan rider QR code (contains rider ID)
- * 3. After 3 failed scans → manual Rider ID fallback
- * 4. Submit check-in to backend
+ * Single-screen, 3-section layout:
+ * 1. Top: compact check-in type selector + QR scanner (mounts only while focused) + manual Rider ID entry.
+ * 2. Middle: auto check-in toggle + scanned rider confirmation card + Confirm/Re-scan.
+ * 3. Bottom: rolling log of the last 5 check-ins done on this device this session.
  *
  * See docs/Requirements.md § Check-In and docs/SolutionDesign.md § Check-In Flow.
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
-  Alert,
   View,
   Text,
   StyleSheet,
@@ -21,177 +19,180 @@ import {
   TextInput,
   Platform,
   KeyboardAvoidingView,
-  ScrollView,
-  Vibration,
+  Switch,
+  Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
-import { MaterialIcons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
-import { HighlightedText } from '../../components/common/HighlightedText';
+import { useRideSession } from '../../context/RideSessionContext';
 import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
 import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
-import { COLORS, QR_SCANNER_COLORS, getStageColor } from '../../constants/colors';
-import { CheckIn, CheckInMethod, Permission, Ride, RideStatus, Stage, StageType } from '../../types/models';
+import { COLORS, QR_SCANNER_COLORS } from '../../constants/colors';
+import { CheckInMethod, Permission, RideStatus, Stage, StageType } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
+import { loadPitStopContextStageNumber } from '../../services/config/pitStopContextService';
+import { loadRecentCheckIns, saveRecentCheckIns } from '../../services/config/recentCheckInsService';
+import { playSuccess, playFailure, playScanTick } from '../../services/feedback/feedbackService';
+import { useNameDirectory } from '../../context/NameDirectoryContext';
+import { resolveScannedRiderId } from '../../services/idcode/idCodeService';
+
+const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
 const TAG = 'CheckInScreen';
-
-/** Max QR scan retries before showing manual input */
-const MAX_SCAN_RETRIES = 3;
-
-/**
- * Supported QR payload formats:
- * 1) "R123" (riderId only)
- * 2) "R123|..." (pipe-delimited; first segment is riderId)
- */
-function extractRiderIdFromQr(rawValue?: string): string | null {
-  const value = rawValue?.trim();
-  if (!value) return null;
-
-  const riderId = value.includes('|') ? value.split('|')[0]?.trim() : value;
-  return riderId || null;
-}
+const RECENT_CHECKINS_LIMIT = 5;
 
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
+type StatusKind = 'error' | 'info' | 'warning';
 
-interface CheckInScreenProps {
-  ride: Ride;
-  /** Optional persisted pit-stop stage context chosen by the user */
-  managedPitStopStageNumber?: number;
-  /** Called when check-in completes successfully — dashboard can update local state */
-  onCheckInComplete: (checkIn: CheckIn) => void;
-  /** Called when user closes the screen */
-  onClose: () => void;
+interface StatusAction {
+  label: string;
+  onPress: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Stage selector
-// ---------------------------------------------------------------------------
-
-function StageSelector({
-  stages,
-  selectedStage,
-  onSelect,
-  checkInType,
-  rideStatus,
-  allowedRegularStageNumbers,
-}: {
-  stages: Stage[];
-  selectedStage: Stage | null;
-  onSelect: (stage: Stage) => void;
-  checkInType: CheckInType;
-  rideStatus: RideStatus;
-  allowedRegularStageNumbers?: number[];
-}) {
-  // For Not Riding, always use the Start stage
-  const filteredStages = checkInType === 'not_riding'
-    ? stages.filter((s) => s.type === StageType.START)
-    : stages;
-
-  const isStageEnabled = (stage: Stage): boolean => {
-    if (checkInType === 'not_riding') {
-      return rideStatus === RideStatus.OPEN;
-    }
-
-    if (checkInType === 'regular' && allowedRegularStageNumbers && allowedRegularStageNumbers.length > 0) {
-      if (stage.type !== StageType.PIT_STOP) {
-        return false;
-      }
-      if (!allowedRegularStageNumbers.includes(stage.stageNumber)) {
-        return false;
-      }
-    }
-
-    if (stage.type === StageType.START) {
-      return rideStatus === RideStatus.OPEN;
-    }
-
-    return rideStatus === RideStatus.STARTED;
-  };
-
-  return (
-    <View style={stageStyles.container}>
-      <Text style={stageStyles.label}>
-        {checkInType === 'not_riding' ? 'Stage (auto-selected)' : 'Select Stage'}
-      </Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={stageStyles.scrollContent}>
-        {filteredStages.map((stage) => {
-          const isSelected = selectedStage?.stageId === stage.stageId;
-          const color = getStageColor(stage.stageNumber, stages.length);
-          const isEnabled = isStageEnabled(stage);
-          return (
-            <TouchableOpacity
-              key={stage.stageId}
-              style={[
-                stageStyles.chip,
-                { borderColor: color },
-                isSelected && { backgroundColor: color },
-                !isEnabled && stageStyles.chipDisabled,
-              ]}
-              onPress={() => onSelect(stage)}
-              disabled={!isEnabled}
-            >
-              <Text
-                style={[
-                  stageStyles.chipText,
-                  { color: isSelected ? COLORS.white : color },
-                ]}
-              >
-                {stage.name}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
+interface StatusMessage {
+  kind: StatusKind;
+  text: string;
+  primaryAction?: StatusAction;
+  secondaryAction?: StatusAction;
 }
 
-const stageStyles = StyleSheet.create({
-  container: { marginBottom: 12 },
-  label: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 6 },
-  scrollContent: { gap: 8 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 2,
-  },
-  chipDisabled: {
-    opacity: 0.45,
-  },
-  chipText: { fontSize: 13, fontWeight: '600' },
-});
+interface RecentCheckInEntry {
+  riderId: string;
+  riderName: string;
+  ts: number;
+  stage: string;
+}
 
-// ---------------------------------------------------------------------------
-// Main screen
-// ---------------------------------------------------------------------------
+function getConflictMessage(error: unknown): string | null {
+  const statusCode = typeof error === 'object' && error !== null && 'statusCode' in error
+    ? (error as { statusCode?: unknown }).statusCode
+    : undefined;
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error !== null && 'message' in error && typeof (error as { message?: unknown }).message === 'string'
+      ? (error as { message: string }).message
+      : '';
+  const normalized = message.toLowerCase();
+  const isConflictLikeStatus = statusCode === 400 || statusCode === 409 || statusCode === 422;
+  const hasConflictLikeMessage =
+    normalized.includes('duplicate') ||
+    normalized.includes('already checked') ||
+    normalized.includes('already exists') ||
+    normalized.includes('already in') ||
+    normalized.includes('already recorded') ||
+    normalized.includes('checked in at') ||
+    normalized.includes('not riding') ||
+    normalized.includes('quit riding');
 
-type Phase = 'type_select' | 'stage_select' | 'scanning' | 'manual_entry' | 'confirming' | 'success' | 'error';
-type ErrorPresentation = 'error' | 'info' | 'warning';
+  if (!isConflictLikeStatus && !hasConflictLikeMessage) {
+    return null;
+  }
 
-export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheckInComplete, onClose }: CheckInScreenProps) {
+  return message || 'The check-in request was blocked because the rider already has an existing check-in.';
+}
+
+export default function CheckInScreen() {
   const { user } = useAuth();
   const { tour } = useTour();
-  const insets = useSafeAreaInsets();
+  const { getRiderDisplayName } = useNameDirectory();
   const [permission, requestPermission] = useCameraPermissions();
+  const {
+    currentRide: activeRide,
+    isHistorical,
+    selectedStageNumber,
+    setSelectedStage: setContextSelectedStage,
+    autoCheckIn,
+    toggleAutoCheckIn,
+    scanPauseSeconds,
+    setCheckIns,
+    checkIns,
+  } = useRideSession();
+  const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
+  const bottomInsetPadding = Math.max(insets.bottom, 12);
 
-  const [phase, setPhase] = useState<Phase>('type_select');
-  const [checkInType, setCheckInType] = useState<CheckInType>('regular');
+  const [checkInType, setCheckInType] = useState<CheckInType | null>('regular');
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
   const [scannedRiderId, setScannedRiderId] = useState<string>('');
+  const [pendingMethod, setPendingMethod] = useState<CheckInMethod>(CheckInMethod.QR_SCAN);
   const [manualRiderId, setManualRiderId] = useState<string>('');
-  const [scanAttempts, setScanAttempts] = useState(0);
+  const [showManualEntry, setShowManualEntry] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [resultMessage, setResultMessage] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [errorPresentation, setErrorPresentation] = useState<ErrorPresentation>('error');
+  const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(null);
+  const [recentCheckIns, setRecentCheckIns] = useState<RecentCheckInEntry[]>([]);
+  const [recentCheckInsLoadedForUserId, setRecentCheckInsLoadedForUserId] = useState<string | null>(null);
+  const [managedPitStopStageNumber, setManagedPitStopStageNumber] = useState<number | null>(null);
   const processingRef = useRef(false);
+  const scanCooldownUntilRef = useRef(0);
+  const scanCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStartAppliedRef = useRef(false);
+  const currentUserStorageKey = user?.username ?? user?.userId ?? null;
+  const legacyUserStorageKey = user?.username && user?.userId && user.username !== user.userId ? user.userId : null;
+
+  // Load persisted recent check-ins for the signed-in user
+  useEffect(() => {
+    let mounted = true;
+
+    setRecentCheckIns([]);
+    setRecentCheckInsLoadedForUserId(null);
+
+    if (!currentUserStorageKey) {
+      setRecentCheckIns([]);
+      return () => { mounted = false; };
+    }
+
+    (async () => {
+      try {
+        let persisted = await loadRecentCheckIns(currentUserStorageKey);
+        if (persisted.length === 0 && legacyUserStorageKey) {
+          persisted = await loadRecentCheckIns(legacyUserStorageKey);
+        }
+        if (!mounted) return;
+        setRecentCheckIns(
+          persisted
+            .slice(0, RECENT_CHECKINS_LIMIT)
+            .map((entry) => ({
+              riderId: entry.riderId,
+              riderName: entry.riderName ?? 'Unknown',
+              ts: entry.ts,
+              stage: entry.stage,
+            })),
+        );
+        if (persisted.length > 0) {
+          void saveRecentCheckIns(currentUserStorageKey, persisted);
+        }
+      } catch {
+        // ignore persistence errors
+      } finally {
+        if (mounted) {
+          setRecentCheckInsLoadedForUserId(currentUserStorageKey);
+        }
+      }
+    })();
+    return () => { mounted = false; };
+  }, [currentUserStorageKey, legacyUserStorageKey]);
+
+  // Persist recent check-ins whenever they change for the current user
+  useEffect(() => {
+    if (!currentUserStorageKey) return;
+    if (recentCheckInsLoadedForUserId !== currentUserStorageKey) return;
+    void saveRecentCheckIns(currentUserStorageKey, recentCheckIns);
+  }, [currentUserStorageKey, recentCheckIns, recentCheckInsLoadedForUserId]);
+
+  useEffect(() => {
+    return () => {
+      if (scanCooldownTimerRef.current) {
+        clearTimeout(scanCooldownTimerRef.current);
+        scanCooldownTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Determine available check-in types based on role
   const canCheckInRegular = user ? hasPermission(user.userRole, Permission.CHECKIN_RIDER) : false;
@@ -200,60 +201,110 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
   const canManualCheckIn = user ? hasPermission(user.userRole, Permission.MANUAL_CHECKIN) : false;
 
   const isPitStopPrimaryRole = user ? isPitStopUserRole(user.userRole) : false;
+  const pitStopRoleStageNumbers = useMemo(() => getPitStopStageNumbersFromRoles(user?.userRoles ?? []), [user?.userRoles]);
 
-  const pitStopRoleStageNumbers = useMemo(
-    () => getPitStopStageNumbersFromRoles(user?.userRoles ?? []),
-    [user?.userRoles],
-  );
+  // Load the persisted pit-stop context stage (set via the Dashboard menu) for this user.
+  useEffect(() => {
+    let mounted = true;
+    if (!isPitStopPrimaryRole) {
+      setManagedPitStopStageNumber(null);
+      return undefined;
+    }
+    (async () => {
+      const stageNumber = await loadPitStopContextStageNumber();
+      if (mounted) setManagedPitStopStageNumber(stageNumber);
+    })();
+    return () => { mounted = false; };
+  }, [isPitStopPrimaryRole]);
 
   const allowedRegularStageNumbers = useMemo(() => {
-    if (!isPitStopPrimaryRole) return [] as number[];
+    if (!isPitStopPrimaryRole || !activeRide) return [] as number[];
 
-    const ridePitStopStages = ride.stages
+    const ridePitStopStages = activeRide.stages
       .filter((s) => s.type === StageType.PIT_STOP)
       .map((s) => s.stageNumber);
 
     const roleAllowedStages = ridePitStopStages.filter((n) => pitStopRoleStageNumbers.includes(n));
-    if (managedPitStopStageNumber !== undefined && roleAllowedStages.includes(managedPitStopStageNumber)) {
+    if (managedPitStopStageNumber !== null && roleAllowedStages.includes(managedPitStopStageNumber)) {
       return [managedPitStopStageNumber];
     }
     return roleAllowedStages;
-  }, [isPitStopPrimaryRole, ride.stages, pitStopRoleStageNumbers, managedPitStopStageNumber]);
+  }, [isPitStopPrimaryRole, activeRide, pitStopRoleStageNumbers, managedPitStopStageNumber]);
 
   const hasSingleRegularPitStopStage = isPitStopPrimaryRole && allowedRegularStageNumbers.length === 1;
 
   // Auto-select Start stage for NR
   useEffect(() => {
-    if (checkInType === 'not_riding') {
-      const startStage = ride.stages.find((s) => s.type === StageType.START);
+    if (checkInType === 'not_riding' && activeRide) {
+      const startStage = activeRide.stages.find((s) => s.type === StageType.START);
       if (startStage) setSelectedStage(startStage);
     }
-  }, [checkInType, ride.stages]);
+  }, [checkInType, activeRide]);
 
-  // -----------------------------------------------------------------------
-  // Check-in type selection
-  // -----------------------------------------------------------------------
+  // Sync local selectedStage from RideSession context selection (stageNumber)
+  useEffect(() => {
+    if (!activeRide) return;
+    if (checkInType !== 'regular') return;
+    if (selectedStageNumber == null) {
+      setSelectedStage(null);
+      return;
+    }
+    const stage = activeRide.stages.find((s) => s.stageNumber === selectedStageNumber);
+    setSelectedStage(stage ?? null);
+  }, [selectedStageNumber, activeRide, checkInType]);
 
-  const getValidationMessage = useCallback((type: CheckInType, stage: Stage | null): string | null => {
+  const scannedRiderDisplay = useMemo(
+    () => (scannedRiderId ? getRiderDisplayName(scannedRiderId) : { name: '', isAnomaly: false }),
+    [scannedRiderId, getRiderDisplayName],
+  );
+
+  // For PS_n users, default-select their managed pit-stop stage once a ride is active.
+  useEffect(() => {
+    if (!isFocused || !isPitStopPrimaryRole || managedPitStopStageNumber === null) return;
+    if (!allowedRegularStageNumbers.includes(managedPitStopStageNumber)) return;
+    if (selectedStageNumber == null) {
+      setContextSelectedStage(managedPitStopStageNumber);
+    }
+  }, [isFocused, isPitStopPrimaryRole, managedPitStopStageNumber, allowedRegularStageNumbers, selectedStageNumber, setContextSelectedStage]);
+
+  // Fast path for pit-stop users with only one allowed regular stage.
+  useEffect(() => {
+    if (autoStartAppliedRef.current) return;
+    if (checkInType !== 'regular' || !hasSingleRegularPitStopStage || !activeRide) return;
+
+    const stage = activeRide.stages.find(
+      (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
+    );
+    if (!stage) return;
+
+    setContextSelectedStage(stage.stageNumber);
+    autoStartAppliedRef.current = true;
+  }, [checkInType, hasSingleRegularPitStopStage, activeRide, allowedRegularStageNumbers, setContextSelectedStage]);
+
+  const getValidationMessage = useCallback((type: CheckInType | null, stage: Stage | null): string | null => {
+    if (!type) {
+      return 'Select a check-in type to enable QR scanner.';
+    }
+
     if (type === 'not_riding') {
-      if (ride.status !== RideStatus.OPEN) {
-        return `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
+      if (!activeRide || activeRide.status !== RideStatus.OPEN) {
+        return `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`;
       }
       return null;
     }
 
     if (type === 'quit_riding') {
-      if (ride.status !== RideStatus.STARTED) {
-        return `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${ride.status}.`;
+      if (!activeRide || activeRide.status !== RideStatus.STARTED) {
+        return `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
       }
       return null;
     }
 
     if (!stage) {
-      return 'Please select a stage before continuing.';
+      return 'Select a stage from the Dashboard header to enable check-in.';
     }
 
-    if (type === 'regular' && isPitStopPrimaryRole) {
+    if (isPitStopPrimaryRole) {
       if (stage.type !== StageType.PIT_STOP) {
         return 'Your role allows regular check-in only at an assigned Pit Stop stage.';
       }
@@ -262,614 +313,601 @@ export default function CheckInScreen({ ride, managedPitStopStageNumber, onCheck
       }
     }
 
-    if (stage.type === StageType.START && ride.status !== RideStatus.OPEN) {
-      return `Start stage check-ins are allowed only when today's ride status is OPEN. Current status: ${ride.status}.`;
+    if (stage.type === StageType.START && (!activeRide || activeRide.status !== RideStatus.OPEN)) {
+      return `Start stage check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`;
     }
 
-    if (stage.type !== StageType.START && ride.status !== RideStatus.STARTED) {
-      return `This check-in type is allowed only when today's ride status is STARTED. Current status: ${ride.status}.`;
+    if (stage.type !== StageType.START && (!activeRide || activeRide.status !== RideStatus.STARTED)) {
+      return `This check-in type is allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
     }
 
     return null;
-  }, [ride.status, isPitStopPrimaryRole, allowedRegularStageNumbers]);
+  }, [activeRide, isPitStopPrimaryRole, allowedRegularStageNumbers]);
 
-  const blockWithValidationMessage = useCallback((message: string) => {
-    setErrorMessage(message);
-    setErrorPresentation('warning');
-    setPhase('error');
+  const stageValidationMessage = activeRide ? getValidationMessage(checkInType, selectedStage) : null;
+
+  const dismissStatusMessage = useCallback(() => {
+    setStatusMessage(null);
   }, []);
 
-  // Fast path for pit-stop users with only one allowed regular stage.
-  useEffect(() => {
-    if (phase !== 'type_select') return;
-    if (autoStartAppliedRef.current) return;
-    if (!hasSingleRegularPitStopStage) return;
-
-    const stage = ride.stages.find(
-      (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
-    );
-    if (!stage) return;
-
-    const validationError = getValidationMessage('regular', stage);
-    if (validationError) return;
-
-    setCheckInType('regular');
-    setSelectedStage(stage);
-    setPhase('scanning');
-    setScanAttempts(0);
+  const resetPendingEntry = () => {
     setScannedRiderId('');
+    setManualRiderId('');
+    setShowManualEntry(false);
+    setStatusMessage(null);
     processingRef.current = false;
-    autoStartAppliedRef.current = true;
-  }, [phase, hasSingleRegularPitStopStage, ride.stages, allowedRegularStageNumbers, getValidationMessage]);
-
-  const selectCheckInType = (type: CheckInType) => {
-    if (type === 'not_riding') {
-      const validationError = getValidationMessage(type, ride.stages.find((s) => s.type === StageType.START) ?? null);
-      if (validationError) {
-        blockWithValidationMessage(validationError);
-        return;
-      }
-    }
-
-    if (type === 'quit_riding') {
-      const validationError = getValidationMessage(type, null);
-      if (validationError) {
-        blockWithValidationMessage(validationError);
-        return;
-      }
-    }
-
-    setCheckInType(type);
-    if (type === 'quit_riding') {
-      // Quit Riding can happen between stages; no stage selection required.
-      setSelectedStage(null);
-      setPhase('scanning');
-    } else {
-      setPhase('stage_select');
-    }
   };
 
-  const selectStageAndScan = (stage: Stage) => {
-    const validationError = getValidationMessage(checkInType, stage);
-    if (validationError) {
-      blockWithValidationMessage(validationError);
+  const acknowledgeStatusAndReadyForNextScan = useCallback(() => {
+    resetPendingEntry();
+  }, []);
+
+  const handleSelectType = (type: CheckInType, enabled: boolean) => {
+    if (!enabled) {
+      const reason = type === 'not_riding'
+        ? `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`
+        : `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
+      showStatusMessage({
+        kind: 'warning',
+        text: reason,
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
       return;
     }
 
-    setSelectedStage(stage);
-    setPhase('scanning');
-    setScanAttempts(0);
-    setScannedRiderId('');
-    processingRef.current = false;
-  };
+    // Toggle-off behavior: tapping the same active type disables scanner until a type is selected again.
+    if (checkInType === type) {
+      setCheckInType(null);
+      resetPendingEntry();
+      return;
+    }
 
-  // -----------------------------------------------------------------------
-  // QR Scanning
-  // -----------------------------------------------------------------------
-
-  const handleBarcodeScan = useCallback(
-    (result: BarcodeScanningResult) => {
-      if (processingRef.current) return;
-      const riderId = extractRiderIdFromQr(result.data);
-      if (!riderId) return;
-
-      processingRef.current = true;
-      Vibration.vibrate(100);
-      setScannedRiderId(riderId);
-      setPhase('confirming');
-    },
-    [],
-  );
-
-  const handleScanRetry = () => {
-    const newAttempts = scanAttempts + 1;
-    setScanAttempts(newAttempts);
-    processingRef.current = false;
-    setScannedRiderId('');
-
-    if (newAttempts >= MAX_SCAN_RETRIES) {
-      logger.info(TAG, `Max scan retries (${MAX_SCAN_RETRIES}) reached — showing manual entry`);
-      setPhase('manual_entry');
-    } else {
-      setPhase('scanning');
+    setCheckInType(type);
+    resetPendingEntry();
+    if (type === 'quit_riding') {
+      setSelectedStage(null);
     }
   };
 
-  const switchToManualEntry = () => {
-    setPhase('manual_entry');
-  };
-
-  const confirmManualEntry = () => {
-    const trimmed = manualRiderId.trim();
-    if (!trimmed) return;
-    setScannedRiderId(trimmed);
-    setPhase('confirming');
-  };
-
   // -----------------------------------------------------------------------
-  // Submit check-in
+  // Submit
   // -----------------------------------------------------------------------
 
-  const submitCheckIn = async (overrideRequested: boolean = false) => {
-    if (!tour || !scannedRiderId) return;
+  const showStatusMessage = useCallback((message: StatusMessage) => {
+    setStatusMessage(message);
+  }, []);
+
+  const submitCheckIn = useCallback(async (riderId: string, method: CheckInMethod, overrideRequested: boolean = false) => {
+    if (!tour || !riderId || !activeRide) return;
+    if (!checkInType) {
+      showStatusMessage({
+        kind: 'warning',
+        text: 'Select a check-in type to continue.',
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
+      return;
+    }
 
     const effectiveStage =
       checkInType === 'not_riding'
-        ? (selectedStage ?? ride.stages.find((s) => s.type === StageType.START) ?? null)
+        ? (selectedStage ?? activeRide.stages.find((s) => s.type === StageType.START) ?? null)
         : selectedStage;
 
     if (checkInType !== 'quit_riding' && !effectiveStage) {
-      blockWithValidationMessage('Start stage is required for this check-in type.');
+      showStatusMessage({
+        kind: 'warning',
+        text: 'Select a stage from the Dashboard header to enable check-in.',
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
       return;
     }
 
     const validationError = getValidationMessage(checkInType, effectiveStage);
     if (validationError) {
-      blockWithValidationMessage(validationError);
+      showStatusMessage({
+        kind: 'warning',
+        text: validationError,
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
       return;
     }
 
     setIsSubmitting(true);
-    setErrorMessage('');
-    setErrorPresentation('error');
+    setStatusMessage(null);
     try {
-      const method: CheckInMethod =
-        phase === 'confirming' && scanAttempts >= MAX_SCAN_RETRIES
-          ? CheckInMethod.FALLBACK
-          : manualRiderId.trim() === scannedRiderId
-            ? CheckInMethod.MANUAL
-            : CheckInMethod.QR_SCAN;
-
       const request: CheckInRequest = checkInType === 'quit_riding'
         ? {
-            riderId: scannedRiderId,
-            rideId: ride.rideId,
+            riderId,
+            rideId: activeRide.rideId,
             method,
             isNotRiding: false,
             isQuitRiding: true,
           }
         : {
-            riderId: scannedRiderId,
-            rideId: ride.rideId,
+            riderId,
+            rideId: activeRide.rideId,
             stageNumber: effectiveStage!.stageNumber,
             method,
             isNotRiding: checkInType === 'not_riding',
             isQuitRiding: false,
           };
 
-      const outcome = overrideRequested
-        ? await overrideInteractiveCheckIn(tour.tourId, request)
-        : await createInteractiveCheckIn(tour.tourId, request);
+      let outcome: Awaited<ReturnType<typeof createInteractiveCheckIn>> | Awaited<ReturnType<typeof overrideInteractiveCheckIn>>;
+      try {
+        outcome = overrideRequested
+          ? await overrideInteractiveCheckIn(tour.tourId, request)
+          : await createInteractiveCheckIn(tour.tourId, request);
+      } catch (error) {
+        const conflictMessage = getConflictMessage(error);
+        if (conflictMessage) {
+          logger.info(TAG, 'Check-in conflict handled in screen layer', {
+            riderId,
+            checkInType,
+            stageNumber: effectiveStage?.stageNumber ?? null,
+          });
+          showStatusMessage({
+            kind: 'info',
+            text: conflictMessage,
+            primaryAction: {
+              label: 'OK',
+              onPress: acknowledgeStatusAndReadyForNextScan,
+            },
+          });
+          void playFailure('warning');
+          return;
+        }
+        throw error;
+      }
 
       if (outcome.kind === 'override_required') {
         setIsSubmitting(false);
-        Alert.alert(
-          'Override existing check-in?',
-          `${outcome.message}\n\nCancel keeps the current check-in unchanged. Override will replace it with the new status.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Override',
-              style: 'destructive',
-              onPress: () => {
-                void submitCheckIn(true);
-              },
+        showStatusMessage({
+          kind: 'warning',
+          text: outcome.message,
+          secondaryAction: {
+            label: 'Cancel',
+            onPress: acknowledgeStatusAndReadyForNextScan,
+          },
+          primaryAction: {
+            label: 'Override',
+            onPress: () => {
+              dismissStatusMessage();
+              void submitCheckIn(riderId, method, true);
             },
-          ],
-        );
+          },
+        });
         return;
       }
 
       if (outcome.kind === 'info_conflict') {
         logger.info(TAG, `Check-in informational outcome: ${outcome.reason}`, {
-          riderId: scannedRiderId,
+          riderId,
           checkInType,
           stageNumber: effectiveStage?.stageNumber ?? null,
         });
-        setErrorMessage(outcome.message);
-        setErrorPresentation(
-          outcome.reason === 'quit_riding' || outcome.reason === 'not_riding' ? 'warning' : 'info',
-        );
-        setPhase('error');
+        showStatusMessage({
+          kind: outcome.reason === 'quit_riding' || outcome.reason === 'not_riding' ? 'warning' : 'info',
+          text: outcome.message,
+          primaryAction: {
+            label: 'OK',
+            onPress: acknowledgeStatusAndReadyForNextScan,
+          },
+        });
+        void playFailure('warning');
         return;
       }
 
-      // Notify dashboard immediately so UI updates without a full reload.
-      onCheckInComplete(outcome.checkIn);
+      setCheckIns([outcome.checkIn, ...(checkIns ?? [])]);
       publishDashboardCheckInEvent({ checkIn: outcome.checkIn });
+      void playSuccess();
+      logger.info(TAG, `Check-in recorded: ${riderId} at ${effectiveStage?.name ?? 'N/A'} (${checkInType})`);
 
-      const stageName = effectiveStage?.name ?? '—';
-      const typeLabel =
-        checkInType === 'not_riding' ? 'Not Riding' :
-        checkInType === 'quit_riding' ? 'Quit Riding' :
-        stageName;
-      setResultMessage(`${scannedRiderId} — ${typeLabel} ✓`);
-      setPhase('success');
-      logger.info(TAG, `Check-in recorded: ${scannedRiderId} at ${stageName} (${checkInType})`);
+      const riderName = getRiderDisplayName(riderId).name;
+
+      const stageLabel =
+        checkInType === 'regular'
+          ? (effectiveStage?.name ?? 'Unknown')
+          : checkInType === 'not_riding'
+            ? 'Not Riding'
+            : 'Quit Riding';
+
+      setRecentCheckIns((prev) => [{ riderId, riderName, ts: Date.now(), stage: stageLabel }, ...prev].slice(0, RECENT_CHECKINS_LIMIT));
+      resetPendingEntry();
     } catch (err) {
       logger.error(TAG, 'Check-in submission failed', err);
       const message = err instanceof Error ? err.message : 'Check-in failed. Please try again.';
-      setErrorMessage(message);
-      setErrorPresentation('error');
-      setPhase('error');
+      showStatusMessage({
+        kind: 'error',
+        text: message,
+        primaryAction: {
+          label: 'OK',
+          onPress: acknowledgeStatusAndReadyForNextScan,
+        },
+      });
+      void playFailure('error');
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    tour,
+    activeRide,
+    checkInType,
+    selectedStage,
+    checkIns,
+    setCheckIns,
+    getValidationMessage,    dismissStatusMessage,
+    showStatusMessage,
+    acknowledgeStatusAndReadyForNextScan,
+    getRiderDisplayName,
+  ]);
 
-  // After a successful check-in, allow scanning the next rider
-  const scanNextRider = () => {
-    setScannedRiderId('');
-    setManualRiderId('');
-    setScanAttempts(0);
-    processingRef.current = false;
-    setPhase('scanning');
-  };
+  // -----------------------------------------------------------------------
+  // Scan / manual entry handlers
+  // -----------------------------------------------------------------------
 
-  // Reset to type selection
-  const resetToStart = () => {
-    setScannedRiderId('');
-    setManualRiderId('');
-    setScanAttempts(0);
-    setErrorMessage('');
-    setErrorPresentation('error');
-    processingRef.current = false;
+  const handleBarcodeScan = useCallback(
+    (result: BarcodeScanningResult) => {
+      if (processingRef.current) return;
 
-    if (hasSingleRegularPitStopStage) {
-      const stage = ride.stages.find(
-        (s) => s.stageNumber === allowedRegularStageNumbers[0] && s.type === StageType.PIT_STOP,
-      );
+      const now = Date.now();
+      if (now < scanCooldownUntilRef.current) return;
 
-      if (stage) {
-        const validationError = getValidationMessage('regular', stage);
-        if (!validationError) {
-          setCheckInType('regular');
-          setSelectedStage(stage);
-          setPhase('scanning');
-          return;
+      processingRef.current = true;
+
+      const releaseScanLock = () => {
+        processingRef.current = false;
+        scanCooldownUntilRef.current = 0;
+        if (scanCooldownTimerRef.current) {
+          clearTimeout(scanCooldownTimerRef.current);
+          scanCooldownTimerRef.current = null;
         }
-      }
-    }
+      };
 
-    setPhase('type_select');
-    setCheckInType('regular');
-    setSelectedStage(null);
+      void playScanTick();
+      void (async () => {
+        try {
+          const resolution = await resolveScannedRiderId(result.data);
+          if (!resolution.ok) {
+            void playFailure('error');
+            Alert.alert('Scan Error', resolution.message, [{ text: 'OK', onPress: releaseScanLock }], {
+              cancelable: false,
+            });
+            return;
+          }
+
+          const resolvedRiderId = resolution.riderId;
+          const scanWindowMs = scanPauseSeconds * 1000;
+          scanCooldownUntilRef.current = Date.now() + scanWindowMs;
+          if (scanCooldownTimerRef.current) {
+            clearTimeout(scanCooldownTimerRef.current);
+          }
+          scanCooldownTimerRef.current = setTimeout(() => {
+            processingRef.current = false;
+            scanCooldownTimerRef.current = null;
+          }, scanWindowMs);
+
+          setPendingMethod(CheckInMethod.QR_SCAN);
+          setScannedRiderId(resolvedRiderId);
+          setStatusMessage(null);
+
+          if (autoCheckIn) {
+            void submitCheckIn(resolvedRiderId, CheckInMethod.QR_SCAN);
+          }
+        } catch (error) {
+          logger.error(TAG, 'Failed to resolve scanned rider ID', error);
+          void playFailure('error');
+
+          const message = error instanceof Error ? error.message : 'Failed to process scanned QR code.';
+          Alert.alert('Scan Error', message, [{ text: 'OK', onPress: releaseScanLock }], {
+            cancelable: false,
+          });
+        }
+      })();
+    },
+    [autoCheckIn, scanPauseSeconds, submitCheckIn],
+  );
+
+  const confirmManualEntry = () => {
+    const trimmed = manualRiderId.trim();
+    if (!trimmed) return;
+
+    setPendingMethod(CheckInMethod.MANUAL);
+    setScannedRiderId(trimmed);
+    setShowManualEntry(false);
+    setStatusMessage(null);
+    processingRef.current = true;
+
+    if (autoCheckIn) {
+      void submitCheckIn(trimmed, CheckInMethod.MANUAL);
+    }
+  };
+
+  const handleRescan = () => {
+    resetPendingEntry();
   };
 
   // -----------------------------------------------------------------------
-  // Render helpers
+  // Render
   // -----------------------------------------------------------------------
 
-  const renderTypeSelection = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Select Check-In Type</Text>
-      {canCheckInRegular && (
-        <TouchableOpacity style={styles.typeButton} onPress={() => selectCheckInType('regular')}>
-          <MaterialIcons name="qr-code-scanner" size={24} color={COLORS.primary} />
-          <View style={styles.typeButtonText}>
-            <Text style={styles.typeButtonTitle}>Regular Check-In</Text>
-            <Text style={styles.typeButtonSubtitle}>Scan rider at a stage</Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
-        </TouchableOpacity>
-      )}
-      {canCheckInNR && (
-        <TouchableOpacity
-          style={[styles.typeButton, ride.status !== RideStatus.OPEN && styles.typeButtonDisabled]}
-          onPress={() => selectCheckInType('not_riding')}
-          disabled={ride.status !== RideStatus.OPEN}
-        >
-          <MaterialIcons name="do-not-disturb" size={24} color={COLORS.gray[500]} />
-          <View style={styles.typeButtonText}>
-            <Text style={styles.typeButtonTitle}>Not Riding</Text>
-            <Text style={styles.typeButtonSubtitle}>
-              {ride.status === RideStatus.OPEN
-                ? 'Mark rider as not participating today'
-                : `Available only when ride is OPEN (current: ${ride.status})`}
-            </Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
-        </TouchableOpacity>
-      )}
-      {canCheckInQR && (
-        <TouchableOpacity
-          style={[styles.typeButton, ride.status !== RideStatus.STARTED && styles.typeButtonDisabled]}
-          onPress={() => selectCheckInType('quit_riding')}
-          disabled={ride.status !== RideStatus.STARTED}
-        >
-          <MaterialIcons name="cancel" size={24} color="#B91C1C" />
-          <View style={styles.typeButtonText}>
-            <Text style={styles.typeButtonTitle}>Quit Riding</Text>
-            <Text style={styles.typeButtonSubtitle}>
-              {ride.status === RideStatus.STARTED
-                ? 'Rider leaving mid-ride'
-                : `Available only when ride is STARTED (current: ${ride.status})`}
-            </Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={24} color={COLORS.gray[400]} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-
-  const renderStageSelection = () => (
-    <View style={styles.section}>
-      {checkInType === 'regular' && ride.status === RideStatus.PLANNED && (
-        <View style={styles.infoBanner}>
-          <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
-          <Text style={styles.infoBannerText}>
-            All check-ins are unavailable while ride status is PLANNED. Ride should be OPEN for 'Start' stage check-ins.
-          </Text>
-        </View>
-      )}
-      {checkInType === 'regular' && ride.status === RideStatus.OPEN && (
-        <View style={styles.infoBanner}>
-          <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
-          <Text style={styles.infoBannerText}>
-            Ride status is OPEN. Only Start stage check-ins are allowed now.{'\n'}Other stages will be activated once the ride is STARTED.
-          </Text>
-        </View>
-      )}
-      <StageSelector
-        stages={ride.stages}
-        selectedStage={selectedStage}
-        onSelect={selectStageAndScan}
-        checkInType={checkInType}
-        rideStatus={ride.status}
-        allowedRegularStageNumbers={isPitStopPrimaryRole ? allowedRegularStageNumbers : undefined}
-      />
-      {checkInType === 'regular' && isPitStopPrimaryRole && allowedRegularStageNumbers.length === 0 && (
-        <View style={styles.infoBanner}>
-          <MaterialIcons name="warning-amber" size={18} color={COLORS.warning} />
-          <Text style={styles.infoBannerText}>
-            No valid pit-stop stage is available for your role in this ride. Please contact your administrator.
-          </Text>
-        </View>
-      )}
-      {checkInType === 'not_riding' && selectedStage && (
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => {
-            const validationError = getValidationMessage('not_riding', selectedStage);
-            if (validationError) {
-              blockWithValidationMessage(validationError);
-              return;
-            }
-            setPhase('scanning');
-          }}
-        >
-          <Text style={styles.primaryButtonText}>Continue to Scan</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-
-  const renderScanner = () => {
-    if (!permission?.granted) {
-      return (
-        <View style={styles.permissionContainer}>
-          <MaterialIcons name="camera-alt" size={48} color={COLORS.gray[400]} />
-          <Text style={styles.permissionText}>Camera access is required for QR scanning.</Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
-            <Text style={styles.primaryButtonText}>Grant Camera Access</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
+  if (!activeRide) {
     return (
-      <View style={styles.scannerContainer}>
-        <CameraView
-          style={styles.camera}
-          facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-          onBarcodeScanned={handleBarcodeScan}
-        />
-        <View style={styles.scannerOverlay}>
-          <View style={styles.scannerFrame} />
-        </View>
-        <View style={styles.scannerFooter}>
-          <Text style={styles.scanHint}>
-            Scan rider QR code{scanAttempts > 0 ? ` (attempt ${scanAttempts + 1}/${MAX_SCAN_RETRIES})` : ''}
-          </Text>
-          {canManualCheckIn && (
-            <TouchableOpacity style={styles.manualEntryLink} onPress={switchToManualEntry}>
-              <Text style={styles.manualEntryLinkText}>Enter Rider ID manually</Text>
-            </TouchableOpacity>
-          )}
+      <View style={styles.container}>
+        <View style={styles.placeholderCenter}>
+          <Text style={styles.placeholderText}>Select a ride from the Dashboard to enable Check-In.</Text>
         </View>
       </View>
     );
-  };
+  }
 
-  const renderManualEntry = () => (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.section}
-    >
-      <Text style={styles.sectionTitle}>Enter Rider ID</Text>
-      {scanAttempts >= MAX_SCAN_RETRIES && (
-        <View style={styles.infoBanner}>
-          <MaterialIcons name="info-outline" size={18} color={COLORS.primary} />
-          <Text style={styles.infoBannerText}>
-            QR scan failed after {MAX_SCAN_RETRIES} attempts. Enter the rider ID manually.
-          </Text>
-        </View>
-      )}
-      <View style={styles.manualInputRow}>
-        <TextInput
-          style={styles.manualInput}
-          value={manualRiderId}
-          onChangeText={setManualRiderId}
-          placeholder="e.g. R1, R57"
-          placeholderTextColor={COLORS.textDisabled}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          autoFocus
-          onSubmitEditing={confirmManualEntry}
-        />
-        <TouchableOpacity
-          style={[styles.primaryButton, styles.manualSubmitButton, !manualRiderId.trim() && styles.disabledButton]}
-          onPress={confirmManualEntry}
-          disabled={!manualRiderId.trim()}
-        >
-          <Text style={styles.primaryButtonText}>Continue</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
-  );
-
-  const renderConfirmation = () => {
-    const typeLabel =
-      checkInType === 'not_riding' ? 'Not Riding' :
-      checkInType === 'quit_riding' ? 'Quit Riding' :
-      'Check-In';
-
+  if (isHistorical) {
     return (
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Confirm {typeLabel}</Text>
-        <View style={styles.confirmCard}>
-          <View style={styles.confirmRow}>
-            <Text style={styles.confirmLabel}>Rider ID</Text>
-            <Text style={styles.confirmValue}>{scannedRiderId}</Text>
-          </View>
-          {checkInType !== 'quit_riding' && (
-            <View style={styles.confirmRow}>
-              <Text style={styles.confirmLabel}>Stage</Text>
-              <Text style={styles.confirmValue}>{selectedStage?.name ?? '—'}</Text>
-            </View>
-          )}
-          <View style={styles.confirmRow}>
-            <Text style={styles.confirmLabel}>Type</Text>
-            <Text style={styles.confirmValue}>{typeLabel}</Text>
-          </View>
-        </View>
-        <View style={styles.confirmButtons}>
-          <TouchableOpacity
-            style={[styles.primaryButton, isSubmitting && styles.disabledButton]}
-            onPress={() => {
-              void submitCheckIn();
-            }}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color={COLORS.white} />
-            ) : (
-              <Text style={styles.primaryButtonText}>Confirm</Text>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleScanRetry} disabled={isSubmitting}>
-            <Text style={styles.secondaryButtonText}>Re-scan</Text>
-          </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={styles.placeholderCenter}>
+          <MaterialIcons name="lock-outline" size={40} color={COLORS.gray[400]} />
+          <Text style={styles.placeholderText}>Check-in is disabled while viewing a historical ride.</Text>
         </View>
       </View>
     );
-  };
+  }
 
-  const renderSuccess = () => (
-    <View style={styles.resultContainer}>
-      <MaterialIcons name="check-circle" size={64} color={COLORS.success} />
-      <Text style={styles.resultText}>{resultMessage}</Text>
-      <TouchableOpacity style={styles.primaryButton} onPress={scanNextRider}>
-        <Text style={styles.primaryButtonText}>Scan Next Rider</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.secondaryButton} onPress={onClose}>
-        <Text style={styles.secondaryButtonText}>Done</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const typeOptions: { type: CheckInType; label: string; icon: keyof typeof MaterialIcons.glyphMap; enabled: boolean }[] = [];
+  if (canCheckInRegular) typeOptions.push({ type: 'regular', label: 'Regular', icon: 'qr-code-scanner', enabled: true });
+  if (canCheckInNR) {
+    typeOptions.push({
+      type: 'not_riding',
+      label: 'Not Riding',
+      icon: 'do-not-disturb',
+      enabled: activeRide.status === RideStatus.OPEN,
+    });
+  }
+  if (canCheckInQR) {
+    typeOptions.push({
+      type: 'quit_riding',
+      label: 'Quit Riding',
+      icon: 'cancel',
+      enabled: activeRide.status === RideStatus.STARTED,
+    });
+  }
 
-  const renderError = () => (
-    <View style={styles.resultContainer}>
-      <MaterialIcons
-        name={
-          errorPresentation === 'warning'
-            ? 'warning-amber'
-            : errorPresentation === 'info'
-              ? 'info-outline'
-              : 'error'
-        }
-        size={64}
-        color={
-          errorPresentation === 'warning'
-            ? COLORS.warning
-            : errorPresentation === 'info'
-              ? COLORS.primary
-              : COLORS.danger
-        }
-      />
-      <HighlightedText
-        text={errorMessage}
-        highlight={['Not Riding', 'Quit Riding']}
-        style={errorPresentation === 'error' ? styles.errorResultText : styles.infoResultText}
-        highlightStyle={styles.highlightedText}
-      />
-      {errorPresentation === 'error' && (
-        <TouchableOpacity style={styles.primaryButton} onPress={() => {
-          void submitCheckIn();
-        }}>
-          <Text style={styles.primaryButtonText}>Retry</Text>
-        </TouchableOpacity>
-      )}
-      <TouchableOpacity style={styles.secondaryButton} onPress={resetToStart}>
-        <Text style={styles.secondaryButtonText}>Start Over</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const typeLabel = checkInType === 'not_riding' ? 'Not Riding' : checkInType === 'quit_riding' ? 'Quit Riding' : checkInType === 'regular' ? 'Regular' : '—';
+  const stageDisplayName = selectedStage?.name
+    ?? (selectedStageNumber != null ? activeRide.stages.find((s) => s.stageNumber === selectedStageNumber)?.name : undefined)
+    ?? '—';
 
-  // -----------------------------------------------------------------------
-  // Main render
-  // -----------------------------------------------------------------------
+  const showInfoCard = !!scannedRiderId && !statusMessage && !showManualEntry && !isSubmitting;
+  const showScannerReview = !!scannedRiderId && !autoCheckIn && !statusMessage && !showManualEntry && !isSubmitting;
+  const showAutoSubmitting = !!scannedRiderId && isSubmitting && !statusMessage && !showManualEntry;
 
-  const phaseTitle: Record<Phase, string> = {
-    type_select: 'Check-In',
-    stage_select: checkInType === 'quit_riding' ? 'Quit Riding' : 'Select Stage',
-    scanning: 'Scan QR Code',
-    manual_entry: 'Manual Entry',
-    confirming: 'Confirm',
-    success: 'Check-In Recorded',
-    error:
-      errorPresentation === 'warning'
-        ? 'Check-In Warning'
-        : errorPresentation === 'info'
-          ? 'Check-In Info'
-          : 'Check-In Failed',
-  };
+  const statusColor = statusMessage
+    ? statusMessage.kind === 'error' ? COLORS.danger : statusMessage.kind === 'warning' ? COLORS.warning : COLORS.primary
+    : COLORS.primary;
+  const statusIconName = statusMessage
+    ? statusMessage.kind === 'error' ? 'error' : statusMessage.kind === 'warning' ? 'warning-amber' : 'info-outline'
+    : 'info-outline';
+  const isScannerMessageActive = Boolean(statusMessage);
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
-        {phase !== 'type_select' && phase !== 'success' && phase !== 'error' && (
-          <TouchableOpacity onPress={resetToStart} style={styles.headerButton}>
-            <MaterialIcons name="restart-alt" size={24} color={COLORS.textSecondary} />
-          </TouchableOpacity>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      {/* Section 1: type selector + scanner + manual entry */}
+      <View style={styles.topSection}>
+        {typeOptions.length > 0 && (
+          <View style={styles.typeSelectorRow}>
+            {typeOptions.map((opt) => {
+              const isSelected = checkInType === opt.type;
+              return (
+                <TouchableOpacity
+                  key={opt.type}
+                  style={[styles.typeChip, isSelected && styles.typeChipSelected, !opt.enabled && styles.typeChipDisabled]}
+                  onPress={() => handleSelectType(opt.type, opt.enabled)}
+                >
+                  <MaterialIcons name={opt.icon} size={16} color={isSelected ? COLORS.white : COLORS.textPrimary} />
+                  <Text style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
-        {(phase === 'type_select' || phase === 'success' || phase === 'error') && (
-          <View style={styles.headerButton} />
+
+        {stageValidationMessage ? (
+          <View style={styles.hintBox}>
+            <MaterialIcons name="info-outline" size={20} color={COLORS.primary} />
+            <Text style={styles.hintText}>{stageValidationMessage}</Text>
+          </View>
+        ) : !permission?.granted ? (
+          <View style={styles.permissionContainer}>
+            <MaterialIcons name="camera-alt" size={40} color={COLORS.gray[400]} />
+            <Text style={styles.permissionText}>Camera access is required for QR scanning.</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+              <Text style={styles.primaryButtonText}>Grant Camera Access</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.scannerContainer}>
+            {isScannerMessageActive ? (
+              <View style={styles.scannerMessageContainer}>
+                <View style={styles.scannerMessageHeader}>
+                  <MaterialIcons name={statusIconName} size={20} color={statusColor} />
+                  <Text style={[styles.scannerMessageTitle, { color: statusColor }]}>QR Code scanner</Text>
+                </View>
+                <Text style={styles.scannerMessageText}>{statusMessage?.text}</Text>
+                <View style={styles.scannerMessageActions}>
+                  {statusMessage?.secondaryAction ? (
+                    <TouchableOpacity
+                      style={[styles.secondaryButton, styles.scannerMessageButton]}
+                      onPress={statusMessage.secondaryAction.onPress}
+                    >
+                      <Text style={styles.secondaryButtonText}>{statusMessage.secondaryAction.label}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {statusMessage?.primaryAction ? (
+                    <TouchableOpacity
+                      style={[styles.primaryButton, styles.scannerMessageButton]}
+                      onPress={statusMessage.primaryAction.onPress}
+                    >
+                      <Text style={styles.primaryButtonText}>{statusMessage.primaryAction.label}</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            ) : showManualEntry ? (
+              <View style={styles.scannerManualContainer}>
+                <Text style={styles.scannerManualTitle}>Manual check-in</Text>
+                <Text style={styles.scannerMessageText}>Enter the rider ID to continue without scanning.</Text>
+                <View style={styles.manualInputRow}>
+                  <TextInput
+                    style={styles.manualInput}
+                    value={manualRiderId}
+                    onChangeText={setManualRiderId}
+                    placeholder="e.g. R1, R57"
+                    placeholderTextColor={COLORS.textDisabled}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    autoFocus
+                    onSubmitEditing={confirmManualEntry}
+                  />
+                  <TouchableOpacity
+                    style={[styles.primaryButton, styles.manualSubmitButton, !manualRiderId.trim() && styles.disabledButton]}
+                    onPress={confirmManualEntry}
+                    disabled={!manualRiderId.trim()}
+                  >
+                    <Text style={styles.primaryButtonText}>Go</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.scannerMessageActions}>
+                  <TouchableOpacity style={[styles.secondaryButton, styles.scannerMessageButton]} onPress={() => setShowManualEntry(false)}>
+                    <Text style={styles.secondaryButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : showScannerReview ? (
+              <View style={styles.scannerActionContainer}>
+                <Text style={styles.scannerManualTitle}>Scanner paused</Text>
+                <Text style={styles.scannerMessageText}>Confirm or rescan to continue.</Text>
+                <View style={styles.scannerMessageActions}>
+                  <TouchableOpacity
+                    style={[styles.secondaryButton, styles.scannerMessageButton]}
+                    onPress={handleRescan}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={styles.secondaryButtonText}>Rescan</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.primaryButton, styles.scannerMessageButton, isSubmitting && styles.disabledButton]}
+                    onPress={() => void submitCheckIn(scannedRiderId, pendingMethod)}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator color={COLORS.white} size="small" />
+                    ) : (
+                      <Text style={styles.primaryButtonText}>Confirm</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <>
+                {isFocused && (
+                  <CameraView
+                    style={styles.camera}
+                    facing="back"
+                    barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                    onBarcodeScanned={scannedRiderId ? undefined : handleBarcodeScan}
+                  />
+                )}
+                <View style={styles.scannerOverlay}>
+                  <View style={styles.scannerFrame} />
+                  {canManualCheckIn && (
+                    <TouchableOpacity
+                      style={styles.manualPromptButton}
+                      onPress={() => {
+                        setManualRiderId('');
+                        setShowManualEntry(true);
+                      }}
+                    >
+                      <Text style={styles.manualEntryLinkText}>Enter Rider ID manually</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
         )}
-        <Text style={styles.headerTitle}>{phaseTitle[phase]}</Text>
-        <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-          <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
-        </TouchableOpacity>
       </View>
 
-      {/* Ride context bar */}
-      <View style={styles.contextBar}>
-        <Text style={styles.contextText}>{ride.name} — {ride.date} — Status: {ride.status}</Text>
+      {/* Section 2: auto check-in toggle + confirm card */}
+      <View style={styles.middleSection}>
+        <View style={styles.autoCheckRow}>
+          <Text style={styles.autoCheckLabel}>Auto check-in</Text>
+          <Switch value={autoCheckIn} onValueChange={(v: boolean) => toggleAutoCheckIn(v)} />
+        </View>
+
+        {showInfoCard ? (
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Rider ID</Text>
+              <Text style={styles.confirmRiderId}>{scannedRiderId}</Text>
+            </View>
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Name</Text>
+              <Text style={scannedRiderDisplay.isAnomaly ? styles.confirmValueAnomaly : styles.confirmValue}>{scannedRiderDisplay.name}</Text>
+            </View>
+            {checkInType && checkInType !== 'quit_riding' && (
+              <View style={styles.confirmRow}>
+                <Text style={styles.confirmLabel}>Stage</Text>
+                <Text style={styles.confirmValue}>{stageDisplayName}</Text>
+              </View>
+            )}
+            <View style={styles.confirmRow}>
+              <Text style={styles.confirmLabel}>Type</Text>
+              <Text style={styles.confirmValue}>{typeLabel}</Text>
+            </View>
+          </View>
+        ) : showAutoSubmitting ? (
+          <View style={styles.autoSubmittingRow}>
+            <ActivityIndicator size="small" color={COLORS.primary} />
+            <Text style={styles.autoSubmittingText}>Checking in {scannedRiderId}…</Text>
+          </View>
+        ) : (
+          <Text style={styles.placeholderHint}>
+            Scan a rider QR code{canManualCheckIn ? ' or enter a Rider ID manually' : ''} to begin.
+          </Text>
+        )}
       </View>
 
-      {/* Content */}
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        {phase === 'type_select' && renderTypeSelection()}
-        {phase === 'stage_select' && renderStageSelection()}
-        {phase === 'scanning' && renderScanner()}
-        {phase === 'manual_entry' && renderManualEntry()}
-        {phase === 'confirming' && renderConfirmation()}
-        {phase === 'success' && renderSuccess()}
-        {phase === 'error' && renderError()}
-      </ScrollView>
-    </View>
+      {/* Section 3: recent check-ins on this device */}
+      <View style={[styles.recentSection, { paddingBottom: bottomInsetPadding }]}>
+        <Text style={styles.recentTitle}>Recent Check-ins</Text>
+        {recentCheckIns.length === 0 ? (
+          <Text style={styles.recentEmpty}>No check-ins yet this session.</Text>
+        ) : (
+          recentCheckIns.map((entry, idx) => (
+            <Text key={`${entry.riderId}-${entry.ts}-${idx}`} style={styles.recentLine} numberOfLines={1}>
+              <Text style={styles.recentRiderId}>{entry.riderId}</Text>
+              <Text> - </Text>
+              <Text style={entry.riderName === 'Unknown' ? styles.recentRiderNameAnomaly : styles.recentRiderName}>{entry.riderName || 'Unknown'}</Text>
+              <Text> - </Text>
+              <Text style={styles.recentStage}>{entry.stage}</Text>
+            </Text>
+          ))
+        )}
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -882,142 +920,186 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  headerButton: {
-    width: 40,
-    height: 40,
+  placeholderCenter: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 24,
+    gap: 12,
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  contextBar: {
-    backgroundColor: COLORS.gray[100],
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  contextText: {
-    fontSize: 13,
+  placeholderText: {
     color: COLORS.textSecondary,
     textAlign: 'center',
-  },
-  content: {
-    flexGrow: 1,
-    padding: 16,
-  },
-  section: {
-    flex: 1,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginBottom: 16,
+    fontSize: 14,
   },
 
-  // Type selection
-  typeButton: {
+  // Section 1 — top
+  topSection: {
+    flex: 1,
+    padding: 12,
+    minHeight: 220,
+  },
+  typeSelectorRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  typeChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
   },
-  typeButtonDisabled: {
-    opacity: 0.5,
+  typeChipSelected: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
-  typeButtonText: {
-    flex: 1,
-    marginLeft: 12,
+  typeChipDisabled: {
+    opacity: 0.45,
   },
-  typeButtonTitle: {
-    fontSize: 15,
+  typeChipText: {
+    fontSize: 12,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
-  typeButtonSubtitle: {
+  typeChipTextSelected: {
+    color: COLORS.white,
+  },
+  hintBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    padding: 12,
+  },
+  hintText: {
+    flex: 1,
     fontSize: 13,
     color: COLORS.textSecondary,
-    marginTop: 2,
   },
-
-  // Scanner
   scannerContainer: {
     flex: 1,
     borderRadius: 12,
     overflow: 'hidden',
-    minHeight: 350,
+    minHeight: 160,
+    backgroundColor: COLORS.gray[100],
+  },
+  scannerMessageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: COLORS.white,
+  },
+  scannerManualContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: COLORS.white,
+  },
+  scannerActionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: COLORS.white,
+  },
+  scannerMessageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  scannerMessageTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  scannerManualTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  scannerMessageText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  scannerMessageActions: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  scannerMessageButton: {
+    minWidth: 96,
+    paddingHorizontal: 14,
+  },
+  manualPromptButton: {
+    position: 'absolute',
+    bottom: 16,
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   camera: {
     flex: 1,
   },
   scannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: QR_SCANNER_COLORS.overlay,
   },
   scannerFrame: {
-    width: 220,
-    height: 220,
+    width: 180,
+    height: 180,
     borderWidth: 3,
     borderColor: QR_SCANNER_COLORS.frame,
     borderRadius: 16,
     backgroundColor: 'transparent',
   },
-  scannerFooter: {
-    padding: 12,
-    backgroundColor: COLORS.white,
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    padding: 24,
+    gap: 10,
   },
-  scanHint: {
+  permissionText: {
     fontSize: 13,
     color: COLORS.textSecondary,
+    textAlign: 'center',
   },
-  manualEntryLink: {
-    marginTop: 8,
+
+  // Manual entry
+  manualEntryArea: {
+    marginTop: 10,
   },
   manualEntryLinkText: {
     fontSize: 13,
     color: COLORS.primary,
     fontWeight: '600',
   },
-
-  // Permission
-  permissionContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  permissionText: {
-    marginTop: 16,
-    marginBottom: 16,
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-  },
-
-  // Manual entry
   manualInputRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     alignItems: 'center',
+    marginTop: 8,
   },
   manualInput: {
     flex: 1,
@@ -1025,110 +1107,158 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    fontSize: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    fontSize: 16,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
   manualSubmitButton: {
-    paddingHorizontal: 20,
-  },
-  infoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-  },
-  infoBannerText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginLeft: 8,
-    flex: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
 
-  // Confirmation
+  // Section 2 — middle
+  middleSection: {
+    height: 220,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+    justifyContent: 'center',
+  },
+  autoCheckRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  autoCheckLabel: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  placeholderHint: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+  autoSubmittingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  autoSubmittingText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+
+  // Confirmation card
   confirmCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    marginBottom: 20,
+    marginBottom: 10,
   },
   confirmRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.gray[100],
   },
   confirmLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: COLORS.textSecondary,
   },
   confirmValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
-  confirmButtons: {
-    gap: 12,
-  },
-
-  // Result
-  resultContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  resultText: {
-    fontSize: 18,
+  confirmValueAnomaly: {
+    fontSize: 13,
     fontWeight: '600',
-    color: COLORS.textPrimary,
-    textAlign: 'center',
-  },
-  errorResultText: {
-    fontSize: 15,
     color: COLORS.danger,
-    textAlign: 'center',
-    paddingHorizontal: 16,
   },
-  infoResultText: {
-    fontSize: 15,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    paddingHorizontal: 16,
+  confirmRiderId: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
+    fontWeight: '400',
   },
-  highlightedText: {
+  // Section 3 — recent check-ins
+  recentSection: {
+    maxHeight: 150,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+  },
+  recentTitle: {
+    fontSize: 12,
     fontWeight: '700',
-    color: COLORS.warning,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  recentEmpty: {
+    fontSize: 12,
+    color: COLORS.textDisabled,
+  },
+  recentLine: {
+    fontSize: 13,
+    color: COLORS.textPrimary,
+    paddingVertical: 2,
+    flexDirection: 'row',
+  },
+  recentRiderId: {
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
+    fontSize: 13,
+    color: COLORS.textPrimary,
+  },
+  recentRiderName: {
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
+    fontSize: 13,
+    color: COLORS.textPrimary,
+  },
+  recentRiderNameAnomaly: {
+    fontFamily: Platform.OS === 'android' ? 'monospace' : monospaceFont,
+    fontSize: 13,
+    color: COLORS.danger,
+  },
+  recentStage: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
   },
 
   // Buttons
   primaryButton: {
     backgroundColor: COLORS.primary,
     borderRadius: 8,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
   },
   primaryButtonText: {
     color: COLORS.white,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   secondaryButton: {
     backgroundColor: COLORS.gray[100],
     borderRadius: 8,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
   },
   secondaryButtonText: {
     color: COLORS.textSecondary,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   disabledButton: {

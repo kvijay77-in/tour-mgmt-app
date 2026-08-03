@@ -87,11 +87,32 @@ EXPO_PUBLIC_SETUP_HMAC_KEY=<hex-encoded-256-bit-key>
 # Logging (optional — defaults to DEBUG in dev, WARN in production)
 # Valid values: DEBUG, INFO, WARN, ERROR, NONE
 EXPO_PUBLIC_LOG_LEVEL=DEBUG
+
+# QR scan format mode (default false = production format)
+# Set true only to test legacy development QR codes.
+EXPO_PUBLIC_QR_DEV_FORMAT=false
 ```
 
 > **Dev-mode fallback**: When the app has no stored OrgConfig (first launch, no setup link/QR), it falls back to reading the `EXPO_PUBLIC_AWS_*` and `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` env vars. This allows local development without the setup flow. In production builds these vars are typically empty — the app shows the OrgSetupScreen instead.
 
 > **Important**: All environment variables must use the `EXPO_PUBLIC_` prefix to be accessible in the app at runtime. This is an Expo requirement — variables without this prefix are not bundled into the app. See [Expo Environment Variables](https://docs.expo.dev/guides/environment-variables/) for details.
+
+### QR Format Toggle for Check-In Testing
+
+The check-in scanner supports two parsing modes:
+- Production mode (default): `EXPO_PUBLIC_QR_DEV_FORMAT=false` or unset.
+- Legacy dev mode: `EXPO_PUBLIC_QR_DEV_FORMAT=true`.
+
+Production sample QR text for validation:
+
+```
+TICKET:VID:1D220;GIN:A253FC62;NB:QUFLQVNIIExPVVJERVM=;;
+```
+
+Expected production parse result:
+- idCode: `1D220`
+- typeCode: `1` (RIDER)
+- personalCode: `D220`
 
 ### Cognito User Role Setup (User Groups)
 

@@ -60,6 +60,11 @@ interface RequestOptions {
   timeoutMs?: number;
   /** Override default max retries */
   maxRetries?: number;
+  /**
+   * Marks API errors that are expected and will be handled by the caller.
+   * Expected errors are still thrown, but are not logged as warnings.
+   */
+  isExpectedError?: (error: ApiError) => boolean;
 }
 
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -237,6 +242,7 @@ async function request<T>(
     signal,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRetries = MAX_RETRIES,
+    isExpectedError,
   } = options;
 
   const url = buildUrl(path, params);
@@ -358,7 +364,18 @@ async function request<T>(
           error: error instanceof Error ? error.message : String(error),
         });
       }
-      logger.warn(TAG, `Request error (attempt ${attempt + 1})`, error);
+
+      if (error instanceof ApiError && isExpectedError?.(error)) {
+        logger.info(TAG, `Expected API error (attempt ${attempt + 1})`, {
+          method,
+          path,
+          statusCode: error.statusCode,
+          errorCode: error.errorCode,
+          message: error.message,
+        });
+      } else {
+        logger.warn(TAG, `Request error (attempt ${attempt + 1})`, error);
+      }
 
       // If externally aborted, don't retry
       if (signal?.aborted) {

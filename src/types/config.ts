@@ -29,3 +29,50 @@ export interface OrgConfig {
   /** Base URL for the tour-data-api (e.g. "https://xxx.execute-api.eu-west-1.amazonaws.com/v1") */
   apiBaseUrl: string;
 }
+
+export interface SubstringExtractor {
+  startPosition: number;
+  length: number;
+}
+
+export interface RegexExtractor {
+  pattern: string;
+  flags?: string;
+  group: number;
+}
+
+export interface SubstringDefinition {
+  method: 'SUBSTRING';
+  idCode: SubstringExtractor;
+  idCodeType: SubstringExtractor;
+  personalCode: SubstringExtractor;
+}
+
+export interface RegexDefinition {
+  method: 'REGEX';
+  idCode: RegexExtractor;
+  idCodeType: RegexExtractor;
+  personalCode: RegexExtractor;
+}
+
+export type IdCodeFormatConfig = SubstringDefinition | RegexDefinition;
+
+export type IdCodeTypeName = 'RIDER' | 'CYCLE' | 'BAGGAGE';
+
+export interface IdCodeTypeConfig {
+  code: string;
+  type: IdCodeTypeName | null;
+  name: string;
+  description?: string | null;
+}
+
+export interface AppConfigItem<T = unknown> {
+  configType: string;
+  configId: string;
+  enabled: boolean;
+  config: T;
+  description?: string | null;
+  version?: number | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}

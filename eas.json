@@ -13,7 +13,8 @@
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "true",
         "EXPO_PUBLIC_LOG_LEVEL": "DEBUG",
-        "EXPO_PUBLIC_API_DEBUG_GET": "false"
+        "EXPO_PUBLIC_API_DEBUG_GET": "false",
+        "EXPO_PUBLIC_QR_DEV_FORMAT": "true"
       }
     },
     "localpreview": {
@@ -35,7 +36,8 @@
         "EXPO_PUBLIC_REVIEW_AWS_REGION": "ap-south-1",
         "EXPO_PUBLIC_REVIEW_AWS_USER_POOL_ID": "ap-south-1_MMxOi2Qmt",
         "EXPO_PUBLIC_REVIEW_AWS_USER_POOL_WEB_CLIENT_ID": "31s80dcc5u1oob7shuc2s4up0a",
-        "EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL": "https://mgyezkldn2.execute-api.ap-south-1.amazonaws.com/dev"
+        "EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL": "https://mgyezkldn2.execute-api.ap-south-1.amazonaws.com/dev",
+        "EXPO_PUBLIC_QR_DEV_FORMAT": "true"
       }
     },
     "preview": {
@@ -48,7 +50,8 @@
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
         "EXPO_PUBLIC_LOG_LEVEL": "WARN",
-        "EXPO_PUBLIC_API_DEBUG_GET": "false"
+        "EXPO_PUBLIC_API_DEBUG_GET": "false",
+        "EXPO_PUBLIC_QR_DEV_FORMAT": "false"
       }
     },
     "production": {
@@ -61,7 +64,8 @@
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
         "EXPO_PUBLIC_LOG_LEVEL": "WARN",
-        "EXPO_PUBLIC_API_DEBUG_GET": "false"
+        "EXPO_PUBLIC_API_DEBUG_GET": "false",
+        "EXPO_PUBLIC_QR_DEV_FORMAT": "false"
       }
     }
   },

@@ -14,10 +14,13 @@ This page provides a guide to all project documentation.
 | [Solution Design](SolutionDesign.md) | Architecture, design principles, component structure, technical decisions |
 | [Dashboard Feature](Dashboard-Feature.md) | Dashboard screen specification — grid display, stages, sorting, zoom levels, color coding |
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
+| [ID Format Requirements](Requirements-ID-format.md) | Production QR ID Code parsing, type validation, and rider personal code mapping requirements |
 | [Dashboard API Optimization Proposal](Dashboard-API-Optimization-Proposal.md) | Approved dashboard API split contract (progress payload + rider-details on demand + ETag behavior) |
 | [Dashboard Call Trigger Baseline](dashboard-call-trigger-baseline.md) | Baseline trigger-to-call matrix used for API efficiency refactor verification |
 | [Dashboard Call Audit Checklist](dashboard-call-audit-checklist.md) | Duplicate-call classification checklist (true duplicate vs retry behavior) |
 | [Generic App Distribution Analysis](Generic-App-Distribution-Analysis.md) | Feasibility analysis for distributing a single generic app across multiple organizer AWS subscriptions |
+| [Dashboard Backend API Change Request](dashboard-backend-api-change-request.md) | Change request to include `checkedInByName` or a minimal user mapping endpoint |
+| [ID Code Backend API Change Request](idcode-backend-api-change-request.md) | Change request for shared AppConfig API and rider `personalCode` payload support |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 | [Migration Cleanup](migration-cleanup.md) | Obsolete/superseded code from the SPA→multi-screen navigation migration, pending user sign-off before removal |
 
@@ -38,6 +41,7 @@ This page provides a guide to all project documentation.
 
 ### For Understanding Features
 - **Dashboard details**: [Dashboard Feature](Dashboard-Feature.md) — grid, stages, sorting, zoom, color coding
+- **Check-In Log tab (Rider Card / Cancel Entry)**: [Dashboard Feature → Check-In Log Tab](Dashboard-Feature.md#8-check-in-log-tab)
 - **Check-in process**: [Requirements → Check-In](Requirements.md#check-in)
 - **Role-based access**: [Requirements → Role Based App Access](Requirements.md#role-based-app-access)
 - **Ride status transitions (Admin)**: [Requirements → Ride Status Management](Requirements.md#ride-status-management)

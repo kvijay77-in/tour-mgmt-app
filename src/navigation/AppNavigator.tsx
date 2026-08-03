@@ -14,9 +14,9 @@ import { AppStackParamList } from '../types/navigation';
 import { useAuth } from '../context/AuthContext';
 import { useTour } from '../context/TourContext';
 import { UserRole } from '../types/models';
-import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import RideInfoScreen from '../screens/dashboard/RideInfoScreen';
-import CheckInScreen from '../screens/checkin/CheckInScreen';
+import MainTabNavigator from './MainTabNavigator';
+import { RideSessionProvider } from '../context/RideSessionContext';
 import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
 import RideStatusManagementScreen from '../screens/admin/RideStatusManagementScreen';
 import UserOnboardingScreen from '../screens/admin/UserOnboardingScreen';
@@ -25,17 +25,6 @@ import UserDeleteScreen from '../screens/admin/UserDeleteScreen';
 import UserModifyScreen from '../screens/admin/UserModifyScreen';
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
-
-function CheckInRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'CheckIn'>) {
-  return (
-    <CheckInScreen
-      ride={route.params.ride}
-      managedPitStopStageNumber={route.params.managedPitStopStageNumber}
-      onCheckInComplete={() => {}}
-      onClose={() => navigation.goBack()}
-    />
-  );
-}
 
 function RideInfoRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'RideInfo'>) {
   return <RideInfoScreen ride={route.params.ride} onClose={() => navigation.goBack()} />;
@@ -78,12 +67,13 @@ export default function AppNavigator() {
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Dashboard" component={DashboardScreen} />
-      <Stack.Screen
-        name="CheckIn"
-        component={CheckInRoute}
-        options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
-      />
+      <Stack.Screen name="MainTabs">
+        {() => (
+          <RideSessionProvider>
+            <MainTabNavigator />
+          </RideSessionProvider>
+        )}
+      </Stack.Screen>
       <Stack.Screen
         name="RideInfo"
         component={RideInfoRoute}
@@ -94,6 +84,7 @@ export default function AppNavigator() {
         component={ChangePasswordRoute}
         options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
       />
+      
       {isAdministrator && (
         <Stack.Screen
           name="RideStatusManagement"

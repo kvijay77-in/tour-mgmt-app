@@ -23,6 +23,34 @@ export type OverrideRequiredOutcome = {
 
 type ValidationOutcome = InteractiveCheckInOutcome | OverrideRequiredOutcome;
 
+function isExpectedCheckInConflict(error: ApiError): boolean {
+  if ([409, 422].includes(error.statusCode)) {
+    return true;
+  }
+
+  if (error.statusCode !== 400) {
+    return false;
+  }
+
+  const errorCode = error.errorCode?.toUpperCase() ?? '';
+  const message = error.message.toLowerCase();
+
+  return (
+    errorCode.includes('DUPLICATE') ||
+    errorCode.includes('NOT_RIDING') ||
+    errorCode.includes('QUIT') ||
+    message.includes('duplicate') ||
+    message.includes('already checked') ||
+    message.includes('already exists') ||
+    message.includes('already in') ||
+    message.includes('already recorded') ||
+    message.includes('checked in at') ||
+    message.includes('not riding') ||
+    message.includes('quit riding') ||
+    message.includes('conflict')
+  );
+}
+
 function checkInsPath(tourId: string): string {
   return `/v1/tours/${tourId}/checkins`;
 }
@@ -97,6 +125,7 @@ export async function createCheckIn(
   const response = await apiClient.post<CheckIn>(
     checkInsPath(tourId),
     checkIn,
+    { isExpectedError: isExpectedCheckInConflict },
   );
   if (!response.data) {
     throw new Error('Unexpected empty response from createCheckIn');
@@ -118,30 +147,100 @@ export async function cancelCheckIn(
   await apiClient.post(checkInCancelPath(tourId, rideId, checkInId), payload);
 }
 
-function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcome | null {
-  if (!(error instanceof ApiError) || error.statusCode !== 409) {
-    return null;
+function getErrorStatusCode(error: unknown): number | undefined {
+  if (error instanceof ApiError) {
+    return error.statusCode;
   }
 
-  const code = (error.errorCode || '').toUpperCase();
-  const message = (error.message || '').toLowerCase();
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as { statusCode?: unknown };
+    if (typeof candidate.statusCode === 'number') {
+      return candidate.statusCode;
+    }
+  }
+
+  return undefined;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (error instanceof ApiError) {
+    return error.errorCode;
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as { errorCode?: unknown };
+    if (typeof candidate.errorCode === 'string' && candidate.errorCode.trim()) {
+      return candidate.errorCode;
+    }
+  }
+
+  return undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    const candidate = error as { message?: unknown };
+    if (typeof candidate.message === 'string') {
+      return candidate.message;
+    }
+  }
+
+  return '';
+}
+
+function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcome | null {
+  const statusCode = getErrorStatusCode(error);
+  const isConflictLikeStatus = statusCode === 400 || statusCode === 409 || statusCode === 422;
+
+  const code = (getErrorCode(error) || '').toUpperCase();
+  const message = (getErrorMessage(error) || '').toLowerCase();
+  const fallbackMessage = getErrorMessage(error) || 'The check-in request was blocked by the current rider state.';
+
+  const hasConflictLikeMessage =
+    message.includes('duplicate') ||
+    message.includes('already checked') ||
+    message.includes('already exists') ||
+    message.includes('already in') ||
+    message.includes('already recorded') ||
+    message.includes('checked in at') ||
+    message.includes('not riding') ||
+    message.includes('quit riding');
+
+  const isDuplicateLike =
+    code.includes('DUPLICATE') ||
+    message.includes('duplicate') ||
+    message.includes('already checked') ||
+    message.includes('already exists') ||
+    message.includes('already in') ||
+    message.includes('already recorded') ||
+    message.includes('checked in at');
+
+  if (!isConflictLikeStatus && !hasConflictLikeMessage) {
+    return null;
+  }
 
   const isNotRidingConflict =
     code === 'RIDER_NOT_RIDING' ||
     code.includes('NOT_RIDING') ||
     message.includes('already not riding') ||
-    (message.includes('not riding') && message.includes('already'));
+    (message.includes('not riding') && message.includes('already')) ||
+    message.includes('marked as not riding');
 
   const isQuitRidingConflict =
     code.includes('QUIT') ||
     message.includes('quit riding') ||
-    message.includes('already quit');
+    message.includes('already quit') ||
+    message.includes('marked as quit');
 
-  if (code === 'DUPLICATE_CHECKIN' || code.includes('DUPLICATE') || message.includes('duplicate') || message.includes('already checked')) {
+  if (isDuplicateLike) {
     return {
       kind: 'info_conflict',
       reason: 'duplicate',
-      message: error.message,
+      message: fallbackMessage,
     };
   }
 
@@ -149,7 +248,7 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
     return {
       kind: 'info_conflict',
       reason: 'quit_riding',
-      message: error.message,
+      message: fallbackMessage,
     };
   }
 
@@ -157,11 +256,23 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
     return {
       kind: 'info_conflict',
       reason: 'not_riding',
-      message: error.message,
+      message: fallbackMessage,
     };
   }
 
-  return null;
+  if (message.includes('already') || message.includes('conflict') || message.includes('not allowed')) {
+    return {
+      kind: 'info_conflict',
+      reason: 'duplicate',
+      message: fallbackMessage,
+    };
+  }
+
+  return {
+    kind: 'info_conflict',
+    reason: 'duplicate',
+    message: fallbackMessage,
+  };
 }
 
 function getRequestedActionLabel(checkIn: CheckInRequest): string {
@@ -356,6 +467,7 @@ async function listRiderCheckInsForValidation(
   try {
     const response = await apiClient.get<CheckIn[] | { checkIns?: CheckIn[]; items?: CheckIn[] }>(
       rideCheckInsPath(tourId, rideId),
+      { isExpectedError: (error) => error.statusCode === 404 },
     );
     return extractCheckInList(response.data).filter((checkIn) => checkIn.riderId === riderId);
   } catch (error) {
@@ -408,6 +520,15 @@ export async function createInteractiveCheckIn(
     if (outcome) {
       return outcome;
     }
+
+    if (getErrorStatusCode(error) && [400, 409, 422].includes(getErrorStatusCode(error)!)) {
+      return {
+        kind: 'info_conflict',
+        reason: 'duplicate',
+        message: getErrorMessage(error) || 'The check-in was blocked because the rider already has an existing check-in.',
+      };
+    }
+
     throw error;
   }
 }
@@ -419,21 +540,50 @@ export async function overrideInteractiveCheckIn(
   tourId: string,
   checkIn: CheckInRequest,
 ): Promise<InteractiveCheckInOutcome> {
-  const existingCheckIn = await resolveOverrideTargetCheckIn(tourId, checkIn);
-  const previousStatus = deriveCheckInStatus(existingCheckIn);
-  const resolvedCheckInId = resolveCheckInId(existingCheckIn);
+  try {
+    const existingCheckIn = await resolveOverrideTargetCheckIn(tourId, checkIn);
+    const previousStatus = deriveCheckInStatus(existingCheckIn);
+    const resolvedCheckInId = resolveCheckInId(existingCheckIn);
 
-  if (!resolvedCheckInId) {
-    throw new Error('Unable to resolve the existing check-in identifier for cancellation.');
+    if (!resolvedCheckInId) {
+      return {
+        kind: 'info_conflict',
+        reason: 'duplicate',
+        message: 'The existing check-in could not be resolved for override.',
+      };
+    }
+
+    await cancelCheckIn(tourId, checkIn.rideId, resolvedCheckInId, previousStatus);
+
+    const createdCheckIn = await createCheckIn(tourId, checkIn);
+    return {
+      kind: 'success',
+      checkIn: createdCheckIn,
+    };
+  } catch (error) {
+    const outcome = getInteractiveConflictOutcome(error);
+    if (outcome) {
+      return outcome;
+    }
+
+    if (getErrorStatusCode(error) && [400, 409, 422].includes(getErrorStatusCode(error)!)) {
+      return {
+        kind: 'info_conflict',
+        reason: 'duplicate',
+        message: getErrorMessage(error) || 'The override request was blocked because the rider already has an existing check-in.',
+      };
+    }
+
+    if (error instanceof Error && /override target check-in|existing check-in/i.test(error.message)) {
+      return {
+        kind: 'info_conflict',
+        reason: 'duplicate',
+        message: error.message,
+      };
+    }
+
+    throw error;
   }
-
-  await cancelCheckIn(tourId, checkIn.rideId, resolvedCheckInId, previousStatus);
-
-  const createdCheckIn = await createCheckIn(tourId, checkIn);
-  return {
-    kind: 'success',
-    checkIn: createdCheckIn,
-  };
 }
 
 /**

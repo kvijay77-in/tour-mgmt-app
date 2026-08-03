@@ -364,6 +364,7 @@ export const getMockDashboardProgressResponse = (rideId: string): DashboardProgr
   return {
     rideId,
     checkIns,
+    cancelled: [],
     summary: {
       totalRiders: MOCK_RIDERS.length,
       checkedIn: checkIns.filter((ci) => !ci.isNotRiding && !ci.isQuitRiding).length,

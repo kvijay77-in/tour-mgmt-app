@@ -270,7 +270,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'center',
   },

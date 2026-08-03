@@ -126,11 +126,32 @@ async function initialiseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       lastSyncedAt TEXT
     );
 
+    -- App configuration cache (shared config bootstrap)
+    CREATE TABLE IF NOT EXISTS app_config (
+      configType TEXT NOT NULL,
+      configId TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      configJson TEXT NOT NULL,
+      version INTEGER,
+      updatedAt TEXT,
+      lastSyncedAt TEXT,
+      PRIMARY KEY (configType, configId)
+    );
+
+    -- Rider personal-code to riderId lookup cache (tour-scoped preload)
+    CREATE TABLE IF NOT EXISTS rider_personal_codes (
+      personalCode TEXT PRIMARY KEY,
+      riderId TEXT NOT NULL,
+      tourId TEXT NOT NULL,
+      lastSyncedAt TEXT
+    );
+
     -- Indexes for common queries
     CREATE INDEX IF NOT EXISTS idx_check_ins_rider ON check_ins(riderId);
     CREATE INDEX IF NOT EXISTS idx_check_ins_ride ON check_ins(rideId);
     CREATE INDEX IF NOT EXISTS idx_check_ins_sync ON check_ins(syncStatus);
     CREATE INDEX IF NOT EXISTS idx_pending_ops_status ON pending_operations(syncStatus);
+    CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
   `);
 }
 

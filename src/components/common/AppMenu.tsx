@@ -59,6 +59,9 @@ export interface AppMenuProps {
   showSkippedToggle: boolean;
   isSkippedHighlightEnabled: boolean;
   onToggleSkippedHighlight: (value: boolean) => void;
+  showScanPauseConfigOption: boolean;
+  scanPauseSeconds: number;
+  onOpenScanPauseConfig: () => void;
   onLogout: () => void | Promise<void>;
 }
 
@@ -79,9 +82,12 @@ export function AppMenu({
   showSkippedToggle,
   isSkippedHighlightEnabled,
   onToggleSkippedHighlight,
+  showScanPauseConfigOption,
+  scanPauseSeconds,
+  onOpenScanPauseConfig,
   onLogout,
 }: AppMenuProps) {
-  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList, 'Dashboard'>>();
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const panelWidth = Math.min(MAX_PANEL_WIDTH, windowWidth * PANEL_WIDTH_RATIO);
@@ -351,6 +357,19 @@ export function AppMenu({
                 trackColor={{ false: COLORS.gray[400], true: COLORS.primary }}
               />
             </View>
+          )}
+
+          {showScanPauseConfigOption && (
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                onClose();
+                onOpenScanPauseConfig();
+              }}
+            >
+              <MaterialIcons name="timelapse" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>QR scan pause ({scanPauseSeconds}s)</Text>
+            </TouchableOpacity>
           )}
 
           <TouchableOpacity

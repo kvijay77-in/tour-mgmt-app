@@ -32,18 +32,15 @@ superseded code left in place intentionally, pending validation.
   `RideStatusManagementScreenProps`, its destructuring, and the internal
   call site.
 
-### 2. `CheckInScreen.onCheckInComplete` — now always a no-op
+### 2. `CheckInScreen.onCheckInComplete` / `onClose` / `ride` props — removed
 
 - Files: [src/screens/checkin/CheckInScreen.tsx](../src/screens/checkin/CheckInScreen.tsx)
-  (prop + call site), [src/navigation/AppNavigator.tsx](../src/navigation/AppNavigator.tsx)
-  (`CheckInRoute` passes `onCheckInComplete={() => {}}`)
-- Pre-migration this callback triggered a background Dashboard refresh from
-  the modal host. Since Phase 1 the return-to-Dashboard `useFocusEffect`
-  refresh covers this, so the route wrapper intentionally passes a no-op.
-- Action (after sign-off): remove the `onCheckInComplete` prop from
-  `CheckInScreenProps` and its call site — or repurpose it if a future
-  requirement needs a signal distinct from focus-refresh (e.g. a toast/snackbar
-  triggered only on successful check-in, not on every focus).
+- **Done** as part of the Check-in/Dashboard tab redesign (see
+  `/memories/repo/checkin-dashboard-redesign-plan.md` Phase 4). `CheckInScreen`
+  is now rendered as a bare `Tab.Screen` component with no props — it reads
+  `currentRide`/`isHistorical` from `RideSessionContext` directly and updates
+  the shared `checkIns` list itself on a successful submit, so no route-level
+  callback wiring is needed.
 
 ## Pending manual verification (block cleanup execution until all done)
 
