@@ -25,6 +25,8 @@ export interface CheckInRequest {
   method: CheckInMethod;
   isNotRiding?: boolean;
   isQuitRiding?: boolean;
+  isFloat?: boolean;
+  floatNo?: number;
   notes?: string;
 }
 

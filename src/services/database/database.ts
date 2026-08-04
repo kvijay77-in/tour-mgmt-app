@@ -153,6 +153,31 @@ async function initialiseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_pending_ops_status ON pending_operations(syncStatus);
     CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
   `);
+
+  const checkInColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(check_ins)');
+  const checkInColumnNames = new Set(checkInColumns.map((column) => column.name));
+
+  if (!checkInColumnNames.has('isFloat')) {
+    await addCheckInColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN isFloat INTEGER DEFAULT 0;');
+  }
+
+  if (!checkInColumnNames.has('floatNo')) {
+    await addCheckInColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN floatNo INTEGER;');
+  }
+}
+
+async function addCheckInColumnIfMissing(
+  db: SQLite.SQLiteDatabase,
+  sql: string,
+): Promise<void> {
+  try {
+    await db.execAsync(sql);
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    if (!message.includes('duplicate column name')) {
+      throw error;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

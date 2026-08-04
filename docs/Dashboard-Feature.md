@@ -75,7 +75,13 @@ Located in the header, displays cumulative counts:
 - QR who didn't reach: Red
 - NR: Gray
 
-### 6. Floating Action Button (FAB)
+### 6. Float Badge
+- Float riders show a compact shipping badge on the dashboard card when the float is still in progress.
+- The badge appears in the bottom-left corner of the card so it does not obscure the rider ID text.
+- In stage views, the badge is visible for all stages up to the float target stage, while the default view only shows it until the rider completes the regular check-in at the target stage.
+- The badge suppresses the skipped-stage warning for stages before the float target so those stages do not appear as if the rider skipped them.
+
+### 7. Floating Action Button (FAB)
 - QR Code scanner button (teal color)
 - Positioned bottom-right by default
 - **Draggable**: User can move it anywhere on screen

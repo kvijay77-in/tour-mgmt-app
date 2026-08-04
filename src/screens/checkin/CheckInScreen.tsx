@@ -49,7 +49,7 @@ const TAG = 'CheckInScreen';
 const RECENT_CHECKINS_LIMIT = 5;
 const ALLOWED_TOUR_RIDER_STATUSES = new Set<string>([TourRiderStatus.REGISTERED, TourRiderStatus.ACTIVE]);
 
-type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
+type CheckInType = 'regular' | 'not_riding' | 'quit_riding' | 'float';
 type StatusKind = 'error' | 'info' | 'warning';
 
 interface StatusAction {
@@ -120,6 +120,7 @@ export default function CheckInScreen() {
   const bottomInsetPadding = Math.max(insets.bottom, 12);
 
   const [checkInType, setCheckInType] = useState<CheckInType | null>('regular');
+  const [selectedFloatNo, setSelectedFloatNo] = useState<number | null>(null);
   const [selectedStage, setSelectedStage] = useState<Stage | null>(null);
   const [scannedRiderId, setScannedRiderId] = useState<string>('');
   const [pendingMethod, setPendingMethod] = useState<CheckInMethod>(CheckInMethod.QR_SCAN);
@@ -235,9 +236,9 @@ export default function CheckInScreen() {
 
   const hasSingleRegularPitStopStage = isPitStopPrimaryRole && allowedRegularStageNumbers.length === 1;
 
-  // Auto-select Start stage for NR
+  // Auto-select Start stage for Start-only special check-ins.
   useEffect(() => {
-    if (checkInType === 'not_riding' && activeRide) {
+    if ((checkInType === 'not_riding' || checkInType === 'float') && activeRide) {
       const startStage = activeRide.stages.find((s) => s.type === StageType.START);
       if (startStage) setSelectedStage(startStage);
     }
@@ -295,6 +296,16 @@ export default function CheckInScreen() {
       return null;
     }
 
+    if (type === 'float') {
+      if (!activeRide || activeRide.status !== RideStatus.OPEN) {
+        return `Float check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`;
+      }
+      if ((activeRide.floats?.length ?? 0) > 1 && selectedFloatNo == null) {
+        return 'Select a Float option to enable QR scanner.';
+      }
+      return null;
+    }
+
     if (type === 'quit_riding') {
       if (!activeRide || activeRide.status !== RideStatus.STARTED) {
         return `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
@@ -324,7 +335,7 @@ export default function CheckInScreen() {
     }
 
     return null;
-  }, [activeRide, isPitStopPrimaryRole, allowedRegularStageNumbers]);
+  }, [activeRide, isPitStopPrimaryRole, allowedRegularStageNumbers, selectedFloatNo]);
 
   const stageValidationMessage = activeRide ? getValidationMessage(checkInType, selectedStage) : null;
 
@@ -337,6 +348,7 @@ export default function CheckInScreen() {
     setManualRiderId('');
     setShowManualEntry(false);
     setStatusMessage(null);
+    setSelectedFloatNo(null);
     processingRef.current = false;
   };
 
@@ -344,11 +356,13 @@ export default function CheckInScreen() {
     resetPendingEntry();
   }, []);
 
-  const handleSelectType = (type: CheckInType, enabled: boolean) => {
+  const handleSelectType = (type: CheckInType, enabled: boolean, floatNo?: number) => {
     if (!enabled) {
       const reason = type === 'not_riding'
         ? `Not Riding check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`
-        : `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
+        : type === 'float'
+          ? `Float check-ins are allowed only when today's ride status is OPEN. Current status: ${activeRide?.status ?? 'unknown'}.`
+          : `Quit Riding check-ins are allowed only when today's ride status is STARTED. Current status: ${activeRide?.status ?? 'unknown'}.`;
       showStatusMessage({
         kind: 'warning',
         text: reason,
@@ -361,14 +375,19 @@ export default function CheckInScreen() {
     }
 
     // Toggle-off behavior: tapping the same active type disables scanner until a type is selected again.
-    if (checkInType === type) {
+    if (checkInType === type && (type !== 'float' || selectedFloatNo === (floatNo ?? null))) {
       setCheckInType(null);
       resetPendingEntry();
       return;
     }
 
     setCheckInType(type);
-    resetPendingEntry();
+    setSelectedFloatNo(type === 'float' ? (floatNo ?? null) : null);
+    setScannedRiderId('');
+    setManualRiderId('');
+    setShowManualEntry(false);
+    setStatusMessage(null);
+    processingRef.current = false;
     if (type === 'quit_riding') {
       setSelectedStage(null);
     }
@@ -445,7 +464,7 @@ export default function CheckInScreen() {
     }
 
     const effectiveStage =
-      checkInType === 'not_riding'
+      checkInType === 'not_riding' || checkInType === 'float'
         ? (selectedStage ?? activeRide.stages.find((s) => s.type === StageType.START) ?? null)
         : selectedStage;
 
@@ -491,6 +510,8 @@ export default function CheckInScreen() {
             stageNumber: effectiveStage!.stageNumber,
             method,
             isNotRiding: checkInType === 'not_riding',
+            isFloat: checkInType === 'float',
+            floatNo: checkInType === 'float' ? (selectedFloatNo ?? undefined) : undefined,
             isQuitRiding: false,
           };
 
@@ -571,7 +592,9 @@ export default function CheckInScreen() {
           ? (effectiveStage?.name ?? 'Unknown')
           : checkInType === 'not_riding'
             ? 'Not Riding'
-            : 'Quit Riding';
+            : checkInType === 'float'
+              ? ((activeRide.floats?.length ?? 0) > 1 && selectedFloatNo ? `Float-${selectedFloatNo}` : 'Float')
+              : 'Quit Riding';
 
       setRecentCheckIns((prev) => [{ riderId, riderName, ts: Date.now(), stage: stageLabel }, ...prev].slice(0, RECENT_CHECKINS_LIMIT));
       resetPendingEntry();
@@ -597,7 +620,9 @@ export default function CheckInScreen() {
     selectedStage,
     checkIns,
     setCheckIns,
-    getValidationMessage,    dismissStatusMessage,
+    selectedFloatNo,
+    getValidationMessage,
+    dismissStatusMessage,
     showStatusMessage,
     acknowledgeStatusAndReadyForNextScan,
     getRiderDisplayName,
@@ -724,7 +749,13 @@ export default function CheckInScreen() {
     );
   }
 
-  const typeOptions: { type: CheckInType; label: string; icon: keyof typeof MaterialIcons.glyphMap; enabled: boolean }[] = [];
+  const typeOptions: {
+    type: CheckInType;
+    label: string;
+    icon: keyof typeof MaterialIcons.glyphMap;
+    enabled: boolean;
+    floatNo?: number;
+  }[] = [];
   if (canCheckInRegular) typeOptions.push({ type: 'regular', label: 'Regular', icon: 'qr-code-scanner', enabled: true });
   if (canCheckInNR) {
     typeOptions.push({
@@ -742,8 +773,28 @@ export default function CheckInScreen() {
       enabled: activeRide.status === RideStatus.STARTED,
     });
   }
+  if (canCheckInRegular && (activeRide.floats?.length ?? 0) > 0) {
+    activeRide.floats!.forEach((floatDef) => {
+      typeOptions.push({
+        type: 'float',
+        label: activeRide.floats!.length > 1 ? `Float-${floatDef.floatNo}` : 'Float',
+        icon: 'local-shipping',
+        enabled: activeRide.status === RideStatus.OPEN,
+        floatNo: floatDef.floatNo,
+      });
+    });
+  }
 
-  const typeLabel = checkInType === 'not_riding' ? 'Not Riding' : checkInType === 'quit_riding' ? 'Quit Riding' : checkInType === 'regular' ? 'Regular' : '—';
+  const typeLabel =
+    checkInType === 'not_riding'
+      ? 'Not Riding'
+      : checkInType === 'quit_riding'
+        ? 'Quit Riding'
+        : checkInType === 'float'
+          ? ((activeRide.floats?.length ?? 0) > 1 && selectedFloatNo ? `Float-${selectedFloatNo}` : 'Float')
+          : checkInType === 'regular'
+            ? 'Regular'
+            : '—';
   const stageDisplayName = selectedStage?.name
     ?? (selectedStageNumber != null ? activeRide.stages.find((s) => s.stageNumber === selectedStageNumber)?.name : undefined)
     ?? '—';
@@ -770,12 +821,14 @@ export default function CheckInScreen() {
         {typeOptions.length > 0 && (
           <View style={styles.typeSelectorRow}>
             {typeOptions.map((opt) => {
-              const isSelected = checkInType === opt.type;
+              const isSelected =
+                checkInType === opt.type &&
+                (opt.type !== 'float' || selectedFloatNo === (opt.floatNo ?? null));
               return (
                 <TouchableOpacity
-                  key={opt.type}
+                  key={opt.type === 'float' ? `${opt.type}-${opt.floatNo ?? 'default'}` : opt.type}
                   style={[styles.typeChip, isSelected && styles.typeChipSelected, !opt.enabled && styles.typeChipDisabled]}
-                  onPress={() => handleSelectType(opt.type, opt.enabled)}
+                  onPress={() => handleSelectType(opt.type, opt.enabled, opt.floatNo)}
                 >
                   <MaterialIcons name={opt.icon} size={16} color={isSelected ? COLORS.white : COLORS.textPrimary} />
                   <Text style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}>{opt.label}</Text>

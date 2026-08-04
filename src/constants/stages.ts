@@ -19,6 +19,7 @@ export const STAGE_TYPE_NAMES: Record<StageType, string> = {
 export const CHECK_IN_STATUS_NAMES: Record<CheckInStatus, string> = {
   [CheckInStatus.NOT_CHECKED_IN]: 'Not Checked In',
   [CheckInStatus.CHECKED_IN]: 'Checked In',
+  [CheckInStatus.FLOAT]: 'Float',
   [CheckInStatus.NOT_RIDING]: 'Not Riding',
   [CheckInStatus.QUIT_RIDING]: 'Quit Riding',
 };
@@ -29,6 +30,7 @@ export const CHECK_IN_STATUS_NAMES: Record<CheckInStatus, string> = {
 export const CHECK_IN_STATUS_SHORT: Record<CheckInStatus, string> = {
   [CheckInStatus.NOT_CHECKED_IN]: 'Pending',
   [CheckInStatus.CHECKED_IN]: 'Done',
+  [CheckInStatus.FLOAT]: 'FL',
   [CheckInStatus.NOT_RIDING]: 'NR',
   [CheckInStatus.QUIT_RIDING]: 'QR',
 };
@@ -48,6 +50,7 @@ export const STAGE_ORDER: Record<StageType, number> = {
  */
 export const CHECK_IN_STATUS_PRIORITY: Record<CheckInStatus, number> = {
   [CheckInStatus.NOT_CHECKED_IN]: 1,
+  [CheckInStatus.FLOAT]: 1,
   [CheckInStatus.CHECKED_IN]: 2,
   [CheckInStatus.NOT_RIDING]: 3,
   [CheckInStatus.QUIT_RIDING]: 4,

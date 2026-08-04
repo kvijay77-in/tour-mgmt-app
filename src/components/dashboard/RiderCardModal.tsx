@@ -9,7 +9,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIn
 import { MaterialIcons } from '@expo/vector-icons';
 import { getRideRiderDetails } from '../../services/api/riderApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
-import { buildRiderStatuses, resolveStageForCheckIn } from '../../utils/riderStatus';
+import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn } from '../../utils/riderStatus';
 import { logger } from '../../utils/logger';
 import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage, TourRiderStatus } from '../../types/models';
 import { COLORS, getStageColor } from '../../constants/colors';
@@ -26,6 +26,10 @@ function getStageLabel(stageNumber: number, totalStages: number): string {
   if (stageNumber === 0) return 'Start';
   if (stageNumber === totalStages - 1) return 'Finish';
   return `PS${stageNumber}`;
+}
+
+function getFloatTargetLabel(floatToStage: number, totalStages: number): string {
+  return getStageLabel(floatToStage, totalStages);
 }
 
 function getStageDisplayName(stage: Stage, totalStages: number): string {
@@ -145,6 +149,10 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
     ? buildRiderStatuses(ride, [details.rider], details.checkInTimeline)[0] ?? null
     : null;
   const hasExitedTour = selectedRider ? isExitedTourRider(selectedRider.rider.status) : false;
+  const riderFloatDef = ride && selectedRider ? getRiderFloatDefinition(ride, selectedRider) : null;
+  const floatChipLabel = riderFloatDef && ride
+    ? `Float${riderFloatDef.floatNo > 1 ? `-${riderFloatDef.floatNo}` : ''} → ${getFloatTargetLabel(riderFloatDef.floatToStage, ride.stages.length)}`
+    : null;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -182,6 +190,11 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                 {hasExitedTour && (
                   <View style={styles.exitedStatusChip}>
                     <Text style={styles.exitedStatusChipText}>Exited tour</Text>
+                  </View>
+                )}
+                {floatChipLabel && (
+                  <View style={styles.floatStatusChip}>
+                    <Text style={styles.floatStatusChipText}>{floatChipLabel}</Text>
                   </View>
                 )}
               </View>
@@ -383,6 +396,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#991B1B',
+  },
+  floatStatusChip: {
+    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+    backgroundColor: '#DBEAFE',
+  },
+  floatStatusChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
   },
   riderCardSection: {
     borderWidth: 1,

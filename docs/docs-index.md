@@ -11,6 +11,7 @@ This page provides a guide to all project documentation.
 | [Development Guide](development-guide.md) | Environment setup, running the app, testing, code quality, troubleshooting |
 | [Release Guide](release-guide.md) | Building and distributing the ToT Android APK via EAS Build |
 | [Requirements](Requirements.md) | Detailed functional requirements, use cases, feature specifications, and business rules |
+| [Float Requirements](Requirements-Float.md) | Float-specific rider check-in requirements, badge rules, and ride data contract |
 | [Solution Design](SolutionDesign.md) | Architecture, design principles, component structure, technical decisions |
 | [Dashboard Feature](Dashboard-Feature.md) | Dashboard screen specification — grid display, stages, sorting, zoom levels, color coding |
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |

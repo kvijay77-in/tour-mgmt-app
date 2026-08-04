@@ -160,6 +160,14 @@ There can be 2 special cases as part of the check in:
 
 Special cases should also be handled using QR Code scanning. User must select the check-in type (regular check-in, Not Riding, or Quit Riding) from a menu/UI option before scanning the QR code. These check in should be visible in Dashboard distinctively. An fixed color representation for these 2 cases should be implemented universally in the Dashboard.
 
+## Float
+Float is a Start-stage check-in option for riders who are transported to a later stage instead of riding the Start segment. Full rules are specified in [Requirements-Float](./Requirements-Float.md).
+
+Float-specific requirements summary:
+- Float is mutually exclusive with regular Start check-in and Not Riding at Start, using the same Override or Cancel interaction before any new record is written.
+- Float uses a badge-only visual indicator on Dashboard cards; it must not change the rider card color away from the not-checked-in appearance until the rider completes the regular check-in at the float target stage.
+- Float definitions are ride-specific data and determine which later stage the rider joins.
+
 A manual check-in option should be available to allow 'Quit Riding' check in remotely where QR Code scanning is not possible.
 
 A fallback option should be automatically activated when QR Code scanning fails with 2 to 3 retries. This should allow manually inputting Rider ID as per the check in option. This is a sub-feature of check in and not same as manual check in option.
@@ -184,6 +192,8 @@ On each day of the tour, before the ride is Started/Flagged off all riders must 
 Tour Director will use the dashboard to view the check-in progress and only when all check-ins are completed she/he will give go ahead to start the ride.
 
 If a rider has already been checked in at Start and the user later attempts a Not Riding check-in, or if a rider has already been marked Not Riding at Start and the user later attempts a regular Start check-in, the app must prompt to Override or Cancel before writing any data. On Override, the previous Start-stage check-in must be cancelled and the new check-in must be created.
+
+When Float is configured for a ride, this Start-stage Override or Cancel flow becomes three-way: regular Start check-in, Not Riding, and Float are mutually exclusive and overriding one must cancel the prior Start-stage decision before creating the new one.
 
 ## Pit Stops  
 Pit Stops are pre-determined location along the ride route for riders to take a break and refuel/recharge and there will be one or 2 tour staff to manage each pit stop. From the app scope, their primary responsibility is to check-in each and every Rider who reaches the corresponding pit stop. Assigned pit-stop stage users (`PS_x_USER`) will have the control on to flag the assigned pit stop as 'Open' and 'Closed'. This will help to a tracking view for Pit Stops. In future this status can even be used for Rider App (not scope for this project) to let riders know Pit Stop as been opend and closed.

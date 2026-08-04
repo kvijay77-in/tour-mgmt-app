@@ -70,9 +70,9 @@ export async function insertLocalCheckIn(checkIn: CheckIn): Promise<void> {
   await db.runAsync(
     `INSERT OR REPLACE INTO check_ins
       (checkInId, riderId, rideId, stageNumber, stageId, timestamp, checkedInBy,
-       method, isNotRiding, isQuitRiding, isManualEntry, notes, locationLat, locationLng,
+       method, isNotRiding, isQuitRiding, isFloat, floatNo, isManualEntry, notes, locationLat, locationLng,
        isLocal, syncStatus, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'PENDING', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'PENDING', ?)`,
     [
       checkIn.checkInId,
       checkIn.riderId,
@@ -84,6 +84,8 @@ export async function insertLocalCheckIn(checkIn: CheckIn): Promise<void> {
       checkIn.method,
       checkIn.isNotRiding ? 1 : 0,
       checkIn.isQuitRiding ? 1 : 0,
+      checkIn.isFloat ? 1 : 0,
+      checkIn.floatNo ?? null,
       checkIn.isManualEntry ? 1 : 0,
       checkIn.notes ?? null,
       checkIn.location?.latitude ?? null,
@@ -106,12 +108,14 @@ export async function upsertCheckInsFromApi(checkIns: CheckIn[]): Promise<void> 
     await db.runAsync(
       `INSERT INTO check_ins
         (checkInId, riderId, rideId, stageNumber, stageId, timestamp, checkedInBy,
-         method, isNotRiding, isQuitRiding, isManualEntry, notes,
+         method, isNotRiding, isQuitRiding, isFloat, floatNo, isManualEntry, notes,
          isLocal, syncStatus, lastSyncedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'SYNCED', ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'SYNCED', ?)
        ON CONFLICT(checkInId) DO UPDATE SET
          isNotRiding = excluded.isNotRiding,
          isQuitRiding = excluded.isQuitRiding,
+         isFloat = excluded.isFloat,
+         floatNo = excluded.floatNo,
          notes = excluded.notes,
          lastSyncedAt = excluded.lastSyncedAt
        WHERE isLocal = 0`,
@@ -126,6 +130,8 @@ export async function upsertCheckInsFromApi(checkIns: CheckIn[]): Promise<void> 
         ci.method,
         ci.isNotRiding ? 1 : 0,
         ci.isQuitRiding ? 1 : 0,
+        ci.isFloat ? 1 : 0,
+        ci.floatNo ?? null,
         ci.isManualEntry ? 1 : 0,
         ci.notes ?? null,
         now,
@@ -175,6 +181,8 @@ function mapRowToCheckIn(row: Record<string, unknown>): CheckIn {
     method: row.method as CheckInMethod,
     isNotRiding: (row.isNotRiding as number) === 1,
     isQuitRiding: (row.isQuitRiding as number) === 1,
+    isFloat: !!row.isFloat,
+    floatNo: (row.floatNo as number | null) ?? undefined,
     isManualEntry: (row.isManualEntry as number) === 1,
     notes: row.notes as string | undefined,
     createdAt: row.createdAt as string | undefined,

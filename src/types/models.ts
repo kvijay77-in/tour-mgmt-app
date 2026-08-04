@@ -56,6 +56,7 @@ export enum RideStatus {
 export enum CheckInStatus {
   NOT_CHECKED_IN = 'NOT_CHECKED_IN', // UI-only: derived from absence of CheckIn record
   CHECKED_IN = 'CHECKED_IN',
+  FLOAT = 'FLOAT',
   NOT_RIDING = 'NOT_RIDING',
   QUIT_RIDING = 'QUIT_RIDING',
 }
@@ -281,6 +282,11 @@ export interface Stage {
   
 }
 
+export interface FloatDefinition {
+  floatNo: number;
+  floatToStage: number;
+}
+
 /**
  * Daily ride configuration (from Ride-{tourId} table)
  */
@@ -320,6 +326,9 @@ export interface Ride {
   
   /** List of stages (Start, Pit Stops, Finish) */
   stages: Stage[];
+
+  /** Optional float definitions for riders who join after Start */
+  floats?: FloatDefinition[];
   
   /** Ride status */
   status: RideStatus;
@@ -388,6 +397,12 @@ export interface CheckIn {
 
   /** True if rider has Quit Riding */
   isQuitRiding: boolean;
+
+  /** True if rider is floating to a later stage instead of riding from Start */
+  isFloat?: boolean;
+
+  /** Float definition number when multiple floats exist for the ride */
+  floatNo?: number;
 
   /** True if check-in was done manually (not via QR scan) */
   isManualEntry?: boolean;
@@ -557,6 +572,7 @@ export enum DashboardSortOption {
 export const deriveCheckInStatus = (checkIn: CheckIn): CheckInStatus => {
   if (checkIn.isNotRiding) return CheckInStatus.NOT_RIDING;
   if (checkIn.isQuitRiding) return CheckInStatus.QUIT_RIDING;
+  if (checkIn.isFloat) return CheckInStatus.FLOAT;
   return CheckInStatus.CHECKED_IN;
 };
 

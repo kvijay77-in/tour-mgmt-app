@@ -168,6 +168,7 @@ export default function CheckInLogScreen() {
     let stageLabel = '—';
     if (item.isNotRiding) stageLabel = 'NR';
     else if (item.isQuitRiding) stageLabel = 'Quit';
+    else if (item.isFloat) stageLabel = item.floatNo ? `Float-${item.floatNo}` : 'Float';
     else if (currentRide) {
       const s = currentRide.stages.find((x) => x.stageNumber === item.stageNumber);
       stageLabel = s?.name ?? `PS${item.stageNumber}`;

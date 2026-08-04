@@ -391,6 +391,8 @@ Manual entry validation order:
 2. Validate rider registration status first.
 3. Continue only when status is `REGISTERED` or `ACTIVE`.
 
+Check-in type selection includes `regular`, `not_riding`, `quit_riding`, and `float`. Float is a Start-only check-in type that is available only when the ride status is `OPEN`; it always submits against the Start stage and participates in the same online-only Start-stage Override or Cancel flow as regular Start and Not Riding, making those three Start decisions mutually exclusive.
+
 ### Post-sign-in bootstrap
 
 After sign-in, app loads and persists:
@@ -417,6 +419,8 @@ This toggle exists only for controlled development/testing compatibility.
 1. **SQLite is the durable source for offline check-in and sync queue**
 2. **Same write path online and offline** — check-ins always go to SQLite first, then sync
 3. **Manual + automatic offline control** — users can toggle offline mode; NetInfo detects automatically
+
+Float check-ins persist `isFloat` and `floatNo` locally in SQLite alongside the existing `isNotRiding` and `isQuitRiding` flags so offline capture and later sync preserve the Start-stage decision. The literal backend `status` string for Float remains API-only and is not stored in SQLite, matching the existing approach where cancelled-record status metadata is handled outside local durable storage.
 4. **Conflict resolution is automatic** — no manual intervention needed (see [Data Integration Design § 4.5](DataIntegrationDesign.md#45-conflict-resolution))
 
 The Start-stage Override/Cancel flow is excluded from offline handling. It is expected to occur at ride start where network coverage is available, so the UI must submit it live and avoid queueing it for deferred sync.

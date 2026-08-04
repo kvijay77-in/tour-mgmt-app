@@ -23,7 +23,7 @@ import { listRiders } from '../../services/api/riderApi';
 import { subscribeDashboardCheckInEvent, subscribeDashboardCancelEvent, subscribeDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { buildRiderStatuses, resolveStageForCheckIn } from '../../utils/riderStatus';
+import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn, shouldShowFloatBadge } from '../../utils/riderStatus';
 import RiderCardModal from '../../components/dashboard/RiderCardModal';
 import {
   Ride,
@@ -514,6 +514,7 @@ export default function DashboardScreen() {
         return matchedStage?.stageId === targetStage.stageId
           && !ci.isNotRiding
           && !ci.isQuitRiding
+          && !ci.isFloat
           && !isCancelledCheckIn(ci);
       }
     );
@@ -532,6 +533,7 @@ export default function DashboardScreen() {
           && matchedStage.stageNumber > targetStage.stageNumber
           && !ci.isNotRiding
           && !ci.isQuitRiding
+          && !ci.isFloat
           && !isCancelledCheckIn(ci);
       }
     );
@@ -543,6 +545,11 @@ export default function DashboardScreen() {
     }
 
     if (riderStatus.overallStatus === CheckInStatus.NOT_RIDING) {
+      return false;
+    }
+
+    const floatDef = ride ? getRiderFloatDefinition(ride, riderStatus) : null;
+    if (floatDef && selectedStage.stageNumber < floatDef.floatToStage) {
       return false;
     }
 
@@ -780,6 +787,10 @@ export default function DashboardScreen() {
             const isWhiteBg = getRiderColor(riderStatus) === COLORS.white;
             const showSkippedIndicator = shouldShowSkippedIndicator(riderStatus);
             const isExitedRider = isExitedTourRider(riderStatus.rider.status);
+            const floatDef = ride ? getRiderFloatDefinition(ride, riderStatus) : null;
+            const showFloatBadge = floatDef
+              ? shouldShowFloatBadge(riderStatus, floatDef, selectedStage?.stageNumber ?? null)
+              : false;
             return (
               <TouchableOpacity
                 key={riderStatus.rider.riderId}
@@ -794,6 +805,14 @@ export default function DashboardScreen() {
                 {showSkippedIndicator && (
                   <View style={styles.skippedBadge} pointerEvents="none">
                     <Text style={styles.skippedBadgeMark}>!</Text>
+                  </View>
+                )}
+                {showFloatBadge && (
+                  <View style={styles.floatBadge} pointerEvents="none">
+                    <MaterialIcons name="local-shipping" size={10} color={COLORS.white} />
+                    {floatDef && floatDef.floatNo > 1 && (
+                      <Text style={styles.floatBadgeText}>{floatDef.floatNo}</Text>
+                    )}
                   </View>
                 )}
                 <View style={styles.riderIconContent}>
@@ -1056,6 +1075,31 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     fontWeight: '900',
     color: '#92400E',
+  },
+  floatBadge: {
+    position: 'absolute',
+    bottom: -5,
+    left: -5,
+    zIndex: 2,
+    elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#374151',
+    backgroundColor: '#374151',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18,
+    shadowRadius: 2,
+  },
+  floatBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: COLORS.white,
   },
   riderIconContent: {
     flex: 1,

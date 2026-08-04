@@ -56,6 +56,7 @@ export const COLORS = {
 export const CHECK_IN_STATUS_COLORS: Record<CheckInStatus, string> = {
   [CheckInStatus.NOT_CHECKED_IN]: COLORS.gray[300], // Gray - not checked in
   [CheckInStatus.CHECKED_IN]: COLORS.success, // Green - checked in
+  [CheckInStatus.FLOAT]: COLORS.gray[300], // Float remains visually equivalent to not checked in
   [CheckInStatus.NOT_RIDING]: COLORS.info, // Blue - not riding for the day
   [CheckInStatus.QUIT_RIDING]: COLORS.danger, // Red - quit riding
 };

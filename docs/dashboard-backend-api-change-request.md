@@ -81,3 +81,58 @@ Security notes:
 
 - Add this change request to the backend team's ticketing system (include payload example and security notes).
 - Update client docs to reference the new field/endpoint and expected fallback behavior.
+
+## Float Check-In Support
+
+### Summary
+
+The client needs ride-level float definitions and check-in payload support for riders who are transported from Start to a later stage instead of riding the Start segment. The change must be backward compatible and must not require existing rides or check-ins to provide float data.
+
+### Background
+
+- Float is configured per ride and can define one or more transport options, for example Float-1 to Stage 1 and Float-2 to Stage 2.
+- At Start, the client needs to submit a distinct float check-in instead of a regular Start check-in.
+- Dashboard and check-in log views need the backend to echo float metadata on CheckIn records so the UI can render the correct badge and label while still treating the rider as not yet regularly checked in.
+
+### Recommendation
+
+1. Extend the Ride payload with an optional `floats` array:
+
+```json
+{
+  "floats": [
+    {
+      "floatNo": 1,
+      "floatToStage": 1
+    }
+  ]
+}
+```
+
+2. Extend check-in request handling to accept these optional fields on `CheckInRequest`:
+
+```json
+{
+  "isFloat": true,
+  "floatNo": 1
+}
+```
+
+3. When a float check-in is persisted or returned in dashboard/progress payloads, include:
+   - `isFloat?: boolean`
+   - `floatNo?: number`
+   - `status: 'FLOAT' | 'FLOAT-1' | 'FLOAT-2'`
+
+### Implementation Guidance
+
+- Treat all float fields as optional. Absence of `floats`, `isFloat`, or `floatNo` means the ride or check-in does not use float behavior.
+- `Ride.floats` should be returned anywhere the client consumes ride definitions for check-in and dashboard views.
+- For float check-ins, continue returning the standard CheckIn shape and add `isFloat` and `floatNo` alongside the existing fields.
+- The create-check-in response should echo the persisted float fields and the derived wire `status` string so the client can update recent activity and dashboard state without refetch ambiguity.
+- For multi-float rides, derive the wire `status` value from `floatNo` as `FLOAT-<n>` while preserving `isFloat: true` for explicit client-side branching.
+
+### Backward Compatibility
+
+- All new fields are optional and additive.
+- Existing clients can ignore `floats`, `isFloat`, `floatNo`, and `FLOAT*` status values if they do not implement float behavior.
+- Existing rides and historical check-ins without float metadata remain valid and should continue to behave as non-float records.

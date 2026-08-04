@@ -17,7 +17,7 @@ export type InteractiveCheckInOutcome =
 
 export type OverrideRequiredOutcome = {
   kind: 'override_required';
-  reason: 'start_regular_exists' | 'start_not_riding_exists';
+  reason: 'start_regular_exists' | 'start_not_riding_exists' | 'start_float_exists';
   message: string;
 };
 
@@ -276,6 +276,9 @@ function getInteractiveConflictOutcome(error: unknown): InteractiveCheckInOutcom
 }
 
 function getRequestedActionLabel(checkIn: CheckInRequest): string {
+  if (checkIn.isFloat) {
+    return checkIn.floatNo ? `Float-${checkIn.floatNo}` : 'Float';
+  }
   if (checkIn.isNotRiding) {
     return 'Not Riding';
   }
@@ -349,13 +352,53 @@ function getActiveNotRidingCheckIn(checkIns: CheckIn[]): CheckIn | undefined {
   );
 }
 
+function getActiveFloatCheckIn(checkIns: CheckIn[]): CheckIn | undefined {
+  return getLatestActiveCheckIn(
+    checkIns,
+    (checkIn) => deriveCheckInStatus(checkIn) === CheckInStatus.FLOAT,
+  );
+}
+
 function getStartStageOverrideOutcome(
   checkIn: CheckInRequest,
   riderCheckIns: CheckIn[],
   latestStatus: CheckInStatus,
 ): OverrideRequiredOutcome | null {
-  // Change 1: rider has a regular Start check-in and now requests Not Riding.
-  if (checkIn.isNotRiding) {
+  const requestedIsFloat = !!checkIn.isFloat;
+  const requestedIsNotRiding = !!checkIn.isNotRiding;
+  const requestedIsRegularStart =
+    checkIn.stageNumber === 0 &&
+    !checkIn.isQuitRiding &&
+    !requestedIsNotRiding &&
+    !requestedIsFloat;
+
+  if (requestedIsFloat) {
+    if (
+      latestStatus === CheckInStatus.CHECKED_IN &&
+      getActiveStartRegularCheckIn(riderCheckIns)
+    ) {
+      return {
+        kind: 'override_required',
+        reason: 'start_regular_exists',
+        message: 'A regular Start-stage check-in already exists for this rider. Override it with Float?',
+      };
+    }
+
+    if (
+      latestStatus === CheckInStatus.NOT_RIDING &&
+      getActiveNotRidingCheckIn(riderCheckIns)
+    ) {
+      return {
+        kind: 'override_required',
+        reason: 'start_not_riding_exists',
+        message: 'This rider is already marked as Not Riding at Start. Override it with Float?',
+      };
+    }
+
+    return null;
+  }
+
+  if (requestedIsNotRiding) {
     if (
       latestStatus === CheckInStatus.CHECKED_IN &&
       getActiveStartRegularCheckIn(riderCheckIns)
@@ -366,13 +409,23 @@ function getStartStageOverrideOutcome(
         message: 'A regular Start-stage check-in already exists for this rider. Override it with Not Riding?',
       };
     }
+
+    if (
+      latestStatus === CheckInStatus.FLOAT &&
+      getActiveFloatCheckIn(riderCheckIns)
+    ) {
+      return {
+        kind: 'override_required',
+        reason: 'start_float_exists',
+        message: 'This rider already has a Float check-in at Start. Override it with Not Riding?',
+      };
+    }
+
     return null;
   }
 
-  // Change 2: rider is Not Riding and now requests a regular Start check-in.
-  const isStartStageCheckIn = checkIn.stageNumber === 0 && !checkIn.isQuitRiding;
   if (
-    isStartStageCheckIn &&
+    requestedIsRegularStart &&
     latestStatus === CheckInStatus.NOT_RIDING &&
     getActiveNotRidingCheckIn(riderCheckIns)
   ) {
@@ -380,6 +433,18 @@ function getStartStageOverrideOutcome(
       kind: 'override_required',
       reason: 'start_not_riding_exists',
       message: 'This rider is already marked as Not Riding at Start. Override it with a regular check-in?',
+    };
+  }
+
+  if (
+    requestedIsRegularStart &&
+    latestStatus === CheckInStatus.FLOAT &&
+    getActiveFloatCheckIn(riderCheckIns)
+  ) {
+    return {
+      kind: 'override_required',
+      reason: 'start_float_exists',
+      message: 'This rider already has a Float check-in at Start. Override it with a regular check-in?',
     };
   }
 
@@ -406,7 +471,9 @@ async function resolveOverrideTargetCheckIn(
   const target =
     overrideOutcome.reason === 'start_regular_exists'
       ? getActiveStartRegularCheckIn(riderCheckIns)
-      : getActiveNotRidingCheckIn(riderCheckIns);
+      : overrideOutcome.reason === 'start_not_riding_exists'
+        ? getActiveNotRidingCheckIn(riderCheckIns)
+        : getActiveFloatCheckIn(riderCheckIns);
 
   if (!target) {
     throw new Error('Existing Start-stage check-in to cancel was not found.');
