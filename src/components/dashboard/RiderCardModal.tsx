@@ -11,7 +11,7 @@ import { getRideRiderDetails } from '../../services/api/riderApi';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { buildRiderStatuses, resolveStageForCheckIn } from '../../utils/riderStatus';
 import { logger } from '../../utils/logger';
-import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage } from '../../types/models';
+import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage, TourRiderStatus } from '../../types/models';
 import { COLORS, getStageColor } from '../../constants/colors';
 
 interface RiderCardModalProps {
@@ -80,6 +80,10 @@ function hasRegularCheckInAfterStage(ride: Ride, riderStatus: RiderStatus, stage
   });
 }
 
+function isExitedTourRider(status?: string): boolean {
+  return typeof status === 'string' && status.trim().toUpperCase() === TourRiderStatus.EXITED;
+}
+
 export default function RiderCardModal({ visible, tourId, ride, riderId, onClose }: RiderCardModalProps) {
   const { width, height } = useWindowDimensions();
   const [details, setDetails] = useState<RiderDetailsData | null>(null);
@@ -140,6 +144,7 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
   const selectedRider: RiderStatus | null = ride && details
     ? buildRiderStatuses(ride, [details.rider], details.checkInTimeline)[0] ?? null
     : null;
+  const hasExitedTour = selectedRider ? isExitedTourRider(selectedRider.rider.status) : false;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -174,6 +179,11 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                 <Text style={styles.riderCardId}>{selectedRider.rider.riderId}</Text>
                 <Text style={styles.riderCardName}>{selectedRider.rider.name}</Text>
                 <Text style={styles.riderCardContact}>{selectedRider.rider.phone || 'N/A'}</Text>
+                {hasExitedTour && (
+                  <View style={styles.exitedStatusChip}>
+                    <Text style={styles.exitedStatusChipText}>Exited tour</Text>
+                  </View>
+                )}
               </View>
 
               <View style={styles.riderCardSection}>
@@ -359,6 +369,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textSecondary,
     marginBottom: 12,
+  },
+  exitedStatusChip: {
+    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEE2E2',
+  },
+  exitedStatusChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#991B1B',
   },
   riderCardSection: {
     borderWidth: 1,

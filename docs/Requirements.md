@@ -118,6 +118,11 @@ When App is launched and Dashboard is displayed it give a complete view of the r
 
 Rider icon with Not Riding and Quit Riding status should appear with respective fix color.
 
+Tour rider registration status handling:
+- Riders with `TourRider.status = EXITED` must remain visible in Dashboard and historical check-in data remains viewable.
+- `EXITED` must be highlighted with a prominent `X` mark rendered inside the rider icon box.
+- Do not use stage colors or text badges for `EXITED` indication to avoid confusion with stage/state color coding.
+
 ## Sort  
 Sort should made available as a toggle option - sorted and unsort (which is actually sorted by Rider ID). Sorting when activated should group and order riders by stage. When sorting is activated within filtered view, show not checked in first and then checked in. When sorting is activated it should always have sub-sorting on Rider ID.  
 
@@ -144,6 +149,9 @@ Production scan resolution rules:
 - ID Code type must resolve to RIDER.
 - If type is not RIDER, block with message: Invalid ID type. Only Rider ID allowed.
 - For RIDER type, resolve personalCode to tour Rider ID using preloaded local mapping.
+- Immediately after Rider ID resolution, validate rider registration status from rider API.
+- Allow check-in only when rider status is `REGISTERED` or `ACTIVE`.
+- If rider status is any other value, block and show: `Check-in not allowed for rider with status <STATUS>.`
 - If mapping is missing, block and do not create check-in.
 
 There can be 2 special cases as part of the check in:  
@@ -159,6 +167,8 @@ A fallback option should be automatically activated when QR Code scanning fails 
 Manual and fallback entry behavior remains unchanged:
 - Manual and fallback entry use Rider ID directly.
 - ID Code parsing rules apply only to camera scan input.
+- For manual Rider ID entry, rider registration status validation is the first validation step.
+- Manual and scan flows must both block check-in for any rider status other than `REGISTERED` or `ACTIVE`.
 
 ## Future Placeholder: Cycle ID Code
 
@@ -217,6 +227,12 @@ In multi-user scenarios, 'Quit Riding' creation must validate the rider's latest
 ## Check-In Validation Matrix
 
 For all interactive online check-ins, validation must use the latest rider status from backend before final write. Locally available status is not authoritative in online mode.
+
+Tour rider registration-status gate (applies to both QR-scan and manual check-in flows):
+- `REGISTERED` and `ACTIVE`: eligible for check-in processing.
+- Any other rider status: block and show a UI error message, do not raise app exception.
+- QR flow order: validate ID type first, then rider registration status.
+- Manual flow order: validate rider registration status first.
 
 | Requested Action | Latest Rider Status | Expected Result |
 |---|---|---|

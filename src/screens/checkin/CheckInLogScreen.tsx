@@ -20,6 +20,7 @@ function sortByTimestampDesc(list: CheckIn[]): CheckIn[] {
 export default function CheckInLogScreen() {
   const {
     currentRide,
+    isHistorical,
     checkIns: contextCheckIns,
     cancelledCheckIns,
     setCheckIns,
@@ -39,6 +40,12 @@ export default function CheckInLogScreen() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [resultMessage, setResultMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [riderCardRiderId, setRiderCardRiderId] = useState<string | null>(null);
+
+  const canCancelEntries = useMemo(() => {
+    if (!currentRide || isHistorical) return false;
+    const today = new Date().toISOString().split('T')[0];
+    return currentRide.date === today;
+  }, [currentRide, isHistorical]);
 
   // Load initial data from context or DB
   useEffect(() => {
@@ -117,6 +124,11 @@ export default function CheckInLogScreen() {
 
   const handleConfirmCancel = useCallback(async (entry: CheckIn) => {
     if (!tour || !currentRide) return;
+    if (!canCancelEntries) {
+      setResultMessage({ kind: 'error', text: 'Cancel Entry is available only for today\'s ride.' });
+      setConfirmCancelEntry(null);
+      return;
+    }
 
     setIsCancelling(true);
     try {
@@ -149,7 +161,7 @@ export default function CheckInLogScreen() {
       setIsCancelling(false);
       setConfirmCancelEntry(null);
     }
-  }, [tour, currentRide, setCheckIns, setCancelledCheckIns, user]);
+  }, [tour, currentRide, canCancelEntries, setCheckIns, setCancelledCheckIns, user]);
 
   const renderItem = useCallback(({ item, index }: { item: CheckIn; index: number }) => {
     const riderDisplay = getRiderDisplayName(item.riderId);
@@ -171,7 +183,14 @@ export default function CheckInLogScreen() {
     return (
       <TouchableOpacity
         style={[styles.logRow, index % 2 === 0 ? styles.logRowEven : styles.logRowOdd]}
-        onPress={() => setActionSheetEntry(item)}
+        onPress={() => {
+          if (canCancelEntries) {
+            setActionSheetEntry(item);
+            return;
+          }
+
+          setRiderCardRiderId(item.riderId);
+        }}
         activeOpacity={0.6}
       >
         <Text style={[styles.logText, isCancelled ? styles.logCancelledText : undefined]} numberOfLines={1}>
@@ -186,7 +205,7 @@ export default function CheckInLogScreen() {
         </Text>
       </TouchableOpacity>
     );
-  }, [currentRide, getAppUserDisplayName, getRiderDisplayName, showName]);
+  }, [canCancelEntries, currentRide, getAppUserDisplayName, getRiderDisplayName, showName]);
 
   if (!currentRide) {
     return (
@@ -224,47 +243,49 @@ export default function CheckInLogScreen() {
         />
       </View>
 
-      {/* Row action sheet: Rider Card / Cancel Entry */}
-      <Modal visible={!!actionSheetEntry} transparent animationType="fade" onRequestClose={() => setActionSheetEntry(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setActionSheetEntry(null)}>
-          <TouchableOpacity style={styles.actionSheetCard} activeOpacity={1} onPress={() => { /* keep open */ }}>
-            <Text style={styles.actionSheetTitle}>{actionSheetEntry?.riderId}</Text>
-            <TouchableOpacity
-              style={styles.actionSheetButton}
-              onPress={() => {
-                setRiderCardRiderId(actionSheetEntry?.riderId ?? null);
-                setActionSheetEntry(null);
-              }}
-            >
-              <Text style={styles.actionSheetButtonText}>Rider Card</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.actionSheetButton,
-                actionSheetEntry && isCancelledCheckIn(actionSheetEntry) ? styles.actionSheetButtonDisabled : undefined,
-              ]}
-              disabled={!actionSheetEntry || isCancelledCheckIn(actionSheetEntry)}
-              onPress={() => {
-                setConfirmCancelEntry(actionSheetEntry);
-                setActionSheetEntry(null);
-              }}
-            >
-              <Text
-                style={[
-                  styles.actionSheetButtonText,
-                  styles.actionSheetDangerText,
-                  actionSheetEntry && isCancelledCheckIn(actionSheetEntry) ? styles.actionSheetButtonTextDisabled : undefined,
-                ]}
+      {/* Row action sheet: Rider Card / Cancel Entry (today ride only) */}
+      {canCancelEntries ? (
+        <Modal visible={!!actionSheetEntry} transparent animationType="fade" onRequestClose={() => setActionSheetEntry(null)}>
+          <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setActionSheetEntry(null)}>
+            <TouchableOpacity style={styles.actionSheetCard} activeOpacity={1} onPress={() => { /* keep open */ }}>
+              <Text style={styles.actionSheetTitle}>{actionSheetEntry?.riderId}</Text>
+              <TouchableOpacity
+                style={styles.actionSheetButton}
+                onPress={() => {
+                  setRiderCardRiderId(actionSheetEntry?.riderId ?? null);
+                  setActionSheetEntry(null);
+                }}
               >
-                Cancel Entry
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionSheetCancel} onPress={() => setActionSheetEntry(null)}>
-              <Text style={styles.actionSheetCancelText}>Dismiss</Text>
+                <Text style={styles.actionSheetButtonText}>Rider Card</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.actionSheetButton,
+                  actionSheetEntry && isCancelledCheckIn(actionSheetEntry) ? styles.actionSheetButtonDisabled : undefined,
+                ]}
+                disabled={!actionSheetEntry || isCancelledCheckIn(actionSheetEntry)}
+                onPress={() => {
+                  setConfirmCancelEntry(actionSheetEntry);
+                  setActionSheetEntry(null);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.actionSheetButtonText,
+                    styles.actionSheetDangerText,
+                    actionSheetEntry && isCancelledCheckIn(actionSheetEntry) ? styles.actionSheetButtonTextDisabled : undefined,
+                  ]}
+                >
+                  Cancel Entry
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionSheetCancel} onPress={() => setActionSheetEntry(null)}>
+                <Text style={styles.actionSheetCancelText}>Dismiss</Text>
+              </TouchableOpacity>
             </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+        </Modal>
+      ) : null}
 
       {/* Confirm cancel dialog */}
       <Modal visible={!!confirmCancelEntry} transparent animationType="fade" onRequestClose={() => !isCancelling && setConfirmCancelEntry(null)}>

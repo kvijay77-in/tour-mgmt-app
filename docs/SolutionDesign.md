@@ -377,12 +377,19 @@ Production QR scan flow resolves Rider ID in-app using config + local mapping.
 5. Resolve typeCode through ID_CODE_TYPE config.
 6. Validate type is RIDER.
 7. Resolve personalCode to tour Rider ID using local SQLite mapping.
-8. Continue existing check-in flow with resolved Rider ID.
+8. Validate rider registration status from rider API using resolved Rider ID.
+9. Continue existing check-in flow only when rider status is `REGISTERED` or `ACTIVE`.
 
 If validation fails:
 - Non-RIDER type must be blocked with message: Invalid ID type. Only Rider ID allowed.
 - Unparseable payload must be treated as invalid QR input.
 - Missing personalCode mapping must fail fast with no network retry lookup.
+- Rider status other than `REGISTERED` or `ACTIVE` must be blocked with message: Check-in not allowed for rider with status <STATUS>.
+
+Manual entry validation order:
+1. Manual entry uses Rider ID directly (no ID Code parsing).
+2. Validate rider registration status first.
+3. Continue only when status is `REGISTERED` or `ACTIVE`.
 
 ### Post-sign-in bootstrap
 

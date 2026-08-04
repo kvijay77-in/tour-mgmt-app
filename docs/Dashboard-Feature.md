@@ -67,6 +67,7 @@ Located in the header, displays cumulative counts:
 - QR: Dark Red (#B91C1C)
 - NR: Gray (#9CA3AF)
 - Not Checked In: White with gray border
+- `EXITED` tour riders: keep their normal tile background semantics but overlay a prominent `X` mark inside the tile (no text badge, no stage-color-based EXITED color)
 
 **Stage View:**
 - Riders who reached stage: Stage color

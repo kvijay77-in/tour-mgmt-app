@@ -32,6 +32,7 @@ import {
   RiderStatus,
   CheckInStatus,
   RideStatus,
+  TourRiderStatus,
   isCancelledCheckIn,
 } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
@@ -49,6 +50,10 @@ function compareRiderIdsNatural(a: string, b: string): number {
     numeric: true,
     sensitivity: 'base',
   });
+}
+
+function isExitedTourRider(status?: string): boolean {
+  return typeof status === 'string' && status.trim().toUpperCase() === TourRiderStatus.EXITED;
 }
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {
@@ -774,12 +779,18 @@ export default function DashboardScreen() {
           return filteredRiders.map((riderStatus) => {
             const isWhiteBg = getRiderColor(riderStatus) === COLORS.white;
             const showSkippedIndicator = shouldShowSkippedIndicator(riderStatus);
+            const isExitedRider = isExitedTourRider(riderStatus.rider.status);
             return (
               <TouchableOpacity
                 key={riderStatus.rider.riderId}
-                style={getRiderIconStyle(riderStatus)}
+                style={[getRiderIconStyle(riderStatus), isExitedRider && styles.exitedRiderIcon]}
                 onPress={() => handleRiderTap(riderStatus)}
               >
+                {isExitedRider && (
+                  <View style={styles.exitedOverlay} pointerEvents="none">
+                    <Text style={styles.exitedOverlayMark}>X</Text>
+                  </View>
+                )}
                 {showSkippedIndicator && (
                   <View style={styles.skippedBadge} pointerEvents="none">
                     <Text style={styles.skippedBadgeMark}>!</Text>
@@ -987,6 +998,32 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     overflow: 'visible',
+  },
+  exitedRiderIcon: {
+    borderWidth: 3,
+    borderColor: '#111827',
+    backgroundColor: 'transparent',
+  },
+  exitedOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 4,
+    elevation: 4,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exitedOverlayMark: {
+    fontSize: 40,
+    lineHeight: 40,
+    fontWeight: '400',
+    color: '#111827',
+    textShadowColor: 'rgba(255, 255, 255, 0.95)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 3,
   },
   skippedBadge: {
     position: 'absolute',

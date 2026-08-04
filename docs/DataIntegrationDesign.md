@@ -577,7 +577,13 @@ For interactive online check-in operations, the app must validate against the la
 Rules:
 1. Any online interactive check-in (`Regular`, `Not Riding`, `Quit Riding`) must use backend-latest rider status for validation.
 2. Locally available SQLite status must not be treated as authoritative in online mode.
-3. If latest backend status makes the requested action invalid, block creation and return informational conflict outcome rendered as a Warning in UI (no app exception path).
+3. Rider registration status eligibility must be enforced before check-in create/write:
+  - Allow only `REGISTERED` or `ACTIVE` from rider API status.
+  - For any other status, block the check-in and show a UI error message (no app exception path).
+4. Validation order must be deterministic:
+  - QR scan flow: ID type validation first, rider registration status validation second.
+  - Manual Rider ID flow: rider registration status validation first.
+5. If latest backend status makes the requested action invalid, block creation and return informational conflict outcome rendered as a Warning in UI (no app exception path).
 
 Currently enforced conflict example:
 - Before creating a `Quit Riding` check-in, fetch latest rider check-ins for the same ride.

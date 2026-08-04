@@ -30,9 +30,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
 import { useRideSession } from '../../context/RideSessionContext';
 import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
+import { getRiderById } from '../../services/api/riderApi';
 import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { COLORS, QR_SCANNER_COLORS } from '../../constants/colors';
-import { CheckInMethod, Permission, RideStatus, Stage, StageType } from '../../types/models';
+import { CheckInMethod, Permission, RideStatus, Stage, StageType, TourRiderStatus } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
@@ -46,6 +47,7 @@ const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', de
 
 const TAG = 'CheckInScreen';
 const RECENT_CHECKINS_LIMIT = 5;
+const ALLOWED_TOUR_RIDER_STATUSES = new Set<string>([TourRiderStatus.REGISTERED, TourRiderStatus.ACTIVE]);
 
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding';
 type StatusKind = 'error' | 'info' | 'warning';
@@ -380,6 +382,54 @@ export default function CheckInScreen() {
     setStatusMessage(message);
   }, []);
 
+  const validateRiderStatusForCheckIn = useCallback(async (riderId: string): Promise<boolean> => {
+    if (!tour) {
+      showStatusMessage({
+        kind: 'error',
+        text: 'Unable to validate rider status because no active tour is selected.',
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
+      return false;
+    }
+
+    try {
+      const rider = await getRiderById(tour.tourId, riderId);
+      const normalizedStatus = typeof rider?.status === 'string' && rider.status.trim().length > 0
+        ? rider.status.trim().toUpperCase()
+        : 'UNKNOWN';
+
+      if (ALLOWED_TOUR_RIDER_STATUSES.has(normalizedStatus)) {
+        return true;
+      }
+
+      showStatusMessage({
+        kind: 'error',
+        text: `Check-in not allowed for rider with status ${normalizedStatus}.`,
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
+      void playFailure('error');
+      return false;
+    } catch (error) {
+      logger.error(TAG, `Failed to validate rider status for ${riderId}`, error);
+      showStatusMessage({
+        kind: 'error',
+        text: 'Unable to validate rider status. Please try again.',
+        primaryAction: {
+          label: 'OK',
+          onPress: dismissStatusMessage,
+        },
+      });
+      void playFailure('error');
+      return false;
+    }
+  }, [tour, dismissStatusMessage, showStatusMessage]);
+
   const submitCheckIn = useCallback(async (riderId: string, method: CheckInMethod, overrideRequested: boolean = false) => {
     if (!tour || !riderId || !activeRide) return;
     if (!checkInType) {
@@ -588,6 +638,12 @@ export default function CheckInScreen() {
           }
 
           const resolvedRiderId = resolution.riderId;
+          const isRiderStatusAllowed = await validateRiderStatusForCheckIn(resolvedRiderId);
+          if (!isRiderStatusAllowed) {
+            releaseScanLock();
+            return;
+          }
+
           const scanWindowMs = scanPauseSeconds * 1000;
           scanCooldownUntilRef.current = Date.now() + scanWindowMs;
           if (scanCooldownTimerRef.current) {
@@ -616,12 +672,17 @@ export default function CheckInScreen() {
         }
       })();
     },
-    [autoCheckIn, scanPauseSeconds, submitCheckIn],
+    [autoCheckIn, scanPauseSeconds, submitCheckIn, validateRiderStatusForCheckIn],
   );
 
-  const confirmManualEntry = () => {
+  const confirmManualEntry = useCallback(async () => {
     const trimmed = manualRiderId.trim();
     if (!trimmed) return;
+
+    const isRiderStatusAllowed = await validateRiderStatusForCheckIn(trimmed);
+    if (!isRiderStatusAllowed) {
+      return;
+    }
 
     setPendingMethod(CheckInMethod.MANUAL);
     setScannedRiderId(trimmed);
@@ -632,7 +693,7 @@ export default function CheckInScreen() {
     if (autoCheckIn) {
       void submitCheckIn(trimmed, CheckInMethod.MANUAL);
     }
-  };
+  }, [manualRiderId, autoCheckIn, submitCheckIn, validateRiderStatusForCheckIn]);
 
   const handleRescan = () => {
     resetPendingEntry();

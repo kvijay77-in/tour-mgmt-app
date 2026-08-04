@@ -75,6 +75,7 @@ export enum CheckInMethod {
 export enum TourRiderStatus {
   REGISTERED = 'REGISTERED',
   ACTIVE = 'ACTIVE',
+  EXITED = 'EXITED',
   WITHDRAWN = 'WITHDRAWN',
 }
 
