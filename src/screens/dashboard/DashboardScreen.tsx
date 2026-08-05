@@ -683,15 +683,25 @@ export default function DashboardScreen() {
     return STAGE_VIEW_COLORS.notCheckedInAtStage; // White with border
   };
 
+  const getRiderIconSize = useCallback((currentZoomLevel: 1 | 2 | 3 | 4) => {
+    const isTablet = width >= 768;
+    const columns = isTablet
+      ? (currentZoomLevel === 1 ? 10 : currentZoomLevel === 2 ? 8 : currentZoomLevel === 3 ? 6 : 4)
+      : (currentZoomLevel === 1 ? 6 : currentZoomLevel === 2 ? 4 : currentZoomLevel === 3 ? 3 : 2);
+    const gridBaseWidth = width >= 768 ? Math.min(width, height) : width;
+    return Math.floor((gridBaseWidth - 32 - (columns - 1) * 6) / columns);
+  }, [width, height]);
+
+  const getExitedOverlayIconSize = useCallback((currentZoomLevel: 1 | 2 | 3 | 4) => {
+    const iconSize = getRiderIconSize(currentZoomLevel);
+    return Math.max(16, Math.min(60, Math.floor(iconSize * 0.9)));
+  }, [getRiderIconSize]);
+
   // Style helpers for dynamic colors and sizes
   const getRiderIconStyle = (riderStatus: RiderStatus) => {
     const bgColor = getRiderColor(riderStatus);
     const isWhite = bgColor === COLORS.white;
-    
-    // Calculate icon size based on zoom level
-    const columns = getGridColumns(zoomLevel);
-    const gridBaseWidth = width >= 768 ? Math.min(width, height) : width;
-    const iconSize = Math.floor((gridBaseWidth - 32 - (columns - 1) * 6) / columns);
+    const iconSize = getRiderIconSize(zoomLevel);
     
     return [
       styles.riderIcon,
@@ -794,12 +804,17 @@ export default function DashboardScreen() {
             return (
               <TouchableOpacity
                 key={riderStatus.rider.riderId}
-                style={[getRiderIconStyle(riderStatus), isExitedRider && styles.exitedRiderIcon]}
+                style={getRiderIconStyle(riderStatus)}
                 onPress={() => handleRiderTap(riderStatus)}
               >
                 {isExitedRider && (
                   <View style={styles.exitedOverlay} pointerEvents="none">
-                    <Text style={styles.exitedOverlayMark}>X</Text>
+                    <MaterialIcons
+                      name="close"
+                      size={getExitedOverlayIconSize(zoomLevel)}
+                      color="#000000"
+                      style={styles.exitedOverlayMark}
+                    />
                   </View>
                 )}
                 {showSkippedIndicator && (
@@ -1020,31 +1035,20 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     overflow: 'visible',
   },
-  exitedRiderIcon: {
-    borderWidth: 3,
-    borderColor: '#111827',
-    backgroundColor: 'transparent',
-  },
   exitedOverlay: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
     left: 0,
-    zIndex: 4,
-    elevation: 4,
+    zIndex: 2,
+    elevation: 2,
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
   },
   exitedOverlayMark: {
-    fontSize: 40,
-    lineHeight: 40,
-    fontWeight: '400',
-    color: '#111827',
-    textShadowColor: 'rgba(255, 255, 255, 0.95)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 3,
+    opacity: 0.5,
   },
   skippedBadge: {
     position: 'absolute',
