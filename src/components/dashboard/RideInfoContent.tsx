@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StyleProp, ViewStyle } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
+import { FontAwesome6, MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { Ride, RideStatus, Stage, StageType } from '../../types/models';
 
@@ -68,6 +68,11 @@ const getTimelineTone = (index: number): string => {
   return tones[index % tones.length];
 };
 
+const getFloatTargetStageName = (ride: Ride, floatToStage: number): string => {
+  const targetStage = ride.stages.find((stage) => stage.stageNumber === floatToStage);
+  return targetStage?.name ?? `Stage ${floatToStage}`;
+};
+
 export interface RideInfoContentProps {
   ride: Ride;
   showCloseButton?: boolean;
@@ -78,6 +83,9 @@ export interface RideInfoContentProps {
 export function RideInfoContent({ ride, showCloseButton = true, onClose, cardStyle }: RideInfoContentProps) {
   const canClose = showCloseButton && typeof onClose === 'function';
   const pitStops = ride.stages.filter((stage) => stage.type === StageType.PIT_STOP).sort((a, b) => a.stageNumber - b.stageNumber);
+  const floats = [...(ride.floats ?? [])].sort((a, b) => a.floatNo - b.floatNo);
+  const hasFloats = floats.length > 0;
+  const hasMultipleFloats = floats.length > 1;
   const isFutureRide = ride.status === 'PLANNED';
   const plannedRideStart = getPlannedRideStart(ride);
   const rideTimelineStart = isFutureRide
@@ -106,8 +114,8 @@ export function RideInfoContent({ ride, showCloseButton = true, onClose, cardSty
       <View style={styles.rideInfoBody}>
         <View style={styles.rideInfoRouteStack}>
           <View style={styles.rideInfoRouteStackRow}>
-            <View style={[styles.rideInfoRouteIcon, { backgroundColor: COLORS.accent + '1A' }]}>
-              <MaterialIcons name="outlined-flag" size={15} color={COLORS.accent} />
+            <View style={[styles.rideInfoRouteIcon, { backgroundColor: COLORS.success + '1A' }]}>
+              <MaterialIcons name="flag" size={22} color={COLORS.success} />
             </View>
             <View style={styles.rideInfoRouteTextWrap}>
               <Text style={styles.rideInfoRouteStackLabel}>Start</Text>
@@ -122,8 +130,8 @@ export function RideInfoContent({ ride, showCloseButton = true, onClose, cardSty
             </View>
           </View>
           <View style={styles.rideInfoRouteStackRow}>
-            <View style={[styles.rideInfoRouteIcon, { backgroundColor: COLORS.success + '1A' }]}>
-              <MaterialIcons name="flag" size={15} color={COLORS.success} />
+            <View style={[styles.rideInfoRouteIcon, { backgroundColor: COLORS.danger + '1A' }]}>
+              <MaterialIcons name="flag" size={22} color={COLORS.danger} />
             </View>
             <View style={styles.rideInfoRouteTextWrap}>
               <Text style={styles.rideInfoRouteStackLabel}>Finish</Text>
@@ -132,6 +140,38 @@ export function RideInfoContent({ ride, showCloseButton = true, onClose, cardSty
           </View>
         </View>
 
+        {hasFloats && (
+          <View style={styles.rideInfoSection}>
+            <View style={styles.rideInfoSectionHeader}>
+              <View style={styles.rideInfoFloatHeaderTitle}>
+                <FontAwesome6 name="truck-arrow-right" size={14} color={COLORS.textPrimary} />
+                <Text style={styles.rideInfoSectionTitle}>{hasMultipleFloats ? 'Floats' : 'Float'}</Text>
+              </View>
+            </View>
+
+            <View style={styles.rideInfoFloatList}>
+              {floats.map((floatDef) => {
+                const floatLabel = `Float-${floatDef.floatNo}`;
+                const targetStageName = getFloatTargetStageName(ride, floatDef.floatToStage);
+
+                return (
+                  <View key={`float-${floatDef.floatNo}-${floatDef.floatToStage}`} style={styles.rideInfoFloatItem}>
+                    {/* <Text style={styles.rideInfoFloatItemText}>
+                      {floatLabel}From: Start  - To: {targetStageName}
+                    </Text> */}
+                    <View style={styles.rideInfoRouteDistanceBadge}>
+                      <Text style={styles.rideInfoRouteDistanceText}>{floatLabel}</Text>
+                    </View>
+                    <Text style={styles.rideInfoFloatItemText}> Start  </Text>
+                    <FontAwesome6 name="truck-arrow-right" size={10} color="black" />
+                    <Text style={styles.rideInfoFloatItemText}>  {targetStageName}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         <View style={styles.rideInfoSection}>
           <View style={styles.rideInfoSectionHeader}>
             <Text style={styles.rideInfoSectionTitle}>Timeline</Text>
@@ -139,8 +179,8 @@ export function RideInfoContent({ ride, showCloseButton = true, onClose, cardSty
 
           <View style={styles.rideInfoTimelineRail}>
             <View style={styles.rideInfoTimelineNode}>
-              <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: COLORS.accent + '1A' }]}>
-                <MaterialIcons name="outlined-flag" size={16} color={COLORS.accent} />
+              <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: COLORS.success + '1A' }]}>
+                <MaterialIcons name="flag" size={22} color={COLORS.success} />
               </View>
               <View style={styles.rideInfoTimelineContent}>
                 <View style={styles.rideInfoTimelineHeaderRow}>
@@ -220,8 +260,8 @@ export function RideInfoContent({ ride, showCloseButton = true, onClose, cardSty
             })}
 
             <View style={styles.rideInfoTimelineNode}>
-              <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: COLORS.success + '1A' }]}>
-                <MaterialIcons name="flag" size={16} color={COLORS.success} />
+              <View style={[styles.rideInfoTimelineIconBubble, { backgroundColor: COLORS.danger + '1A' }]}>
+                <MaterialIcons name="flag" size={22} color={COLORS.danger} />
               </View>
               <View style={styles.rideInfoTimelineContent}>
                 <View style={styles.rideInfoTimelineHeaderRow}>
@@ -250,13 +290,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     borderRadius: 16,
     width: '100%',
-    maxHeight: '100%',
     elevation: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.25,
     shadowRadius: 10,
-    overflow: 'hidden',
+    // Both removed to allow the card to expand and scroll if content exceeds available space
+    // maxHeight: '100%',
+    // overflow: 'hidden',
   },
   rideInfoHeader: {
     flexDirection: 'row',
@@ -384,6 +425,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.textPrimary,
+  },
+  rideInfoFloatHeaderTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  rideInfoFloatList: {
+    gap: 6,
+  },
+  rideInfoFloatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.gray[100],
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  rideInfoFloatItemText: {
+    fontSize: 11,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
   },
   rideInfoTimelineRail: {
     gap: 7,

@@ -14,7 +14,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
-import { MaterialIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTour } from '../../context/TourContext';
 import { listRides } from '../../services/api/rideApi';
@@ -809,7 +809,8 @@ export default function DashboardScreen() {
                 )}
                 {showFloatBadge && (
                   <View style={styles.floatBadge} pointerEvents="none">
-                    <MaterialIcons name="local-shipping" size={10} color={COLORS.white} />
+                    {/* <MaterialIcons name="airport-shuttle" size={16} color={COLORS.white} /> */}
+                    <FontAwesome5 name="truck" size={15} color={COLORS.white} />
                     {floatDef && floatDef.floatNo > 1 && (
                       <Text style={styles.floatBadgeText}>{floatDef.floatNo}</Text>
                     )}
@@ -1001,7 +1002,8 @@ const styles = StyleSheet.create({
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    padding: 8,
+    paddingHorizontal: 17,
+    paddingVertical: 8,
   },
   riderIcon: {
     width: 1,
@@ -1078,8 +1080,8 @@ const styles = StyleSheet.create({
   },
   floatBadge: {
     position: 'absolute',
-    bottom: -5,
-    left: -5,
+    bottom: -2,
+    left: -2,
     zIndex: 2,
     elevation: 2,
     flexDirection: 'row',
@@ -1097,7 +1099,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
   },
   floatBadgeText: {
-    fontSize: 9,
+    fontSize: 15,
     fontWeight: '700',
     color: COLORS.white,
   },

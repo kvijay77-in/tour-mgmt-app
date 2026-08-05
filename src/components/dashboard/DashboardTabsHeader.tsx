@@ -11,7 +11,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MaterialIcons } from '@expo/vector-icons';
+import { FontAwesome5, MaterialIcons, Entypo } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { COLORS } from '../../constants/colors';
@@ -376,7 +376,8 @@ export default function DashboardTabsHeader() {
             accessibilityHint="Shows details for the selected ride"
           >
             <Text style={styles.rideTitle}>{currentRide.name}</Text>
-            <MaterialIcons name="info-outline" size={18} color={COLORS.white} />
+            {/* <MaterialIcons name="info-outline" size={18} color={COLORS.white} /> */}
+            <FontAwesome5 name="info-circle" size={18} color={COLORS.white} />
           </TouchableOpacity>
         ) : (
           <Text style={styles.rideTitle}>No active ride</Text>
@@ -393,9 +394,10 @@ export default function DashboardTabsHeader() {
               void loadRides();
               setIsMenuOpen(true);
             }}
-            style={styles.menuButton}
+            style={styles.menuCircleButton}
           >
-            <MaterialIcons name="menu" size={22} color={COLORS.white} />
+            {/* <MaterialIcons name="menu" size={18} color={COLORS.primary} /> */}
+            <Entypo name="menu" size={20} color={COLORS.primary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -714,6 +716,14 @@ const styles = StyleSheet.create({
   menuButton: {
     padding: 8,
     borderRadius: 16,
+  },
+  menuCircleButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   historicalWrap: {
     marginBottom: 6,
