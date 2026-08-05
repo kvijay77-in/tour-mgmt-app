@@ -50,8 +50,8 @@ yarn-error.*
 amplify_outputs*
 amplifyconfiguration*
 
-Temp
-temp
+/Temp
+/temp
 
 *.apk
 *.aab
