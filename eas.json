@@ -47,6 +47,9 @@
         "buildType": "app-bundle",
         "autoIncrement": "versionCode"
       },
+      "ios": {
+        "autoIncrement": true
+      },
       "env": {
         "EXPO_PUBLIC_USE_MOCK_DATA": "false",
         "EXPO_PUBLIC_LOG_LEVEL": "WARN",

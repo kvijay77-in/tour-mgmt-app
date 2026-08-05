@@ -13,14 +13,14 @@
         "applinks:setup.checkin-app.example.com"
       ],
       "bundleIdentifier": "com.kvijay77.tourmgmt",
-      "buildNumber": "2",
+      "buildNumber": "4",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.kvijay77.tourmgmt",
-      "versionCode": 20,
+      "versionCode": 21,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
