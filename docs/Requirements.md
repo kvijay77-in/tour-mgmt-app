@@ -160,6 +160,11 @@ There can be 2 special cases as part of the check in:
 
 Special cases should also be handled using QR Code scanning. User must select the check-in type (regular check-in, Not Riding, or Quit Riding) from a menu/UI option before scanning the QR code. These check in should be visible in Dashboard distinctively. An fixed color representation for these 2 cases should be implemented universally in the Dashboard.
 
+Check-in type option visibility rules for these 2 special cases:
+- Show `Not Riding` option only when ride status is `OPEN`.
+- Show `Quit Riding` option only when ride status is `STARTED`.
+- `Not Riding` and `Quit Riding` are mutually exclusive by ride status and should not be displayed together.
+
 ## Float
 Float is a Start-stage check-in option for riders who are transported to a later stage instead of riding the Start segment. Full rules are specified in [Requirements-Float](./Requirements-Float.md).
 

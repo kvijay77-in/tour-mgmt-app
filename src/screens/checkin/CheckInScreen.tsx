@@ -756,21 +756,25 @@ export default function CheckInScreen() {
     enabled: boolean;
     floatNo?: number;
   }[] = [];
+
+  const showNotRidingOption = canCheckInNR && !getValidationMessage('not_riding', null);
+  const showQuitRidingOption = canCheckInQR && !getValidationMessage('quit_riding', null);
+
   if (canCheckInRegular) typeOptions.push({ type: 'regular', label: 'Regular', icon: 'qr-code-scanner', enabled: true });
-  if (canCheckInNR) {
+  if (showNotRidingOption) {
     typeOptions.push({
       type: 'not_riding',
       label: 'Not Riding',
       icon: 'do-not-disturb',
-      enabled: activeRide.status === RideStatus.OPEN,
+      enabled: true,
     });
   }
-  if (canCheckInQR) {
+  if (showQuitRidingOption) {
     typeOptions.push({
       type: 'quit_riding',
       label: 'Quit Riding',
       icon: 'cancel',
-      enabled: activeRide.status === RideStatus.STARTED,
+      enabled: true,
     });
   }
   if (canCheckInRegular && (activeRide.floats?.length ?? 0) > 0) {
