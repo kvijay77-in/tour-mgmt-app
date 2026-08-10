@@ -21,11 +21,11 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Platform: Mobile (iOS and Android) and Web
 - Programming Languages: Node.js, JavaScript, TypeScript
 - Frameworks/Libraries: React Native, Expo CLI, AWS Amplify
-- Backend Services: AWS Amplify (Authentication, API, Storage)
-- AWS Amplify Gen 2
+- Backend Services - Standard: AWS Amplify (Authentication, API, Storage)
+- Backend Services - from the App platform: tour-data-api (REST API)
 - Storage: AWS DynamoDB, AWS S3, SQLite (for offline support)  
-- Authentication: AWS Cognito via AWS Amplify
-- API: AWS AppSync (GraphQL)
+- Authentication: AWS Cognito via AWS Amplify Auth SDK
+- API: AWS AppSync (GraphQL), API Gateway (HTTP REST API)
 - AWS Lambda for serverless functions  
 
 ### Design Considerations
@@ -74,6 +74,7 @@ These instructions are general for our interaction and MUST BE STRICTLY FOLLOWED
 - Use functional components and React Hooks in React Native.
 - Ensure code is modular and reusable. 
 - Follow RESTful principles for any additional API development.
+- Use the centralized logger utility.
 
 ### AWS Cost Management
 - Always look for free tier options and optimize resource usage.
