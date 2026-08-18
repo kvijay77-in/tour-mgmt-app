@@ -48,6 +48,15 @@ export interface SubstringDefinition {
   personalCode: SubstringExtractor;
 }
 
+/**
+ * Artifact configuration for tour and ride artifacts.
+ */
+export type ArtifactCategory = 'tour' | 'ride';
+
+export interface ArtifactTypeConfig {
+  category: ArtifactCategory;
+}
+
 export interface RegexDefinition {
   method: 'REGEX';
   idCode: RegexExtractor;

@@ -18,6 +18,7 @@ import RideInfoScreen from '../screens/dashboard/RideInfoScreen';
 import MainTabNavigator from './MainTabNavigator';
 import { RideSessionProvider } from '../context/RideSessionContext';
 import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
+import ArtifactsScreen from '../screens/admin/ArtifactsScreen';
 import RideStatusManagementScreen from '../screens/admin/RideStatusManagementScreen';
 import UserOnboardingScreen from '../screens/admin/UserOnboardingScreen';
 import UserEnableDisableScreen from '../screens/admin/UserEnableDisableScreen';
@@ -32,6 +33,10 @@ function RideInfoRoute({ route, navigation }: NativeStackScreenProps<AppStackPar
 
 function ChangePasswordRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'ChangePassword'>) {
   return <ChangePasswordScreen onClose={() => navigation.goBack()} />;
+}
+
+function ArtifactsRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'Artifacts'>) {
+  return <ArtifactsScreen onClose={() => navigation.goBack()} />;
 }
 
 function RideStatusManagementRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'RideStatusManagement'>) {
@@ -84,6 +89,14 @@ export default function AppNavigator() {
         component={ChangePasswordRoute}
         options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
       />
+
+      {isAdministrator && (
+        <Stack.Screen
+          name="Artifacts"
+          component={ArtifactsRoute}
+          options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+        />
+      )}
       
       {isAdministrator && (
         <Stack.Screen

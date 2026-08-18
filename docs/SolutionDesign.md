@@ -166,6 +166,7 @@ src/screens/
 │   └── RideInfoScreen.tsx       # Shared ride-info modal host screen
 ├── checkin/                      # QR scanning, check-in flow
 ├── admin/                        # Administrator-only management screens
+│   ├── ArtifactsScreen.tsx       # Artifact upload and maintenance
 │   ├── RideStatusManagementScreen.tsx
 │   ├── UserOnboardingScreen.tsx
 │   ├── UserEnableDisableScreen.tsx
@@ -183,6 +184,9 @@ src/components/
 │   └── SortIcon.tsx             # Custom sort toggle icon
 ├── dashboard/                    # Dashboard-specific components
 │   └── RideInfoContent.tsx      # Reusable ride-info content UI
+├── artifacts/                    # Artifact upload and maintenance components
+│   ├── ArtifactRow.tsx           # Responsive artifact table row/card
+│   └── ConfirmDialog.tsx         # Cross-platform destructive-action confirmation
 └── checkin/                      # Check-in-specific components
 ```
 
@@ -473,6 +477,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
       ├── RideInfoScreen            (fullScreenModal, params: ride, source)
         ├── CheckInScreen             (fullScreenModal, params: ride, managedPitStopStageNumber)
         ├── ChangePasswordScreen      (fullScreenModal — all authenticated roles)
+        ├── ArtifactsScreen            (fullScreenModal — ADMINISTRATOR only)
         ├── RideStatusManagementScreen (fullScreenModal — ADMINISTRATOR only)
         ├── UserOnboardingScreen       (fullScreenModal — ADMINISTRATOR only)
         ├── UserEnableDisableScreen    (fullScreenModal — ADMINISTRATOR only)
@@ -490,7 +495,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 - Unauthenticated users only ever see the Auth stack (Login/ForgotPassword/NewPassword).
 - Dashboard is the single landing screen for all authenticated roles; role-based restrictions are enforced as **feature gates within Dashboard/menu**, not as separate landing routes:
   - The check-in FAB is shown only when the user has the `CHECKIN_RIDER` permission and the ride is not historical.
-  - Admin menu entries (Ride status management, User Management) and their routes are shown/registered only for `ADMINISTRATOR`.
+  - Admin menu entries (Artifacts, Ride status management, User Management) and their routes are shown/registered only for `ADMINISTRATOR`.
   - `Guest`/read-only roles see the Dashboard grid without check-in capability (no FAB).
 - Deep links are not currently required/supported.
 
@@ -499,6 +504,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 - `src/components/common/AppMenu.tsx` is a custom slide-in panel (full height, right edge, RN `Animated`-driven — no drawer/reanimated dependency) opened from the Dashboard header hamburger icon.
 - Menu items call `navigation.navigate(...)` on the `AppNavigator` stack, then close the menu.
 - "Ride status management" and "User Management" (with New User Onboarding / Enable-Disable / Delete / Modify sub-items) are shown only to `ADMINISTRATOR` users.
+- "Artifacts" is shown only to `ADMINISTRATOR` users and opens the artifact upload and maintenance screen.
 - For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins (opens the Pit Stop Context Picker, which — like the Rider Card and Ride Picker — intentionally remains a `Modal` popup rather than a stack route, since it is a transient selection, not a navigable screen).
 - For users with pit-stop management access (`ADMINISTRATOR`, `SUPER_USER`, mapped `PS_x_USER`), the menu includes "Pit Stop management" with pit-stop stage submenu items.
   - `ADMINISTRATOR` and `SUPER_USER` see all current ride `PIT_STOP` stages.

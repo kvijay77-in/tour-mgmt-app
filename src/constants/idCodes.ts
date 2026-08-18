@@ -7,6 +7,7 @@ export const ID_CODE_TYPE = {
 export const CONFIG_TYPE = {
   ID_CODE_FORMAT: 'ID_CODE_FORMAT',
   ID_CODE_TYPE: 'ID_CODE_TYPE',
+  ARTIFACTS: 'ARTIFACTS',
 } as const;
 
 export const ERR_INVALID_ID_TYPE = 'Invalid ID type. Only Rider ID allowed.';

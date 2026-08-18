@@ -172,3 +172,48 @@ export interface PendingCheckIn extends CheckInRequest {
   createdAt: string;
   syncStatus: 'PENDING' | 'SYNCING' | 'FAILED';
 }
+
+// ============================================================================
+// ARTIFACT TYPES
+// ============================================================================
+
+/**
+ * Artifact manifest item returned from list operations.
+ */
+export interface ArtifactManifestItem {
+  artifactId: string;
+  s3Key: string;
+  version: number;
+  contentType: string;
+  sizeBytes?: number;
+  uploadedAt?: string;
+  title?: string;
+  downloadUrl?: string;
+}
+
+/**
+ * Request body for presigning a file upload.
+ */
+export interface PresignUploadRequest {
+  tourId: string;
+  rideId?: string;
+  artifactId: string;
+  contentType: string;
+  fileName?: string;
+}
+
+/**
+ * Response from presign endpoint includes the upload URL and persisted metadata.
+ */
+export interface PresignUploadResponse {
+  uploadUrl: string;
+  artifact: ArtifactManifestItem;
+}
+
+/**
+ * Query parameters for fetching artifact manifests.
+ */
+export interface ArtifactQuery {
+  artifactId?: string;
+  expiresIn?: number; // 60..3600, default 900
+}

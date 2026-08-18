@@ -23,6 +23,7 @@ export const ADMINISTRATOR_ROLE: Role = {
     Permission.CLOSE_RIDE,
     Permission.MANAGE_USERS,
     Permission.MANAGE_ROLES,
+    Permission.MANAGE_ARTIFACTS,
   ],
 };
 

@@ -33,6 +33,7 @@ tour-mgmt-app/
 │   │   │   └── RideInfoScreen.tsx  # Shared ride info modal host screen
 │   │   ├── checkin/                # Check-in related screens
 │   │   ├── admin/                  # Admin feature screens
+│   │   │   ├── ArtifactsScreen.tsx              # Administrator-only artifact upload and maintenance
 │   │   │   ├── RideStatusManagementScreen.tsx  # Administrator-only ride status transitions
 │   │   │   ├── UserOnboardingScreen.tsx        # Administrator-only new user onboarding
 │   │   │   ├── UserEnableDisableScreen.tsx     # Administrator-only user enable/disable
@@ -50,6 +51,9 @@ tour-mgmt-app/
 │   │   │   ├── AppMenu.tsx         # Custom slide-in Dashboard header menu (no drawer/reanimated dep)
 │   │   │   ├── ErrorBoundary.tsx
 │   │   │   └── SortIcon.tsx
+│   │   ├── artifacts/              # Artifact upload and management components (Phase 3)
+│   │   │   ├── ArtifactRow.tsx     # Presentational row/card for artifact display
+│   │   │   └── ConfirmDialog.tsx   # Confirmation modal for destructive actions
 │   │   ├── dashboard/              # Dashboard specific components
 │   │   │   ├── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
 │   │   │   └── RiderCardModal.tsx  # Shared rider card popup (Dashboard tab + Check-In Log tab)
@@ -69,7 +73,10 @@ tour-mgmt-app/
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
 │   │   │   ├── configApi.ts        # Generic app configuration API helpers
+│   │   │   ├── artifactApi.ts      # Artifact manifest and presign endpoints (Phase 2)
 │   │   │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
+│   │   ├── artifacts/              # File upload and artifact handling (Phase 2)
+│   │   │   └── artifactUploader.ts # File picking and presigned URL upload
 │   │   ├── dashboard/              # Dashboard cross-screen pub/sub events
 │   │   │   └── dashboardEvents.ts  # Local check-in/cancel event bus (Dashboard ⇄ Check-In Log live sync)
 │   │   ├── config/                 # Runtime org configuration service
@@ -113,6 +120,7 @@ tour-mgmt-app/
 │   ├── constants/                  # Application constants
 │   │   ├── colors.ts               # Color scheme constants
 │   │   ├── idCodes.ts              # ID code constants, defaults, and error messages
+│   │   ├── layout.ts               # Layout and UI constants (Phase 1)
 │   │   ├── roles.ts                # Role definitions
 │   │   └── stages.ts               # Ride stage definitions
 │   │

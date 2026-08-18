@@ -16,6 +16,7 @@ This page provides a guide to all project documentation.
 | [Dashboard Feature](Dashboard-Feature.md) | Dashboard screen specification — grid display, stages, sorting, zoom levels, color coding |
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
 | [ID Format Requirements](Requirements-ID-format.md) | Production QR ID Code parsing, type validation, and rider personal code mapping requirements |
+| [Tour Artifact Handling](tour-artifacts-handling-design.md) | Artifact configuration, upload, manifest, and maintenance flow |
 | [Dashboard API Optimization Proposal](Dashboard-API-Optimization-Proposal.md) | Approved dashboard API split contract (progress payload + rider-details on demand + ETag behavior) |
 | [Dashboard Call Trigger Baseline](dashboard-call-trigger-baseline.md) | Baseline trigger-to-call matrix used for API efficiency refactor verification |
 | [Dashboard Call Audit Checklist](dashboard-call-audit-checklist.md) | Duplicate-call classification checklist (true duplicate vs retry behavior) |

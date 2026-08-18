@@ -28,6 +28,7 @@ export type AppStackParamList = {
   MainTabs: undefined;
   RideInfo: { ride: Ride; source?: 'dashboard' | 'menu' };
   ChangePassword: undefined;
+  Artifacts: undefined;
   RideStatusManagement: undefined;
   UserOnboarding: undefined;
   UserEnableDisable: undefined;

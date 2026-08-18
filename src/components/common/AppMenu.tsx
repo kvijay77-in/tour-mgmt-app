@@ -34,6 +34,7 @@ const PANEL_WIDTH_RATIO = 0.86;
 
 type MenuRouteName =
   | 'ChangePassword'
+  | 'Artifacts'
   | 'RideStatusManagement'
   | 'UserOnboarding'
   | 'UserEnableDisable'
@@ -245,6 +246,13 @@ export function AppMenu({
             <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('RideStatusManagement')}>
               <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
               <Text style={styles.menuItemText}>Ride status management</Text>
+            </TouchableOpacity>
+          )}
+
+          {isAdministrator && (
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('Artifacts')}>
+              <MaterialIcons name="perm-media" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Artifacts</Text>
             </TouchableOpacity>
           )}
 
