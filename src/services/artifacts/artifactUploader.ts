@@ -198,6 +198,11 @@ export async function uploadToPresignedUrl(
   uploadUrl: string,
   file: PickedFile,
 ): Promise<void> {
+  logger.debug(TAG, 'Uploading file to presigned URL', {
+    fileName: file.name,
+    size: file.size,
+    contentType: file.contentType,
+  });
   if (Platform.OS === 'web') {
     return uploadToPresignedUrlWeb(uploadUrl, file);
   } else {
@@ -292,7 +297,7 @@ async function uploadToPresignedUrlNative(
     });
     throw new FileError(
       'UPLOAD_ERROR',
-      'Failed to upload file to S3',
+      'Failed to upload file to S3 - ${file.name}',
       error,
     );
   }

@@ -9,6 +9,25 @@ import { USE_MOCK_DATA, MOCK_TOUR } from './mockData';
 
 const TOURS_PATH = '/v1/tours';
 
+function extractTours(payload: unknown): Tour[] {
+  if (Array.isArray(payload)) return payload as Tour[];
+
+  if (!payload || typeof payload !== 'object') return [];
+
+  const record = payload as Record<string, unknown>;
+  if (Array.isArray(record.tours)) return record.tours as Tour[];
+  if (Array.isArray(record.items)) return record.items as Tour[];
+  if (Array.isArray(record.data)) return record.data as Tour[];
+
+  if (record.data && typeof record.data === 'object') {
+    const data = record.data as Record<string, unknown>;
+    if (Array.isArray(data.tours)) return data.tours as Tour[];
+    if (Array.isArray(data.items)) return data.items as Tour[];
+  }
+
+  return [];
+}
+
 /**
  * Get the currently active tour.
  * Uses mock data when EXPO_PUBLIC_USE_MOCK_DATA is true.
@@ -53,6 +72,6 @@ export async function listTours(
   const params: Record<string, string> = {};
   if (status) params.status = status;
 
-  const response = await apiClient.get<Tour[]>(`${TOURS_PATH}`, { params });
-  return response.data ?? [];
+  const response = await apiClient.get<unknown>(`${TOURS_PATH}`, { params });
+  return extractTours(response.data);
 }

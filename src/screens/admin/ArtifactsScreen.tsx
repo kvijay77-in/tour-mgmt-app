@@ -73,6 +73,12 @@ function getConfigCategory(item: AppConfigItem): ArtifactCategory | null {
   return config?.category === 'tour' || config?.category === 'ride' ? config.category : null;
 }
 
+function getArtifactUploadFile(file: PickedFile, artifactId: string): PickedFile {
+  const extensionIndex = file.name.lastIndexOf('.');
+  const extension = extensionIndex >= 0 ? file.name.slice(extensionIndex) : '';
+  return { ...file, name: `${artifactId}${extension}` };
+}
+
 function Selector<T>({ label, value, getLabel, items, onChange, disabled = false }: SelectorProps<T>) {
   const [visible, setVisible] = useState(false);
   return (
@@ -218,17 +224,19 @@ export default function ArtifactsScreen({ onClose }: ArtifactsScreenProps) {
       if (!file) return;
       const validationError = validateFile(file);
       if (validationError) throw new Error(validationError);
+      const uploadFile = getArtifactUploadFile(file, artifactId);
+      logger.debug(TAG, 'Uploading artifact', { artifactId, fileName: uploadFile.name, contentType: uploadFile.contentType, size: uploadFile.size });
       const request = {
         tourId: selectedTour.tourId,
         ...(scope === 'ride' ? { rideId: selectedRide!.rideId } : {}),
         artifactId,
-        contentType: file.contentType,
-        fileName: file.name,
+        contentType: uploadFile.contentType,
+        fileName: uploadFile.name,
       };
       const response = scope === 'tour'
         ? await presignTourUpload(request)
         : await presignRideUpload(request);
-      await uploadToPresignedUrl(response.uploadUrl, file);
+      await uploadToPresignedUrl(response.uploadUrl, uploadFile);
       await refreshManifest();
     } catch (err) {
       logger.error(TAG, 'handleUpload failed', { artifactId, error: err });
