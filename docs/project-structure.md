@@ -38,7 +38,8 @@ tour-mgmt-app/
 │   │   │   ├── UserOnboardingScreen.tsx        # Administrator-only new user onboarding
 │   │   │   ├── UserEnableDisableScreen.tsx     # Administrator-only user enable/disable
 │   │   │   ├── UserDeleteScreen.tsx            # Administrator-only user delete
-│   │   │   └── UserModifyScreen.tsx            # Administrator-only user profile modify
+│   │   │   ├── UserModifyScreen.tsx            # Administrator-only user profile modify
+│   │   │   └── TourManagementScreen.tsx        # Tour definition, provisioning, and ride tabs
 │   │   └── auth/                   # Authentication screens
 │   │       ├── LoginScreen.tsx
 │   │       ├── ForgotPasswordScreen.tsx
@@ -62,12 +63,12 @@ tour-mgmt-app/
 │   ├── navigation/                 # Navigation configuration (native stack only — no tabs/drawer)
 │   │   ├── RootNavigator.tsx       # Switches Auth stack vs (TourProvider > App stack) on auth state
 │   │   ├── AuthNavigator.tsx       # Unauthenticated stack: Login, ForgotPassword, NewPassword
-│   │   └── AppNavigator.tsx        # Authenticated stack: Dashboard, RideInfo, CheckIn, ChangePassword, admin screens
+│   │   └── AppNavigator.tsx        # Authenticated stack: Dashboard, RideInfo, CheckIn, ChangePassword, admin screens, TourManagement
 │   │
 │   ├── services/                   # Business logic & API integration
 │   │   ├── api/                    # tour-data-api RESTful HTTP calls
 │   │   │   ├── apiClient.ts        # Base HTTP client with auth, retry, error handling
-│   │   │   ├── tourApi.ts          # Tour endpoints
+│   │   │   ├── tourApi.ts          # Tour list/detail, CRUD, and provisioning endpoints
 │   │   │   ├── riderApi.ts         # Rider endpoints
 │   │   │   ├── rideApi.ts          # Ride endpoints
 │   │   │   ├── checkInApi.ts       # Check-in endpoints

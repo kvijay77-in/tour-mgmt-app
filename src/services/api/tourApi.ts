@@ -5,6 +5,11 @@
 
 import { apiClient, ApiError } from './apiClient';
 import { Tour } from '../../types/models';
+import {
+  CreateTourRequest,
+  ProvisionTourRequest,
+  UpdateTourRequest,
+} from '../../types/api';
 import { USE_MOCK_DATA, MOCK_TOUR } from './mockData';
 
 const TOURS_PATH = '/v1/tours';
@@ -74,4 +79,34 @@ export async function listTours(
 
   const response = await apiClient.get<unknown>(`${TOURS_PATH}`, { params });
   return extractTours(response.data);
+}
+
+/** Create a tour definition. */
+export async function createTour(request: CreateTourRequest): Promise<Tour> {
+  const response = await apiClient.post<Tour>(TOURS_PATH, request);
+  if (!response.data) {
+    throw new Error('Unexpected empty response from createTour');
+  }
+  return response.data;
+}
+
+/** Update a tour definition or provision an existing tour. */
+export async function updateTour(
+  tourId: string,
+  updates: UpdateTourRequest,
+): Promise<Tour> {
+  const response = await apiClient.put<Tour>(`${TOURS_PATH}/${tourId}`, updates);
+  if (!response.data) {
+    throw new Error('Unexpected empty response from updateTour');
+  }
+  return response.data;
+}
+
+/** Create and provision a tour in one operation. */
+export async function provisionTour(request: ProvisionTourRequest): Promise<Tour> {
+  const response = await apiClient.post<Tour>(TOURS_PATH, request);
+  if (!response.data) {
+    throw new Error('Unexpected empty response from provisionTour');
+  }
+  return response.data;
 }

@@ -352,6 +352,7 @@ export const MOCK_TOUR: Tour = {
   name: 'Mock Cycling Tour 2026',
   startDate: '2026-02-01',
   endDate: '2026-02-08',
+  rideCount: 8,
   status: TourStatus.ACTIVE,
   description: 'Synthetic tour for local development and demo',
   createdAt: '2026-01-01T00:00:00Z',

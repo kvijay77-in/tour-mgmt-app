@@ -34,6 +34,7 @@ export type AppStackParamList = {
   UserEnableDisable: undefined;
   UserDelete: undefined;
   UserModify: undefined;
+  TourManagement: { readOnly: boolean };
 };
 
 // Phase 2: Main tab navigator (Dashboard, CheckIn, Log)

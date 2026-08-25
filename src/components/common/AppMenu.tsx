@@ -47,6 +47,7 @@ export interface AppMenuProps {
   visible: boolean;
   onClose: () => void;
   isAdministrator: boolean;
+  showTourManagementOption: boolean;
   rides: Ride[];
   currentRideId: string | null;
   onSelectRide: (ride: Ride) => void;
@@ -70,6 +71,7 @@ export function AppMenu({
   visible,
   onClose,
   isAdministrator,
+  showTourManagementOption,
   rides,
   currentRideId,
   onSelectRide,
@@ -297,6 +299,19 @@ export function AppMenu({
                 </View>
               )}
             </View>
+          )}
+
+          {showTourManagementOption && (
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => {
+                onClose();
+                navigation.navigate('TourManagement', { readOnly: !isAdministrator });
+              }}
+            >
+              <MaterialIcons name="edit-road" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Define/Update Tour</Text>
+            </TouchableOpacity>
           )}
 
           {showPitStopContextOption && (

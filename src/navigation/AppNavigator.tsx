@@ -24,6 +24,7 @@ import UserOnboardingScreen from '../screens/admin/UserOnboardingScreen';
 import UserEnableDisableScreen from '../screens/admin/UserEnableDisableScreen';
 import UserDeleteScreen from '../screens/admin/UserDeleteScreen';
 import UserModifyScreen from '../screens/admin/UserModifyScreen';
+import TourManagementScreen from '../screens/admin/TourManagementScreen';
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
@@ -66,9 +67,14 @@ function UserModifyRoute({ navigation }: NativeStackScreenProps<AppStackParamLis
   return <UserModifyScreen onClose={() => navigation.goBack()} />;
 }
 
+function TourManagementRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'TourManagement'>) {
+  return <TourManagementScreen readOnly={route.params.readOnly} onClose={() => navigation.goBack()} />;
+}
+
 export default function AppNavigator() {
   const { user } = useAuth();
   const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
+  const canManageTours = isAdministrator || user?.userRole === UserRole.SUPER_USER;
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -130,6 +136,13 @@ export default function AppNavigator() {
         <Stack.Screen
           name="UserModify"
           component={UserModifyRoute}
+          options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+        />
+      )}
+      {canManageTours && (
+        <Stack.Screen
+          name="TourManagement"
+          component={TourManagementRoute}
           options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
         />
       )}

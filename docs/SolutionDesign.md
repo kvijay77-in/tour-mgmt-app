@@ -482,11 +482,13 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
         ├── UserOnboardingScreen       (fullScreenModal — ADMINISTRATOR only)
         ├── UserEnableDisableScreen    (fullScreenModal — ADMINISTRATOR only)
         ├── UserDeleteScreen           (fullScreenModal — ADMINISTRATOR only)
-        └── UserModifyScreen           (fullScreenModal — ADMINISTRATOR only)
+        ├── UserModifyScreen           (fullScreenModal — ADMINISTRATOR only)
+        └── TourManagementScreen       (fullScreenModal — ADMINISTRATOR/SUPER_USER)
 ```
 
 - `RootNavigator` reads `useAuth()` and swaps the whole Auth/App subtree on sign-in/sign-out (so the Auth stack always remounts fresh at Login on logout — no leftover navigation state).
 - Admin-only screens are registered **conditionally** on the stack (`isAdministrator` check in `AppNavigator`), not just hidden behind a role check inside the screen — an unauthorized user cannot navigate to them at all.
+- `TourManagementScreen` is registered conditionally for `ADMINISTRATOR` and `SUPER_USER`; Super User receives `readOnly: true` and is not granted ride-edit permissions.
 - All non-Dashboard app screens keep their pre-migration prop-based API (`onClose`, etc.); thin wrapper components in `AppNavigator.tsx` adapt `navigation`/`route` to those props, so the screen components themselves stay framework-API-agnostic.
 - `GestureHandlerRootView` lives once at the app root (required by react-native-gesture-handler for the Dashboard's pinch-zoom gesture); it is not duplicated per-screen.
 
@@ -496,6 +498,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 - Dashboard is the single landing screen for all authenticated roles; role-based restrictions are enforced as **feature gates within Dashboard/menu**, not as separate landing routes:
   - The check-in FAB is shown only when the user has the `CHECKIN_RIDER` permission and the ride is not historical.
   - Admin menu entries (Artifacts, Ride status management, User Management) and their routes are shown/registered only for `ADMINISTRATOR`.
+  - Define/Update Tour and its route are shown/registered only for `ADMINISTRATOR` and `SUPER_USER`; Super User access is view-only.
   - `Guest`/read-only roles see the Dashboard grid without check-in capability (no FAB).
 - Deep links are not currently required/supported.
 
@@ -505,6 +508,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 - Menu items call `navigation.navigate(...)` on the `AppNavigator` stack, then close the menu.
 - "Ride status management" and "User Management" (with New User Onboarding / Enable-Disable / Delete / Modify sub-items) are shown only to `ADMINISTRATOR` users.
 - "Artifacts" is shown only to `ADMINISTRATOR` users and opens the artifact upload and maintenance screen.
+- "Define/Update Tour" opens `TourManagementScreen`; Administrator access is editable and Super User access is read-only.
 - For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins (opens the Pit Stop Context Picker, which — like the Rider Card and Ride Picker — intentionally remains a `Modal` popup rather than a stack route, since it is a transient selection, not a navigable screen).
 - For users with pit-stop management access (`ADMINISTRATOR`, `SUPER_USER`, mapped `PS_x_USER`), the menu includes "Pit Stop management" with pit-stop stage submenu items.
   - `ADMINISTRATOR` and `SUPER_USER` see all current ride `PIT_STOP` stages.
@@ -513,6 +517,8 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
   - This menu item is hidden when viewing historical rides and when current ride status is `COMPLETED` or `CLOSED`.
 - "Change password", the skipped-check-in visibility toggle, and "Logout" are available to all authenticated roles.
 - Under "All Rides", planned rides remain blocked for dashboard launch; a dedicated ride-info action opens shared ride details for all rides (including planned).
+
+Tour definition CRUD and provisioning are owned by `src/services/api/tourApi.ts`. Tour and ride request contracts live in `src/types/api.ts`; provisioning uses `provisioning: true`, and unchanged existing-tour provisioning uses `provisionOnly: true` on the tour PUT request.
 
 ### User Management Input Validation
 

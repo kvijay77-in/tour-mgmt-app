@@ -42,6 +42,7 @@ export interface CancelCheckInRequest {
  * Create ride request body (POST /v1/tours/{tourId}/rides)
  */
 export interface CreateRideRequest {
+  rideId: string;
   date: string;
   rideNo: number;
   name: string;
@@ -58,9 +59,10 @@ export interface CreateRideRequest {
     distanceFromStart?: number;
     estimatedOpenTime?: number;
     pitStopDuration?: number;
-    pitStopStatus?: 'OPEN' | 'CLOSED' | null;
-    openedAt?: string;
-    closedAt?: string;
+  }>;
+  floats?: Array<{
+    floatNo: number;
+    floatToStage: number;
   }>;
   openTime?: string;
   closeTime?: string;
@@ -89,7 +91,21 @@ export interface CreateTourRequest {
   name: string;
   startDate: string;
   endDate: string;
+  rideCount: number;
   description?: string;
+}
+
+/** Update tour definition (PUT /v1/tours/{tourId}). */
+export interface UpdateTourRequest extends Partial<CreateTourRequest> {
+  tourId: string;
+  provisioning?: boolean;
+  provisionOnly?: boolean;
+}
+
+/** Create and provision a tour (POST /v1/tours). */
+export interface ProvisionTourRequest extends CreateTourRequest {
+  provisioning: true;
+  provisionOnly?: false;
 }
 
 // ============================================================================

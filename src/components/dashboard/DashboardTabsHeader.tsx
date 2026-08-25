@@ -434,6 +434,7 @@ export default function DashboardTabsHeader() {
         visible={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
         isAdministrator={isAdministrator}
+        showTourManagementOption={isAdministrator || isSuperUser}
         rides={allRides}
         currentRideId={currentRide?.rideId ?? null}
         onSelectRide={handleSelectRide}

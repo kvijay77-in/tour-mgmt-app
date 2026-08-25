@@ -35,6 +35,7 @@ export enum StageType {
  */
 export enum RideStatus {
   PLANNED = 'PLANNED',
+  ACTIVE = 'ACTIVE',
   OPEN = 'OPEN',
   STARTED = 'STARTED',
   COMPLETED = 'COMPLETED',
@@ -120,6 +121,9 @@ export interface Tour {
 
   /** Tour end date (ISO 8601 date) */
   endDate: string;
+
+  /** Number of ride definitions expected for this tour */
+  rideCount: number;
 
   /** Tour status */
   status: TourStatus;
