@@ -146,27 +146,125 @@ async function initialiseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       lastSyncedAt TEXT
     );
 
+    -- Event definitions (from events bootstrap)
+    CREATE TABLE IF NOT EXISTS events (
+      eventId TEXT PRIMARY KEY,
+      eventName TEXT NOT NULL,
+      eventType TEXT NOT NULL,
+      location TEXT,
+      sequenceEnforced INTEGER NOT NULL DEFAULT 0,
+      defaultAllowedTypeCodesJson TEXT NOT NULL DEFAULT '[]',
+      allowSelfService INTEGER NOT NULL DEFAULT 0,
+      activitiesJson TEXT NOT NULL DEFAULT '[]',
+      updatedAt TEXT,
+      lastSyncedAt TEXT
+    );
+
+    -- Event occurrences (PLANNED/ACTIVE from today onwards, from bootstrap)
+    CREATE TABLE IF NOT EXISTS event_occurrences (
+      occurrenceId TEXT PRIMARY KEY,
+      eventId TEXT NOT NULL,
+      date TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      selfServiceEnabled INTEGER NOT NULL DEFAULT 0,
+      activityOverridesJson TEXT NOT NULL DEFAULT '[]',
+      linkedOccurrenceRef TEXT,
+      updatedAt TEXT,
+      lastSyncedAt TEXT
+    );
+
+    -- Event activity records captured on this device (write-local-first)
+    CREATE TABLE IF NOT EXISTS event_activity_records (
+      localId TEXT PRIMARY KEY,
+      recordId TEXT,
+      occurrenceId TEXT NOT NULL,
+      eventId TEXT NOT NULL,
+      activityId TEXT NOT NULL,
+      activityName TEXT NOT NULL,
+      riderId TEXT NOT NULL,
+      typeCode TEXT,
+      bagLabel TEXT,
+      outcome TEXT NOT NULL,
+      variantSelected TEXT,
+      method TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      isFlagged INTEGER NOT NULL DEFAULT 0,
+      isCancelled INTEGER NOT NULL DEFAULT 0,
+      isLocal INTEGER NOT NULL DEFAULT 1,
+      syncStatus TEXT NOT NULL DEFAULT 'PENDING',
+      syncError TEXT,
+      retryCount INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL,
+      lastSyncedAt TEXT
+    );
+
+    -- Hotel room allocations per night
+    CREATE TABLE IF NOT EXISTS room_allocations (
+      stayDate TEXT NOT NULL,
+      riderId TEXT NOT NULL,
+      hotelId TEXT NOT NULL,
+      roomNo TEXT,
+      roomCapacity INTEGER NOT NULL DEFAULT 2,
+      sharingWithJson TEXT NOT NULL DEFAULT '[]',
+      source TEXT,
+      updatedAt TEXT,
+      lastSyncedAt TEXT,
+      PRIMARY KEY (stayDate, riderId)
+    );
+
+    -- Rider baggage custody state (drives offline BAGGAGE_NOT_IN_TOUR block)
+    CREATE TABLE IF NOT EXISTS rider_baggage_status (
+      riderId TEXT PRIMARY KEY,
+      baggageStatus TEXT NOT NULL,
+      baggageReleasedAt TEXT,
+      lastSyncedAt TEXT
+    );
+
+    -- Last fetched occurrence dashboard payload for offline read
+    CREATE TABLE IF NOT EXISTS event_dashboard_snapshots (
+      occurrenceId TEXT PRIMARY KEY,
+      payloadJson TEXT NOT NULL,
+      fetchedAt TEXT NOT NULL
+    );
+
+    -- Caller's own User-{tourId} record; NULL payload = no tour record
+    CREATE TABLE IF NOT EXISTS my_tour_assignment (
+      tourId TEXT PRIMARY KEY,
+      payloadJson TEXT,
+      fetchedAt TEXT NOT NULL
+    );
+
     -- Indexes for common queries
     CREATE INDEX IF NOT EXISTS idx_check_ins_rider ON check_ins(riderId);
     CREATE INDEX IF NOT EXISTS idx_check_ins_ride ON check_ins(rideId);
     CREATE INDEX IF NOT EXISTS idx_check_ins_sync ON check_ins(syncStatus);
     CREATE INDEX IF NOT EXISTS idx_pending_ops_status ON pending_operations(syncStatus);
     CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
+    CREATE INDEX IF NOT EXISTS idx_event_occurrences_event ON event_occurrences(eventId, date);
+    CREATE INDEX IF NOT EXISTS idx_event_records_occurrence ON event_activity_records(occurrenceId, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_event_records_sync ON event_activity_records(syncStatus);
+    CREATE INDEX IF NOT EXISTS idx_room_allocations_hotel ON room_allocations(hotelId, stayDate);
   `);
 
   const checkInColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(check_ins)');
   const checkInColumnNames = new Set(checkInColumns.map((column) => column.name));
 
   if (!checkInColumnNames.has('isFloat')) {
-    await addCheckInColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN isFloat INTEGER DEFAULT 0;');
+    await addColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN isFloat INTEGER DEFAULT 0;');
   }
 
   if (!checkInColumnNames.has('floatNo')) {
-    await addCheckInColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN floatNo INTEGER;');
+    await addColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN floatNo INTEGER;');
+  }
+
+  const riderColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(riders)');
+  if (!riderColumns.some((column) => column.name === 'dietaryPreference')) {
+    await addColumnIfMissing(db, 'ALTER TABLE riders ADD COLUMN dietaryPreference TEXT;');
   }
 }
 
-async function addCheckInColumnIfMissing(
+async function addColumnIfMissing(
   db: SQLite.SQLiteDatabase,
   sql: string,
 ): Promise<void> {

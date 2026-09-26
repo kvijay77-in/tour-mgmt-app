@@ -25,6 +25,7 @@ export type AuthStackParamList = {
 // ============================================================================
 
 export type AppStackParamList = {
+  Home: undefined;
   MainTabs: undefined;
   RideInfo: { ride: Ride; source?: 'dashboard' | 'menu' };
   ChangePassword: undefined;
@@ -35,6 +36,25 @@ export type AppStackParamList = {
   UserDelete: undefined;
   UserModify: undefined;
   TourManagement: { readOnly: boolean };
+  // Event engine Phase 3
+  EventsHome: undefined;
+  EventDefinitionList: undefined;
+  EventDefinitionEditor: { eventId?: string } | undefined;
+  OccurrenceManagement: { eventId: string };
+  // Event engine Phase 4
+  EventScan: { eventId: string; occurrenceId: string };
+  // Event engine Phase 5
+  OccurrenceDashboard: { eventId: string; occurrenceId: string };
+  BaggageReconciliation: { eventId: string; occurrenceId: string };
+  /** eventId/occurrenceId focus the view (dashboard drill-down) */
+  RiderProgress: { riderId: string; eventId?: string; occurrenceId?: string };
+  // Event engine Phase 6
+  HotelManagement: undefined;
+  HotelAllocationUpload: undefined;
+  HotelAllocationAdjust: { riderId: string; stayDate: string };
+  // Event engine Phase 7
+  RiderExit: undefined;
+  TourUserAssignment: { userId?: string } | undefined;
 };
 
 // Phase 2: Main tab navigator (Dashboard, CheckIn, Log)

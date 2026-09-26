@@ -85,3 +85,12 @@ export interface AppConfigItem<T = unknown> {
   updatedAt?: string | null;
   updatedBy?: string | null;
 }
+
+/** AppConfig HOTEL_UPLOAD / PROCESSING; the app only reads maxFileSizeBytes. */
+export interface HotelUploadProcessingConfig {
+  maxFileSizeBytes?: number;
+  maxDataRows?: number;
+  maxStayDates?: number;
+  maxStoredErrors?: number;
+  timeReserveSeconds?: number;
+}

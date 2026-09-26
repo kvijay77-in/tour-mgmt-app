@@ -160,6 +160,15 @@ Fallback behavior:
 - If config API is unavailable, app uses built-in default SUBSTRING config and default type map.
 - If rider names payload lacks `personalCode`, production scan cannot resolve Rider ID and must fail fast.
 
+Config API contract notes:
+- `configType` accepts `ALL` (default), any single type (e.g. `ID_CODE_FORMAT`, `ID_CODE_TYPE`, `ARTIFACTS`, `HOTEL_UPLOAD`) or a comma-separated list; only enabled items are returned.
+- When no enabled rows exist for the requested type(s) the API returns `404 INVALID_CONFIG_TYPE`; `listAppConfigs()` maps this to an empty list so callers apply their own missing-config handling.
+- `HOTEL_UPLOAD` / `PROCESSING` carries the hotel CSV processing limits; the app reads only `maxFileSizeBytes` (see [Event-Engine-Design.md](Event-Engine-Design.md#app-configuration)). The upload screen fetches it on open (`listAppConfigs(['HOTEL_UPLOAD'])`, enabled `PROCESSING` item); a missing, disabled or non-positive value, or a failed fetch, skips the client size pre-check (warning logged) and the server's `FILE_TOO_LARGE` applies. It is not cached in SQLite.
+
+Hotel allocation upload state:
+- AsyncStorage key `hotelUpload:lastUploadId:{tourId}` holds the last `uploadId` whose file reached S3. Reopening the upload screen (online) resumes polling it; it is removed on `APPLIED`, `REJECTED` or `404 UPLOAD_NOT_FOUND` and kept when the 3-minute polling cap is reached.
+- On `APPLIED` the `room_allocations` cache is cleared and today's stays are re-fetched (`GET /v1/tours/{tourId}/hotelstays?date=<today>`). A manual single-night save upserts the returned allocation into `room_allocations`.
+
 ---
 
 ## 3. Data Model Alignment
@@ -406,6 +415,7 @@ CREATE TABLE IF NOT EXISTS riders (
   photoS3Key TEXT,
   qrCodeData TEXT,
   status TEXT,
+  dietaryPreference TEXT,  -- rider profile VEG | NON_VEG, cached lazily for event variants; preserved on rider upsert
   lastSyncedAt TEXT
 );
 
@@ -455,7 +465,7 @@ CREATE TABLE IF NOT EXISTS check_ins (
 -- Pending operations queue (for offline writes)
 CREATE TABLE IF NOT EXISTS pending_operations (
   localId TEXT PRIMARY KEY,
-  operationType TEXT NOT NULL,  -- CHECK_IN
+  operationType TEXT NOT NULL,  -- CHECK_IN | CREATE_EVENT_ACTIVITY_RECORD | CANCEL_EVENT_ACTIVITY_RECORD
   payload TEXT NOT NULL,  -- JSON serialized request body
   createdAt TEXT NOT NULL,
   syncStatus TEXT DEFAULT 'PENDING',  -- PENDING | SYNCING | FAILED
@@ -484,7 +494,99 @@ CREATE TABLE IF NOT EXISTS rider_personal_codes (
   lastSyncedAt TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
+
+-- Event engine (see Event-Engine-Design.md)
+CREATE TABLE IF NOT EXISTS events (
+  eventId TEXT PRIMARY KEY,
+  eventName TEXT NOT NULL,
+  eventType TEXT NOT NULL,          -- SINGLE | REPEATING
+  location TEXT,
+  sequenceEnforced INTEGER NOT NULL DEFAULT 0,
+  defaultAllowedTypeCodesJson TEXT NOT NULL DEFAULT '[]',
+  allowSelfService INTEGER NOT NULL DEFAULT 0,
+  activitiesJson TEXT NOT NULL DEFAULT '[]',
+  updatedAt TEXT,
+  lastSyncedAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS event_occurrences (
+  occurrenceId TEXT PRIMARY KEY,    -- EVT-...#YYYY-MM-DD#seq
+  eventId TEXT NOT NULL,
+  date TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  status TEXT NOT NULL,             -- PLANNED | ACTIVE | COMPLETED | CANCELLED
+  selfServiceEnabled INTEGER NOT NULL DEFAULT 0,
+  activityOverridesJson TEXT NOT NULL DEFAULT '[]',
+  linkedOccurrenceRef TEXT,
+  updatedAt TEXT,
+  lastSyncedAt TEXT
+);
+
+-- Scans captured on this device; localId matches the pending_operations row
+CREATE TABLE IF NOT EXISTS event_activity_records (
+  localId TEXT PRIMARY KEY,
+  recordId TEXT,                    -- server id once synced
+  occurrenceId TEXT NOT NULL,
+  eventId TEXT NOT NULL,
+  activityId TEXT NOT NULL,
+  activityName TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  typeCode TEXT,
+  bagLabel TEXT,
+  outcome TEXT NOT NULL,            -- COMPLETED | OPTED_OUT | FLAGGED
+  variantSelected TEXT,
+  method TEXT NOT NULL,             -- QR_SCAN | MANUAL
+  timestamp TEXT NOT NULL,
+  isFlagged INTEGER NOT NULL DEFAULT 0,
+  isCancelled INTEGER NOT NULL DEFAULT 0,
+  isLocal INTEGER NOT NULL DEFAULT 1,
+  syncStatus TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING | SYNCED | FAILED
+  syncError TEXT,
+  retryCount INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL,
+  lastSyncedAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS room_allocations (
+  stayDate TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  hotelId TEXT NOT NULL,
+  roomNo TEXT,
+  roomCapacity INTEGER NOT NULL DEFAULT 2,
+  sharingWithJson TEXT NOT NULL DEFAULT '[]',
+  source TEXT,                      -- MANUAL | UPLOAD
+  updatedAt TEXT,
+  lastSyncedAt TEXT,
+  PRIMARY KEY (stayDate, riderId)
+);
+
+CREATE TABLE IF NOT EXISTS rider_baggage_status (
+  riderId TEXT PRIMARY KEY,
+  baggageStatus TEXT NOT NULL,      -- ACTIVE | RETAINED | WITH_RIDER
+  baggageReleasedAt TEXT,
+  lastSyncedAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS event_dashboard_snapshots (
+  occurrenceId TEXT PRIMARY KEY,
+  payloadJson TEXT NOT NULL,
+  fetchedAt TEXT NOT NULL
+);
+
+-- Caller's own User-{tourId} record from GET /v1/tours/{tourId}/users/me; NULL payload = no record
+CREATE TABLE IF NOT EXISTS my_tour_assignment (
+  tourId TEXT PRIMARY KEY,
+  payloadJson TEXT,
+  fetchedAt TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_event ON event_occurrences(eventId, date);
+CREATE INDEX IF NOT EXISTS idx_event_records_occurrence ON event_activity_records(occurrenceId, timestamp);
+CREATE INDEX IF NOT EXISTS idx_event_records_sync ON event_activity_records(syncStatus);
+CREATE INDEX IF NOT EXISTS idx_room_allocations_hotel ON room_allocations(hotelId, stayDate);
 ```
+
+The existing check-in outbound sync (`processOutboundSync`) reads only `CHECK_IN` operations; event operation types are processed by the event sync service (Phase 4).
 
 ### 4.2.1 Storage Estimation and Optimisation
 
@@ -764,6 +866,44 @@ Offline behavior:
 3. No live network lookup is attempted for personalCode mapping misses during scan flow.
 
 This keeps scan latency predictable and ensures scan-path continuity in low-connectivity conditions.
+
+### 4.7 Event Engine Offline
+
+Event scanning is the only event write path that works offline. Check-in offline wiring remains a known gap (check-ins still call the API directly).
+
+#### Event Bootstrap
+
+`src/services/events/eventBootstrapService.ts` runs two requests together:
+
+| Request | Writes | Notes |
+|---|---|---|
+| `GET /v1/tours/{tourId}/events/bootstrap` (`If-None-Match` when an ETag is held) | `events` (full replace), `event_occurrences` (full replace with `activeOccurrences` = PLANNED/ACTIVE from today), `rider_baggage_status` (full replace), `room_allocations` (replaced per `stayDate` in `hotelStaysToday`; today cleared when empty) | `304` keeps the cache; ETag held in memory per tour |
+| `GET /v1/tours/{tourId}/users/me` | `my_tour_assignment` | `404 USER_NOT_FOUND` stored as NULL = no assignment (not an error) |
+
+Triggers (owned by `EventSessionContext`): tour ready and online (repeated on reconnect until a bootstrap succeeds), app foreground after more than 5 minutes in the background, pull-to-refresh on EventsHome, and after an outbound event batch that synced at least one operation. Concurrent calls share one request. EventScan also fetches its event and occurrence online and upserts them.
+
+#### Event Outbound Sync
+
+Scans are written local-first: `event_activity_records` row (`syncStatus = PENDING`) plus a `pending_operations` row with the same `localId` (`CREATE_EVENT_ACTIVITY_RECORD`). Cancelling a synced record sets `isCancelled` locally and queues `CANCEL_EVENT_ACTIVITY_RECORD` (own `localId`, payload carries `recordId` and `recordLocalId`). Cancelling an unsynced record deletes it and drops its queued create.
+
+`src/services/sync/eventSyncService.ts` processes only these two types, FIFO, in one serial queue shared by the ~3 s loop (running while a tour is loaded and online) and interactive sends. An interactive send first flushes older queued event ops. Requests use `maxRetries: 0`.
+
+| Result | Create | Cancel |
+|---|---|---|
+| Success (incl. `isFlagged`) | Record SYNCED with server `recordId`/`isFlagged`; op removed | Record cancelled; op removed |
+| Network, timeout, 401, 5xx, malformed | Op stays PENDING (`retryCount`+1); batch stops | Same |
+| `409 DUPLICATE_ACTIVITY_RECORD` | Retried op (`retryCount > 0`): treated as synced (`recordId = <riderId>#<activityId>#<timestamp>`). First attempt: info message, op dropped, local record removed | — |
+| `409 RECORD_ALREADY_CANCELLED` | — | Treated as done |
+| Other expected 400/403/404/409 (`OCCURRENCE_NOT_ACTIVE`, `BAGGAGE_NOT_IN_TOUR`, `RIDER_NOT_ASSIGNED`, `HOTEL_MISMATCH`, `PREREQUISITE_NOT_MET`, `SCAN_TYPE_NOT_ALLOWED`, `ACTIVITY_NOT_FOUND`, …) | Background: record and op FAILED with the message ("Sync issues", dismissible). Interactive: message shown, op dropped, record removed | Logged; `isCancelled` restored; op dropped |
+
+Ops left `SYNCING` by a crash are reset to PENDING once per app session before the first batch. Record timestamps are ISO UTC without milliseconds.
+
+#### Offline Scan Checks
+
+- Activities and allowed types come from cached `events`/`event_occurrences` (overrides included); assignment filtering uses `my_tour_assignment`.
+- `BAGGAGE` ID types are blocked when `rider_baggage_status.baggageStatus = WITH_RIDER` (message includes rider and `baggageReleasedAt`). Online the server decides.
+- Local duplicate check: this device's non-cancelled, non-failed record for the same occurrence, rider and activity.
+- Variant default: `riders.dietaryPreference` (refreshed online from `GET /v1/riders/profile/{profileId}` on each variant scan).
 
 ---
 

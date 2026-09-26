@@ -13,6 +13,7 @@ import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn } f
 import { logger } from '../../utils/logger';
 import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage, TourRiderStatus } from '../../types/models';
 import { COLORS, getStageColor } from '../../constants/colors';
+import { navigationRef } from '../../navigation/navigationRef';
 
 interface RiderCardModalProps {
   visible: boolean;
@@ -295,6 +296,18 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                 )}
               </View>
 
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.secondaryButton}
+                onPress={() => {
+                  const targetRiderId = selectedRider.rider.riderId;
+                  onClose();
+                  if (navigationRef.isReady()) navigationRef.navigate('RiderProgress', { riderId: targetRiderId });
+                }}
+              >
+                <Text style={styles.secondaryButtonText}>View event progress</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeButtonText}>Close</Text>
               </TouchableOpacity>
@@ -476,6 +489,20 @@ const styles = StyleSheet.create({
   riderSpecialStatusTime: {
     fontSize: 13,
     color: COLORS.textSecondary,
+  },
+  secondaryButton: {
+    borderColor: COLORS.primary,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  secondaryButtonText: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   closeButton: {
     backgroundColor: COLORS.primary,

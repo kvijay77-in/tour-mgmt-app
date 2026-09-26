@@ -66,6 +66,10 @@ This is an evolving document and hence latest info must be referred to at all ti
 
 9. **Safe-area first layout for edge-to-edge Android** — Android edge-to-edge is enforced on modern SDK levels, so all top-anchored headers must respect top safe area insets and all bottom-anchored UI (tab bars, footers, fixed action rows) must apply bottom safe area padding. Avoid hardcoded status-bar spacing values such as fixed `paddingTop` for screen headers.
 
+10. **Form factor policy** — Definition-style admin screens are designed web-first with a mobile fallback: Tour and Ride definition, Artifacts, Event definition, Reports. Dashboards, scanning and day-of quick actions are mobile-first with responsive web layouts (breakpoint `DESKTOP_MIN_WIDTH`). No drag-and-drop; lists are reordered with Move up/down controls.
+
+11. **Expected API errors are flow outcomes** — Expected `400/403/404/409` responses are returned by service functions as discriminated-union outcomes and rendered in-screen (inline next to the field when unambiguous, otherwise a status banner; `404` always offers a next step). `try/catch` and error boundaries are reserved for network loss, `5xx` and malformed responses. No raw alerts or stack traces for catalogued error codes. Applied to all event-engine screens (see [Event-Engine-Design.md](Event-Engine-Design.md#api-conventions)).
+
 ---
 
 ## Technology Stack
@@ -211,6 +215,7 @@ The app uses React Context for global state, structured in a provider hierarchy:
 | **AuthContext** | Authentication state | User info, JWT tokens, login/logout |
 | **TourContext** | Active tour context | `tourId`, tour details, resolved at startup |
 | **OfflineContext** | Offline mode state | Manual toggle, connectivity status, effective mode |
+| **EventSessionContext** | Event scanning session | Selected event/occurrence/activity, local event records, own tour assignment, bootstrap + event sync lifecycle |
 | **RoleContext** | RBAC role context | User role, permissions, feature-level access |
 
 **Provider Order** (in `App.tsx`):
@@ -247,7 +252,7 @@ State that can be computed from other state should not be stored separately. Exa
 3. User authenticates via `Amplify.Auth.signIn()` → Cognito returns JWT tokens
 4. `AuthContext` stores auth state and provides it to child components
 5. `TourContext` resolves active tour using authenticated API calls
-6. Navigation routes user to Dashboard
+6. Navigation routes user to the Home hub, or straight to the only module the user can reach (see [Navigation Rules](#navigation-rules))
 
 ### Token Management
 
@@ -438,8 +443,11 @@ The Start-stage Override/Cancel flow is excluded from offline handling. It is ex
 | `rides` | Ride details and stages | Cached from API (read-only locally) |
 | `check_ins` | Check-in records | API cache + local check-ins |
 | `pending_operations` | Sync queue | Locally created, processed by sync service |
+| Event engine tables | Events, occurrences, event scans, room allocations, baggage status, dashboard snapshots, own tour assignment | Events bootstrap + local event scans (see [Event-Engine-Design.md](Event-Engine-Design.md#local-storage-sqlite)) |
 
 For complete schema and storage estimates, see [Data Integration Design § 4.2](DataIntegrationDesign.md#42-sqlite-schema).
+
+> **Known gap — check-in offline wiring.** The check-in queue and sync service exist but are not wired: `CheckInScreen` calls the API directly. `OfflineProvider` is mounted in `RootNavigator` (event engine Phase 4) and drives event scanning offline: events bootstrap cache, write-local-first scans and a separate event sync loop (see [Data Integration Design § 4.7](DataIntegrationDesign.md#47-event-engine-offline)). Wiring check-ins through the queue remains a future item.
 
 ### Sync Service
 
@@ -449,6 +457,8 @@ Two independent processes:
 
 Both pause when offline (manual toggle or auto-detected) and resume when connectivity is restored.
 
+Event operations use their own outbound loop (`eventSyncService.ts`, ~3 s, event operation types only) started by `EventSessionContext` while a tour is loaded and the app is online.
+
 For detailed sync flow, conflict resolution, and refresh strategy, see [Data Integration Design § 4](DataIntegrationDesign.md#4-offline-support-design).
 
 ---
@@ -457,33 +467,35 @@ For detailed sync flow, conflict resolution, and refresh strategy, see [Data Int
 
 > Implemented via a phased SPA→multi-screen migration. See
 > `/memories/repo/spa-to-multiscreen-migration-plan.md` (repo memory) for the
-> phase-by-phase implementation log. No bottom tabs and no drawer navigator
-> are used — the app is a single native-stack per auth state, with a custom
-> slide-in menu component for account/admin actions.
+> phase-by-phase implementation log. No drawer navigator is used — the app is
+> a single native-stack per auth state with a group-aware Home hub, a custom
+> web sidebar, and the ride module (Dashboard/CheckIn/Log tabs) inside it.
 
 ### Navigation Hierarchy
 
 ```
 App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
-          > AuthProvider > NavigationContainer)
+          > AuthProvider > NavigationContainer ref=navigationRef)
 └── RootNavigator                         # src/navigation/RootNavigator.tsx
     ├── (loading)  → spinner
     ├── (no user)  → AuthNavigator         # src/navigation/AuthNavigator.tsx (native stack)
     │   ├── LoginScreen
     │   ├── ForgotPasswordScreen
     │   └── NewPasswordScreen
-    └── (user)     → TourProvider > AppNavigator   # src/navigation/AppNavigator.tsx (native stack)
-        ├── DashboardScreen           (headerShown: false, custom header + AppMenu)
-      ├── RideInfoScreen            (fullScreenModal, params: ride, source)
-        ├── CheckInScreen             (fullScreenModal, params: ride, managedPitStopStageNumber)
-        ├── ChangePasswordScreen      (fullScreenModal — all authenticated roles)
-        ├── ArtifactsScreen            (fullScreenModal — ADMINISTRATOR only)
-        ├── RideStatusManagementScreen (fullScreenModal — ADMINISTRATOR only)
-        ├── UserOnboardingScreen       (fullScreenModal — ADMINISTRATOR only)
-        ├── UserEnableDisableScreen    (fullScreenModal — ADMINISTRATOR only)
-        ├── UserDeleteScreen           (fullScreenModal — ADMINISTRATOR only)
-        ├── UserModifyScreen           (fullScreenModal — ADMINISTRATOR only)
-        └── TourManagementScreen       (fullScreenModal — ADMINISTRATOR/SUPER_USER)
+    └── (user)     → TourProvider > AppNavigator   # src/navigation/AppNavigator.tsx
+        ├── SideNav                    (web ≥ DESKTOP_MIN_WIDTH only, beside the stack)
+        └── native stack
+            ├── HomeScreen                 (initial route — module tiles + account menu)
+            ├── MainTabs                   (ride module: Dashboard / CheckIn / Log, custom header + AppMenu)
+            ├── RideInfoScreen             (fullScreenModal, params: ride, source)
+            ├── ChangePasswordScreen       (fullScreenModal — all authenticated roles)
+            ├── ArtifactsScreen            (fullScreenModal — ADMINISTRATOR only)
+            ├── RideStatusManagementScreen (fullScreenModal — ADMINISTRATOR only)
+            ├── UserOnboardingScreen       (fullScreenModal — ADMINISTRATOR only)
+            ├── UserEnableDisableScreen    (fullScreenModal — ADMINISTRATOR only)
+            ├── UserDeleteScreen           (fullScreenModal — ADMINISTRATOR only)
+            ├── UserModifyScreen           (fullScreenModal — ADMINISTRATOR only)
+            └── TourManagementScreen       (fullScreenModal — ADMINISTRATOR/SUPER_USER)
 ```
 
 - `RootNavigator` reads `useAuth()` and swaps the whole Auth/App subtree on sign-in/sign-out (so the Auth stack always remounts fresh at Login on logout — no leftover navigation state).
@@ -495,27 +507,35 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 ### Navigation Rules
 
 - Unauthenticated users only ever see the Auth stack (Login/ForgotPassword/NewPassword).
-- Dashboard is the single landing screen for all authenticated roles; role-based restrictions are enforced as **feature gates within Dashboard/menu**, not as separate landing routes:
+- The Home hub (`HomeScreen`) is the initial route. It lists the modules the user can reach, grouped by section, from the registry in `src/navigation/modules.ts`:
+  - **Ride Day** → `MainTabs` (`VIEW_DASHBOARD` or `CHECKIN_RIDER`).
+  - **Events** → `EventsHome` (`EVENT_SCAN`, `VIEW_DASHBOARD` or `MANAGE_EVENT_OCCURRENCES`) and **Hotels & Baggage** → `HotelManagement` (`MANAGE_HOTEL_ALLOCATIONS`).
+  - **Administration** → Define/Update Tour (`ADMINISTRATOR`/`SUPER_USER`, Super User read-only), Ride status management, Artifacts, User management (Onboarding / Enable-Disable / Delete / Modify) — `ADMINISTRATOR` only. Event definitions, Tour assignments and Rider exit are added by later phases.
+  - Registry visibility predicates mirror the conditional route registration in `AppNavigator`, so only registered routes are offered.
+- A user who can reach exactly one entry is sent straight to it (stack reset, e.g. Guest / Hotel Staff / PS_x_USER → `MainTabs`); the Home affordance and sidebar are then hidden.
+- Within the ride module, role-based restrictions stay as **feature gates within Dashboard/menu**:
   - The check-in FAB is shown only when the user has the `CHECKIN_RIDER` permission and the ride is not historical.
-  - Admin menu entries (Artifacts, Ride status management, User Management) and their routes are shown/registered only for `ADMINISTRATOR`.
-  - Define/Update Tour and its route are shown/registered only for `ADMINISTRATOR` and `SUPER_USER`; Super User access is view-only.
   - `Guest`/read-only roles see the Dashboard grid without check-in capability (no FAB).
 - Deep links are not currently required/supported.
 
-### Dashboard Header Menu (AppMenu)
+### Web Sidebar (SideNav)
 
-- `src/components/common/AppMenu.tsx` is a custom slide-in panel (full height, right edge, RN `Animated`-driven — no drawer/reanimated dependency) opened from the Dashboard header hamburger icon.
-- Menu items call `navigation.navigate(...)` on the `AppNavigator` stack, then close the menu.
-- "Ride status management" and "User Management" (with New User Onboarding / Enable-Disable / Delete / Modify sub-items) are shown only to `ADMINISTRATOR` users.
-- "Artifacts" is shown only to `ADMINISTRATOR` users and opens the artifact upload and maintenance screen.
-- "Define/Update Tour" opens `TourManagementScreen`; Administrator access is editable and Super User access is read-only.
+- On web at widths ≥ `DESKTOP_MIN_WIDTH` (768 px), `AppNavigator` renders `src/components/common/SideNav.tsx` as a persistent left sidebar beside the stack (custom component — no drawer/reanimated dependency). Mobile and narrow web have no sidebar.
+- SideNav lists Home, the same sections/entries as the Home hub, and Change password / Logout. It sits outside the stack, so it navigates through the container ref (`src/navigation/navigationRef.ts`) and highlights the focused stack route from the root state.
+- Home tiles and SideNav use `navigate(..., { pop: true })`, returning to a route already in the stack instead of pushing a duplicate.
+
+### Ride Header Menu (AppMenu)
+
+- `src/components/common/AppMenu.tsx` is a custom slide-in panel (full height, right edge, RN `Animated`-driven — no drawer/reanimated dependency) opened from the ride header (`DashboardTabsHeader`) hamburger icon. It contains ride-module items only; admin links live on the Home hub / SideNav.
+- The ride header shows a Home button when the user has a Home hub.
+- Change password and Logout appear in AppMenu only for users without a Home hub (single-module users), so every role keeps access to them.
 - For users whose effective role is `PS_x_USER` and who have multiple pit-stop stage mappings, the menu includes "Set pit stop context" to choose the active pit-stop stage for regular check-ins (opens the Pit Stop Context Picker, which — like the Rider Card and Ride Picker — intentionally remains a `Modal` popup rather than a stack route, since it is a transient selection, not a navigable screen).
 - For users with pit-stop management access (`ADMINISTRATOR`, `SUPER_USER`, mapped `PS_x_USER`), the menu includes "Pit Stop management" with pit-stop stage submenu items.
   - `ADMINISTRATOR` and `SUPER_USER` see all current ride `PIT_STOP` stages.
   - `PS_x_USER` sees only mapped `PIT_STOP` stages.
   - Selecting a stage opens a popup modal where actions are state-gated (`OPEN` only when status is null, `CLOSE` only when status is `OPEN`) and API calls are sent to backend pit-stop open/close endpoints.
   - This menu item is hidden when viewing historical rides and when current ride status is `COMPLETED` or `CLOSED`.
-- "Change password", the skipped-check-in visibility toggle, and "Logout" are available to all authenticated roles.
+- The skipped-check-in visibility toggle and QR scan pause setting are ride-module items.
 - Under "All Rides", planned rides remain blocked for dashboard launch; a dedicated ride-info action opens shared ride details for all rides (including planned).
 
 Tour definition CRUD and provisioning are owned by `src/services/api/tourApi.ts`. Tour and ride request contracts live in `src/types/api.ts`; provisioning uses `provisioning: true`, and unchanged existing-tour provisioning uses `provisionOnly: true` on the tour PUT request.

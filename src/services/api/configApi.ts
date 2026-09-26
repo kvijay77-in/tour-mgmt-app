@@ -1,5 +1,11 @@
 import { AppConfigItem } from '../../types/config';
-import { apiClient } from './apiClient';
+import { ApiResponse } from '../../types/api';
+import { apiClient, ApiError } from './apiClient';
+
+// Backend returns 404 INVALID_CONFIG_TYPE when no enabled rows exist for the requested type(s).
+function isNoConfigError(error: ApiError): boolean {
+  return error.statusCode === 404;
+}
 
 function normalizeString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -42,7 +48,15 @@ export async function listAppConfigs(configTypes?: string[]): Promise<AppConfigI
     ? { configType: configTypes.join(',') }
     : undefined;
 
-  const response = await apiClient.get<unknown>('/v1/config', { params });
+  let response: ApiResponse<unknown>;
+  try {
+    response = await apiClient.get<unknown>('/v1/config', { params, isExpectedError: isNoConfigError });
+  } catch (error) {
+    if (error instanceof ApiError && isNoConfigError(error)) {
+      return [];
+    }
+    throw error;
+  }
   const items = extractArrayPayload(response.data);
 
   return items

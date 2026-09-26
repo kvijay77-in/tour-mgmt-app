@@ -24,6 +24,12 @@ export const ADMINISTRATOR_ROLE: Role = {
     Permission.MANAGE_USERS,
     Permission.MANAGE_ROLES,
     Permission.MANAGE_ARTIFACTS,
+    Permission.MANAGE_EVENTS,
+    Permission.MANAGE_EVENT_OCCURRENCES,
+    Permission.EVENT_SCAN,
+    Permission.MANAGE_HOTEL_ALLOCATIONS,
+    Permission.MANAGE_TOUR_USERS,
+    Permission.RIDER_EXIT,
   ],
 };
 
@@ -42,6 +48,10 @@ export const SUPER_USER_ROLE: Role = {
     Permission.CHECKIN_NOT_RIDING,
     Permission.CHECKIN_QUIT_RIDING,
     Permission.MANUAL_CHECKIN,
+    Permission.MANAGE_EVENT_OCCURRENCES,
+    Permission.EVENT_SCAN,
+    Permission.MANAGE_HOTEL_ALLOCATIONS,
+    Permission.RIDER_EXIT,
   ],
 };
 
@@ -58,6 +68,7 @@ export const PIT_STOP_USER_PERMISSIONS: Permission[] = [
   Permission.VIEW_DASHBOARD,
   Permission.CHECKIN_RIDER,
   Permission.CHECKIN_QUIT_RIDING,
+  Permission.EVENT_SCAN,
 ];
 
 /**
@@ -70,6 +81,7 @@ export const HOTEL_STAFF_ROLE: Role = {
   description: 'Finish stage check-in only, no dashboard access',
   permissions: [
     Permission.CHECKIN_RIDER,
+    Permission.EVENT_SCAN,
     // Dashboard access explicitly not included
   ],
 };

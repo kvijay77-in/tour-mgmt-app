@@ -4,7 +4,7 @@
  */
 
 import { getDatabase } from './database';
-import { Rider } from '../../types/models';
+import { DietaryPreference, Rider } from '../../types/models';
 
 /**
  * Upsert riders into the local cache (from API response).
@@ -14,10 +14,22 @@ export async function upsertRiders(riders: Rider[]): Promise<void> {
   const now = new Date().toISOString();
 
   for (const rider of riders) {
+    // Upsert (not REPLACE) so the lazily cached dietaryPreference survives rider refreshes.
     await db.runAsync(
-      `INSERT OR REPLACE INTO riders
+      `INSERT INTO riders
         (riderId, profileId, name, email, phone, emergencyContactName, emergencyContactPhone, photoS3Key, qrCodeData, status, lastSyncedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(riderId) DO UPDATE SET
+         profileId = excluded.profileId,
+         name = excluded.name,
+         email = excluded.email,
+         phone = excluded.phone,
+         emergencyContactName = excluded.emergencyContactName,
+         emergencyContactPhone = excluded.emergencyContactPhone,
+         photoS3Key = excluded.photoS3Key,
+         qrCodeData = excluded.qrCodeData,
+         status = excluded.status,
+         lastSyncedAt = excluded.lastSyncedAt`,
       [
         rider.riderId,
         rider.profileId ?? null,
@@ -58,6 +70,20 @@ export async function getRiderById(riderId: string): Promise<Rider | null> {
   return row ? mapRowToRider(row) : null;
 }
 
+/**
+ * Cache a rider's profile dietaryPreference (fetched lazily for variant activities).
+ */
+export async function setRiderDietaryPreference(
+  riderId: string,
+  dietaryPreference: DietaryPreference | null,
+): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    'UPDATE riders SET dietaryPreference = ? WHERE riderId = ?',
+    [dietaryPreference, riderId],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Mapping
 // ---------------------------------------------------------------------------
@@ -74,5 +100,6 @@ function mapRowToRider(row: Record<string, unknown>): Rider {
     photoS3Key: row.photoS3Key as string | undefined,
     qrCodeData: row.qrCodeData as string | undefined,
     status: row.status as string | undefined,
+    dietaryPreference: (row.dietaryPreference as DietaryPreference | null) ?? null,
   };
 }

@@ -102,7 +102,8 @@ export async function processOutboundSync(
   };
 
   try {
-    const pending = await getPendingOperations();
+    // Event operation types are processed by the event sync service, not here.
+    const pending = await getPendingOperations(['CHECK_IN']);
 
     for (const op of pending) {
       result.processed++;

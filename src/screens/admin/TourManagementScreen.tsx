@@ -11,11 +11,12 @@ import {
 } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
-import { createTour, getTourById, listTours, provisionTour, updateTour } from '../../services/api/tourApi';
+import { createTour, getTourById, listTours, provisionTour, reprovisionTour, updateTour } from '../../services/api/tourApi';
 import { createRide, listRides, updateRide } from '../../services/api/rideApi';
 import { CreateRideRequest, CreateTourRequest } from '../../types/api';
 import { Ride, RideStatus, StageType, Tour } from '../../types/models';
 import { logger } from '../../utils/logger';
+import ConfirmDialog from '../../components/artifacts/ConfirmDialog';
 
 const TAG = 'TourManagementScreen';
 
@@ -74,6 +75,8 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
   const [rideBaselines, setRideBaselines] = useState<Record<string, string>>({});
   const [activeRideIndex, setActiveRideIndex] = useState(0);
   const [rideError, setRideError] = useState<string | null>(null);
+  const [showReprovisionConfirm, setShowReprovisionConfirm] = useState(false);
+  const [reprovisionResult, setReprovisionResult] = useState<string[] | null>(null);
 
   const isNew = selectedTourId === null;
   const isDirty = baseline === null || JSON.stringify(form) !== JSON.stringify(baseline);
@@ -99,6 +102,7 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
 
   const selectTour = useCallback(async (tourId: string) => {
     setSelectedTourId(tourId);
+    setReprovisionResult(null);
     setIsLoading(true);
     setError(null);
     try {
@@ -142,6 +146,7 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
   const startNewTour = useCallback(() => {
     setSelectedTourId(null);
     setTour(null);
+    setReprovisionResult(null);
     setForm(emptyForm());
     setBaseline(null);
     setRidesAvailable(false);
@@ -217,6 +222,24 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
       setIsSaving(false);
     }
   }, [applyResponse, canProvision, form, isDirty, isNew, validate]);
+
+  const handleReprovision = useCallback(async () => {
+    if (readOnly || !tour?.provisionedAt) return;
+    setIsSaving(true);
+    setError(null);
+    setReprovisionResult(null);
+    try {
+      const result = await reprovisionTour(tour.tourId);
+      applyResponse(result.tour);
+      setReprovisionResult(result.provisionedTables);
+    } catch (err) {
+      logger.error(TAG, 'Failed to re-provision tour', err);
+      setError(toFriendlyError(err));
+    } finally {
+      setIsSaving(false);
+      setShowReprovisionConfirm(false);
+    }
+  }, [applyResponse, readOnly, tour]);
 
   const updateField = useCallback((field: keyof TourForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -375,6 +398,19 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
             <TouchableOpacity style={[styles.actionButton, (!canProvision || isSaving) && styles.disabledButton]} onPress={() => void handleProvision()} disabled={!canProvision || isSaving}>
               <Text style={styles.actionText}>Provision</Text>
             </TouchableOpacity>
+            {tour?.provisionedAt && (
+              <TouchableOpacity style={[styles.actionButton, isSaving && styles.disabledButton]} onPress={() => setShowReprovisionConfirm(true)} disabled={isSaving} accessibilityRole="button">
+                <Text style={styles.actionText}>Re-provision tables</Text>
+              </TouchableOpacity>
+            )}
+          </View>}
+          {reprovisionResult && <View style={styles.statusBox}>
+            <Text style={styles.statusText}>
+              {reprovisionResult.length > 0
+                ? `Re-provisioning created ${reprovisionResult.length} table(s):`
+                : 'Re-provisioning found no missing tables. Nothing was created.'}
+            </Text>
+            {reprovisionResult.map((table) => <Text key={table} style={styles.statusText}>• {table}</Text>)}
           </View>}
           <Text style={styles.rideState}>{tour?.provisionedAt && ridesAvailable ? 'Ride definitions are available.' : 'Ride definitions are locked until provisioning succeeds.'}</Text>
           {tour?.provisionedAt && rides.length > 0 && activeRide && <View style={styles.rideSection}>
@@ -431,6 +467,16 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
           </View>}
         </ScrollView>
       )}
+      <ConfirmDialog
+        visible={showReprovisionConfirm}
+        title="Re-provision tables?"
+        message={`Creates any missing or newly defined tables for ${tour?.tourId ?? 'this tour'}. Existing tables and data are not changed.`}
+        confirmLabel="Re-provision"
+        confirmTone="primary"
+        isSubmitting={isSaving}
+        onConfirm={() => void handleReprovision()}
+        onCancel={() => setShowReprovisionConfirm(false)}
+      />
     </SafeAreaView>
   );
 }

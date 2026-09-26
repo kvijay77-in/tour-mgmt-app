@@ -456,13 +456,16 @@ export async function listCognitoUsersWithRoles(): Promise<CognitoManagedUser[]>
   return users;
 }
 
-export async function createCognitoUser(input: NewCognitoUserInput): Promise<void> {
-  await apiClient.post('/v1/admin/usermgmt/users', {
+/** Returns the new user's Cognito sub (cognitoUserId) when the API provides it. */
+export async function createCognitoUser(input: NewCognitoUserInput): Promise<string | null> {
+  const response = await apiClient.post<{ cognitoUserId?: string }>('/v1/admin/usermgmt/users', {
     email: input.email.trim().toLowerCase(),
     phoneNumber: input.phoneNumber,
     name: input.name,
     roles: [...new Set(input.roles)],
   });
+  const cognitoUserId = unwrapApiPayload<{ cognitoUserId?: string }>(response)?.cognitoUserId;
+  return typeof cognitoUserId === 'string' && cognitoUserId.trim() ? cognitoUserId.trim() : null;
 }
 
 export async function setCognitoUserEnabled(

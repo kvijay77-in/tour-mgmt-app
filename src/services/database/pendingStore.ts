@@ -6,14 +6,32 @@
  */
 
 import { getDatabase } from './database';
-import { CheckInRequest } from '../../types/api';
+import { CheckInRequest, CreateActivityRecordRequest } from '../../types/api';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type OperationType = 'CHECK_IN';
+export type OperationType =
+  | 'CHECK_IN'
+  | 'CREATE_EVENT_ACTIVITY_RECORD'
+  | 'CANCEL_EVENT_ACTIVITY_RECORD';
 export type PendingStatus = 'PENDING' | 'SYNCING' | 'FAILED';
+
+export interface CreateEventRecordPayload {
+  eventId: string;
+  occurrenceId: string;
+  request: CreateActivityRecordRequest;
+}
+
+export interface CancelEventRecordPayload {
+  eventId: string;
+  occurrenceId: string;
+  recordId: string;
+  /** localId of the event_activity_records row being cancelled */
+  recordLocalId: string;
+  cancelReason?: string;
+}
 
 export interface PendingOperation {
   localId: string;
@@ -47,16 +65,70 @@ export async function enqueueCheckIn(
 }
 
 /**
- * Get all pending operations in FIFO order (oldest first).
+ * Queue an event activity record create; localId matches the event_activity_records row.
  */
-export async function getPendingOperations(): Promise<PendingOperation[]> {
+export async function enqueueEventRecordCreate(
+  localId: string,
+  payload: CreateEventRecordPayload,
+): Promise<void> {
+  await enqueueOperation(localId, 'CREATE_EVENT_ACTIVITY_RECORD', payload);
+}
+
+export async function enqueueEventRecordCancel(
+  localId: string,
+  payload: CancelEventRecordPayload,
+): Promise<void> {
+  await enqueueOperation(localId, 'CANCEL_EVENT_ACTIVITY_RECORD', payload);
+}
+
+async function enqueueOperation(
+  localId: string,
+  operationType: OperationType,
+  payload: unknown,
+): Promise<void> {
   const db = await getDatabase();
+  await db.runAsync(
+    `INSERT INTO pending_operations
+      (localId, operationType, payload, createdAt, syncStatus)
+     VALUES (?, ?, ?, ?, 'PENDING')`,
+    [localId, operationType, JSON.stringify(payload), new Date().toISOString()],
+  );
+}
+
+/**
+ * Get pending operations in FIFO order (oldest first), optionally limited to some types.
+ */
+export async function getPendingOperations(
+  operationTypes?: readonly OperationType[],
+): Promise<PendingOperation[]> {
+  const db = await getDatabase();
+  const typeFilter = operationTypes && operationTypes.length > 0
+    ? `AND operationType IN (${operationTypes.map(() => '?').join(', ')})`
+    : '';
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT * FROM pending_operations
-     WHERE syncStatus = 'PENDING'
+     WHERE syncStatus = 'PENDING' ${typeFilter}
      ORDER BY createdAt ASC`,
+    operationTypes ? [...operationTypes] : [],
   );
   return rows.map(mapRowToOperation);
+}
+
+export async function getPendingOperation(localId: string): Promise<PendingOperation | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<Record<string, unknown>>(
+    'SELECT * FROM pending_operations WHERE localId = ?',
+    [localId],
+  );
+  return row ? mapRowToOperation(row) : null;
+}
+
+/**
+ * Remove an operation without syncing it (e.g. an unsynced event record cancelled locally).
+ */
+export async function dropOperation(localId: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM pending_operations WHERE localId = ?', [localId]);
 }
 
 /**
@@ -103,6 +175,22 @@ export async function markFailed(
   await db.runAsync(
     `UPDATE pending_operations
      SET syncStatus = 'FAILED', syncError = ?, retryCount = retryCount + 1, lastAttemptAt = ?
+     WHERE localId = ?`,
+    [error, new Date().toISOString(), localId],
+  );
+}
+
+/**
+ * Record a transient failure (network/5xx) and keep the operation queued.
+ */
+export async function markAttemptFailed(
+  localId: string,
+  error: string,
+): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE pending_operations
+     SET syncStatus = 'PENDING', syncError = ?, retryCount = retryCount + 1, lastAttemptAt = ?
      WHERE localId = ?`,
     [error, new Date().toISOString(), localId],
   );

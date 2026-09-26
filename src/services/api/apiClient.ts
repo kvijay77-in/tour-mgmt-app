@@ -65,6 +65,8 @@ interface RequestOptions {
    * Expected errors are still thrown, but are not logged as warnings.
    */
   isExpectedError?: (error: ApiError) => boolean;
+  /** Receives the final response headers (e.g. to read an ETag). */
+  onResponseHeaders?: (headers: Headers) => void;
 }
 
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -243,6 +245,7 @@ async function request<T>(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRetries = MAX_RETRIES,
     isExpectedError,
+    onResponseHeaders,
   } = options;
 
   const url = buildUrl(path, params);
@@ -325,6 +328,12 @@ async function request<T>(
         }
       }
 
+      // Conditional GET matched (If-None-Match): empty body, no data.
+      if (response.status === 304) {
+        onResponseHeaders?.(response.headers);
+        return { success: true, timestamp: new Date().toISOString() };
+      }
+
       // Parse response body
       const responseBody = await response.json().catch((e: unknown) => {
         logger.warn(TAG, 'Failed to parse response JSON', e);
@@ -333,6 +342,7 @@ async function request<T>(
 
       // Success
       if (response.ok) {
+        onResponseHeaders?.(response.headers);
         return responseBody as ApiResponse<T>;
       }
 

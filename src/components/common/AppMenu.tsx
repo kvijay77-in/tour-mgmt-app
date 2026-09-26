@@ -7,6 +7,8 @@
  * tablet and web form factors and to device rotation.
  *
  * See /docs/... and /memories/repo/spa-to-multiscreen-migration-plan.md (Phase 3).
+ * Event engine Phase 2: admin links moved to the Home hub / SideNav; account
+ * actions stay here only for users without a Home hub (single module).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -32,22 +34,12 @@ const ANIMATION_DURATION_MS = 220;
 const MAX_PANEL_WIDTH = 340;
 const PANEL_WIDTH_RATIO = 0.86;
 
-type MenuRouteName =
-  | 'ChangePassword'
-  | 'Artifacts'
-  | 'RideStatusManagement'
-  | 'UserOnboarding'
-  | 'UserEnableDisable'
-  | 'UserDelete'
-  | 'UserModify';
-
 const formatRideStatus = (status: RideStatus): string => status.replaceAll('_', ' ');
 
 export interface AppMenuProps {
   visible: boolean;
   onClose: () => void;
-  isAdministrator: boolean;
-  showTourManagementOption: boolean;
+  showAccountOptions: boolean;
   rides: Ride[];
   currentRideId: string | null;
   onSelectRide: (ride: Ride) => void;
@@ -70,8 +62,7 @@ export interface AppMenuProps {
 export function AppMenu({
   visible,
   onClose,
-  isAdministrator,
-  showTourManagementOption,
+  showAccountOptions,
   rides,
   currentRideId,
   onSelectRide,
@@ -98,7 +89,6 @@ export function AppMenu({
   const translateX = useRef(new Animated.Value(panelWidth)).current;
   const [isMounted, setIsMounted] = useState(visible);
   const [showAllRidesSubmenu, setShowAllRidesSubmenu] = useState(false);
-  const [showUserManagementSubmenu, setShowUserManagementSubmenu] = useState(false);
   const [showPitStopManagementSubmenu, setShowPitStopManagementSubmenu] = useState(false);
 
   useEffect(() => {
@@ -122,7 +112,6 @@ export function AppMenu({
         if (finished) {
           setIsMounted(false);
           setShowAllRidesSubmenu(false);
-          setShowUserManagementSubmenu(false);
           setShowPitStopManagementSubmenu(false);
         }
       });
@@ -131,9 +120,9 @@ export function AppMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, panelWidth, translateX]);
 
-  const navigateTo = (routeName: MenuRouteName) => {
+  const navigateToChangePassword = () => {
     onClose();
-    navigation.navigate(routeName);
+    navigation.navigate('ChangePassword');
   };
 
   const handleSelectRide = (ride: Ride) => {
@@ -169,10 +158,12 @@ export function AppMenu({
             <MaterialIcons name="close" size={22} color={COLORS.textSecondary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('ChangePassword')}>
-            <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
-            <Text style={styles.menuItemText}>Change password</Text>
-          </TouchableOpacity>
+          {showAccountOptions && (
+            <TouchableOpacity style={styles.menuItem} onPress={navigateToChangePassword}>
+              <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Change password</Text>
+            </TouchableOpacity>
+          )}
 
           <View style={styles.sectionWrap}>
             <TouchableOpacity
@@ -243,76 +234,6 @@ export function AppMenu({
               </View>
             )}
           </View>
-
-          {isAdministrator && (
-            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('RideStatusManagement')}>
-              <MaterialIcons name="route" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Ride status management</Text>
-            </TouchableOpacity>
-          )}
-
-          {isAdministrator && (
-            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('Artifacts')}>
-              <MaterialIcons name="perm-media" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Artifacts</Text>
-            </TouchableOpacity>
-          )}
-
-          {isAdministrator && (
-            <View style={styles.sectionWrap}>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => setShowUserManagementSubmenu((prev) => !prev)}
-              >
-                <MaterialIcons name="manage-accounts" size={18} color={COLORS.textPrimary} />
-                <Text style={styles.menuItemText}>User Management</Text>
-                <View style={styles.menuItemRightIconWrap}>
-                  <MaterialIcons
-                    name={showUserManagementSubmenu ? 'expand-less' : 'expand-more'}
-                    size={18}
-                    color={COLORS.textSecondary}
-                  />
-                </View>
-              </TouchableOpacity>
-
-              {showUserManagementSubmenu && (
-                <View style={styles.submenuWrap}>
-                  <TouchableOpacity style={styles.subItem} onPress={() => navigateTo('UserOnboarding')}>
-                    <MaterialIcons name="person-add" size={16} color={COLORS.textPrimary} />
-                    <Text style={styles.subItemText}>New user onboarding</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.subItem} onPress={() => navigateTo('UserEnableDisable')}>
-                    <MaterialIcons name="toggle-on" size={16} color={COLORS.textPrimary} />
-                    <Text style={styles.subItemText}>Enable / Disable user</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.subItem} onPress={() => navigateTo('UserDelete')}>
-                    <MaterialIcons name="delete-outline" size={16} color={COLORS.danger} />
-                    <Text style={styles.subItemDangerText}>Delete user</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity style={styles.subItem} onPress={() => navigateTo('UserModify')}>
-                    <MaterialIcons name="edit" size={16} color={COLORS.textPrimary} />
-                    <Text style={styles.subItemText}>Modify user</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          )}
-
-          {showTourManagementOption && (
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                onClose();
-                navigation.navigate('TourManagement', { readOnly: !isAdministrator });
-              }}
-            >
-              <MaterialIcons name="edit-road" size={18} color={COLORS.textPrimary} />
-              <Text style={styles.menuItemText}>Define/Update Tour</Text>
-            </TouchableOpacity>
-          )}
 
           {showPitStopContextOption && (
             <TouchableOpacity
@@ -395,16 +316,18 @@ export function AppMenu({
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={async () => {
-              onClose();
-              await onLogout();
-            }}
-          >
-            <MaterialIcons name="logout" size={18} color={COLORS.textPrimary} />
-            <Text style={styles.menuItemText}>Logout</Text>
-          </TouchableOpacity>
+          {showAccountOptions && (
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={async () => {
+                onClose();
+                await onLogout();
+              }}
+            >
+              <MaterialIcons name="logout" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Logout</Text>
+            </TouchableOpacity>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -473,11 +396,6 @@ const styles = StyleSheet.create({
   subItemText: {
     fontSize: 13,
     color: COLORS.textPrimary,
-    fontWeight: '500',
-  },
-  subItemDangerText: {
-    fontSize: 13,
-    color: COLORS.danger,
     fontWeight: '500',
   },
   rideSubItem: {

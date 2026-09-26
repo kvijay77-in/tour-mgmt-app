@@ -34,6 +34,7 @@ import { AppStackParamList } from '../../types/navigation';
 import { CheckIn, CheckInStatus, Ride, RideStatus, Stage, StageType, UserRole } from '../../types/models';
 import StageFilterBar from './StageFilterBar';
 import { AppMenu } from '../common/AppMenu';
+import { useVisibleModules } from '../../navigation/modules';
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {
   const today = new Date().toISOString().split('T')[0];
@@ -101,6 +102,7 @@ export default function DashboardTabsHeader() {
   const insets = useSafeAreaInsets();
   const { tour } = useTour();
   const { user, logout } = useAuth();
+  const { hasHome } = useVisibleModules();
   const {
     currentRide,
     isHistorical,
@@ -367,21 +369,33 @@ export default function DashboardTabsHeader() {
   return (
     <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
       <View style={styles.headerRow}>
-        {currentRide ? (
-          <TouchableOpacity
-            style={styles.rideTitleButton}
-            onPress={() => navigation.navigate('RideInfo', { ride: currentRide, source: 'dashboard' })}
-            accessibilityRole="button"
-            accessibilityLabel="Open ride details"
-            accessibilityHint="Shows details for the selected ride"
-          >
-            <Text style={styles.rideTitle}>{currentRide.name}</Text>
-            {/* <MaterialIcons name="info-outline" size={18} color={COLORS.white} /> */}
-            <FontAwesome5 name="info-circle" size={18} color={COLORS.white} />
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.rideTitle}>No active ride</Text>
-        )}
+        <View style={styles.headerLeft}>
+          {hasHome && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Home', undefined, { pop: true })}
+              style={styles.homeButton}
+              accessibilityRole="button"
+              accessibilityLabel="Go to Home"
+            >
+              <MaterialIcons name="home" size={22} color={COLORS.white} />
+            </TouchableOpacity>
+          )}
+          {currentRide ? (
+            <TouchableOpacity
+              style={styles.rideTitleButton}
+              onPress={() => navigation.navigate('RideInfo', { ride: currentRide, source: 'dashboard' })}
+              accessibilityRole="button"
+              accessibilityLabel="Open ride details"
+              accessibilityHint="Shows details for the selected ride"
+            >
+              <Text style={styles.rideTitle}>{currentRide.name}</Text>
+              {/* <MaterialIcons name="info-outline" size={18} color={COLORS.white} /> */}
+              <FontAwesome5 name="info-circle" size={18} color={COLORS.white} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.rideTitle}>No active ride</Text>
+          )}
+        </View>
 
         <View style={styles.headerActions}>
           {isHistorical && (
@@ -433,8 +447,7 @@ export default function DashboardTabsHeader() {
       <AppMenu
         visible={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
-        isAdministrator={isAdministrator}
-        showTourManagementOption={isAdministrator || isSuperUser}
+        showAccountOptions={!hasHome}
         rides={allRides}
         currentRideId={currentRide?.rideId ?? null}
         onSelectRide={handleSelectRide}
@@ -702,6 +715,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     flexShrink: 1,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  homeButton: {
+    paddingRight: 8,
+    paddingVertical: 4,
   },
   rideTitle: {
     fontSize: 20,

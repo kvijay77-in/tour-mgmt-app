@@ -72,7 +72,11 @@ ID terminology used in this app:
 QR Code will be generated for each Rider and in production carries an ID Code value that must be resolved to Rider ID for app processing.
 
 # Dashboard
-This is the Home Screen for the app. A sample mock up for visualization purpose is available [here](./Images/Dashboard_sample.png).
+The Dashboard is the main screen of the Ride Day module. A sample mock up for visualization purpose is available [here](./Images/Dashboard_sample.png).
+
+Landing behaviour: after sign-in the app opens a Home hub that lists only the modules the user's role can access (Ride Day, Events, Hotels & Baggage, Administration). On web at widths of 768 px or more the same modules are also shown in a persistent left sidebar. A user who can access only one module goes straight to it without the Home hub. With the Events module available, every current role (Administrator, Super User, pit-stop users, Hotel Staff, Guest) reaches at least two modules (Ride Day and Events) and therefore lands on the Home hub.
+
+Hotels & Baggage module (Administrator, Super User; online only): maintain the tour's hotels (ID `HTL-AAA-99`, name, city, address required; contact and notes optional), view rooms per hotel for a night, adjust one rider's allocation for one night (room capacity 2 or 3; room-mates must name each other back), and upload a CSV of allocations. An upload is applied completely or not at all; if it is rejected, every reported issue is listed with its file line number and no allocation is changed. See [Event Engine Requirements](Event-Engine-Requirements.md#functional-requirements).
 
 Dashboard should list all riders similar to that in the mock up in a grid format. Source for the dashboard should be from a Cloud based database table. Each icon should have the Rider ID as the label and should have various color based representation to indicate the last stage at which the Rider has checked in. Color code Stage legend should be displayed for easy understanding.
 
@@ -291,7 +295,7 @@ Possible Roles expected:
 This role will have unrestricted full access to all features and functions available in the app.
 
 ## Super User
-This role will have access to all features and functions except Add/Modify and Close Ride features.
+This role will have access to all features and functions except Add/Modify and Close Ride features. Event engine: Super User can manage event occurrences, hotels and room allocations, scan event activities, and perform rider exit / baggage release, but cannot edit event definitions or tour assignments (see [Event Engine Requirements](Event-Engine-Requirements.md#role-access)).
 
 ## Pit Stop Stage User (PS_x_USER)
 Pit-stop roles are stage-specific Cognito groups in the format `PS_x_USER` where `x` maps to the ride stage number and Start is always stage `0`.
@@ -311,11 +315,14 @@ Rules:
 - Quit Riding check-in is allowed for all `PS_x_USER` roles.
 - Not Riding check-in is not allowed for `PS_x_USER` roles.
 - Manual check-in is not allowed for `PS_x_USER` roles.
+- Event activity scanning is allowed for events/activities the user is assigned to in their tour assignment.
 
 Multiple pit-stop role assignments for one user are valid (example: `PS_1_USER` and `PS_3_USER`). In this case the app must provide a stage-context selector so the user can choose the active pit-stop context for regular check-ins.
 
 ## Hotel Staff
-This should be flagged as a special role where Dashboard access should not be available. User with this role can only scan QR code to mark a Rider as finished the ride. There is a future functionality linked to this role. To be taken up at a later stage.  
+This should be flagged as a special role where Dashboard access should not be available. User with this role can only scan QR code to mark a Rider as finished the ride. Hotel Staff can also scan event activities (for example baggage loading/unloading) for the events, dates, activities and hotel they are assigned to (see [Event Engine Requirements](Event-Engine-Requirements.md)).
+
+Event scanning visibility: PS_x_USER and Hotel Staff see only today's active occurrences and activities that match their tour assignment (activities not restricted to assigned users are open to them); with no matching assignment the Events screen states "You are not assigned to any events today". Administrator and Super User see every active occurrence and activity; the server may still reject their scan (for example "You are not assigned to this event today").
 
 ## Guest
 This role is a read-only Dashboard role with all other features disabled or removed. Purpose of having this role is basically to allow users to view the ride progress or historical dashboard.
@@ -338,7 +345,7 @@ Since 'Not Riding' status is records before the ride starts, this data should be
 
 ## Ride Status Management
 
-Ride status management is available from the Dashboard hamburger menu as an Administrator-only feature.
+Ride status management is available from the Home hub (Administration section) and the web sidebar as an Administrator-only feature.
 
 Allowed transitions and constraints:
 
@@ -365,7 +372,7 @@ Access control:
 
 ## User Management
 
-User Management is available from the Dashboard hamburger menu as an Administrator-only menu item with sub-menu options.
+User Management is available from the Home hub (Administration section) and the web sidebar as an Administrator-only group with sub-options.
 
 Access control:
 
@@ -380,6 +387,29 @@ Access control:
 4. Role assignment must be loaded from Cognito groups and support multi-select.
 5. On submit, create the user in Cognito using standard Cognito API.
 6. Phone validation should be lightweight and accept international format. UI defaults phone input to `+91`.
+7. On success an in-screen confirmation offers "Assign to this tour →", which opens Tour Assignments for the new user (Cognito `sub`).
+
+### Tour Assignments
+
+Administrator-only (Home hub Administration section and web sidebar). Creates or updates a managed user's tour-scoped record (`User-{tourId}`) used for event scanning filters.
+
+1. Pick a managed user (name/email search); the identity (name, email, username, groups) is read-only.
+2. Role is derived from the user's Cognito groups (Administrator > Super User > PS_x_USER > Hotel Staff > Guest) and cannot be edited. A user without a supported group must be given one in Modify user first.
+3. Assigned stage applies to PS_x_USER only and is chosen from the user's own pit-stop groups. Hotel applies to Hotel Staff only; for other roles an existing hotel is removed.
+4. Event assignments: each tour event can be assigned for All dates or for specific tour dates.
+5. Activities: optional selection among the activities of the assigned events. The selection is one flat list of activity IDs that applies to every assigned event having that ID; the screen warns when a selected ID exists in more than one assigned event. No selection means no activity restriction.
+6. Save creates the record when the user has none for the tour, otherwise sends only the changed fields.
+7. Online only.
+
+### Rider Exit
+
+Administrator and Super User (Home hub Administration section and web sidebar). Online only.
+
+1. Find a rider by rider ID or name; the screen shows tour status and baggage status.
+2. Exit rider: a baggage choice is mandatory — "Baggage retained by organisers" (`RETAINED`) or "Rider is taking baggage now" (`WITH_RIDER`) — with an optional note. Confirm stays disabled until a choice is made.
+3. Cancel exit (exited riders only): restores the previous status; baggage status returns to `ACTIVE`.
+4. Release retained baggage (only while `RETAINED`): confirmation with an optional note; baggage becomes `WITH_RIDER` and baggage scans for the rider are blocked.
+5. Server messages (for example rider already exited) are shown as returned.
 
 ### Enable/Disable Existing User
 
@@ -421,6 +451,8 @@ Check if local database requires storage permission??
 
 UI layout must account for safe areas and system bars on all supported platforms. On Android edge-to-edge devices, top headers must not overlap the status bar and bottom-anchored controls (footer actions, tab bars, and primary action rows) must remain fully visible above the navigation bar.
 
+Form factor policy: definition-style admin screens (Tour and Ride definition, Artifacts, Event definition, Reports) are web-first with a mobile fallback; Dashboards and scanning are mobile-first with responsive web. Drag-and-drop is not used.
+
 ---
 
 ## Related Documentation
@@ -428,6 +460,7 @@ UI layout must account for safe areas and system bars on all supported platforms
 - [Solution Design](SolutionDesign.md) — Architecture and technical design
 - [Dashboard Feature](Dashboard-Feature.md) — Dashboard screen specification
 - [Data Integration Design](DataIntegrationDesign.md) — Backend integration and offline sync design
+- [Event Engine Requirements](Event-Engine-Requirements.md) — Events, occurrences, event scanning, hotels, rider exit
 - [tour-data-api Requirements](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/Requirements.md) — Backend data requirements
 
 ---

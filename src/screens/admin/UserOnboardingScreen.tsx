@@ -22,6 +22,8 @@ const DEFAULT_COUNTRY_CODE = '+91';
 
 interface UserOnboardingScreenProps {
   onClose: () => void;
+  /** Offered after a successful create when the caller may manage tour assignments. */
+  onAssignToTour?: (cognitoUserId: string) => void;
 }
 
 function isValidEmail(value: string): boolean {
@@ -47,7 +49,7 @@ function isValidPhone(value: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(value);
 }
 
-export default function UserOnboardingScreen({ onClose }: UserOnboardingScreenProps) {
+export default function UserOnboardingScreen({ onClose, onAssignToTour }: UserOnboardingScreenProps) {
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState(DEFAULT_COUNTRY_CODE);
   const [name, setName] = useState('');
@@ -56,6 +58,7 @@ export default function UserOnboardingScreen({ onClose }: UserOnboardingScreenPr
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdUser, setCreatedUser] = useState<{ email: string; cognitoUserId: string | null } | null>(null);
 
   const canSubmit = useMemo(() => {
     const normalizedPhone = normalizePhoneInput(phoneNumber);
@@ -111,16 +114,17 @@ export default function UserOnboardingScreen({ onClose }: UserOnboardingScreenPr
 
     setIsSubmitting(true);
     setError(null);
+    setCreatedUser(null);
 
     try {
-      await createCognitoUser({
+      const cognitoUserId = await createCognitoUser({
         email: trimmedEmail,
         phoneNumber: normalizedPhone || undefined,
         name: name.trim() || undefined,
         roles: selectedRoles,
       });
 
-      Alert.alert('User created', 'The new user has been created in Cognito and assigned selected roles.');
+      setCreatedUser({ email: trimmedEmail, cognitoUserId });
       setEmail('');
       setPhoneNumber(DEFAULT_COUNTRY_CODE);
       setName('');
@@ -224,6 +228,26 @@ export default function UserOnboardingScreen({ onClose }: UserOnboardingScreenPr
           <View style={styles.errorBanner}>
             <MaterialIcons name="error-outline" size={18} color={COLORS.danger} />
             <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+
+        {createdUser && (
+          <View style={styles.successBanner}>
+            <View style={styles.successRow}>
+              <MaterialIcons name="check-circle" size={18} color={COLORS.success} />
+              <Text style={styles.successText}>
+                {createdUser.email} has been created in Cognito and assigned the selected roles.
+              </Text>
+            </View>
+            {onAssignToTour && createdUser.cognitoUserId && (
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={() => onAssignToTour(createdUser.cognitoUserId as string)}
+                style={styles.assignButton}
+              >
+                <Text style={styles.assignButtonText}>Assign to this tour →</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -375,6 +399,35 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#991B1B',
     flex: 1,
+  },
+  successBanner: {
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    backgroundColor: '#F0FDF4',
+    borderRadius: 10,
+    padding: 10,
+    gap: 10,
+  },
+  successRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  successText: {
+    color: '#166534',
+    flex: 1,
+  },
+  assignButton: {
+    alignSelf: 'flex-end',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  assignButtonText: {
+    color: COLORS.primary,
+    fontWeight: '700',
   },
   footer: {
     borderTopWidth: 1,

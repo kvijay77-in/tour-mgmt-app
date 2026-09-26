@@ -26,6 +26,7 @@ import { setApiBaseUrl } from './src/services/api/apiClient';
 import { logger } from './src/utils/logger';
 import OrgSetupScreen from './src/screens/auth/OrgSetupScreen';
 import RootNavigator from './src/navigation/RootNavigator';
+import { navigationRef } from './src/navigation/navigationRef';
 
 const TAG = 'App';
 
@@ -123,7 +124,7 @@ export default function App() {
       <SafeAreaProvider>
         <ErrorBoundary>
           <AuthProvider>
-            <NavigationContainer>
+            <NavigationContainer ref={navigationRef}>
               <RootNavigator />
             </NavigationContainer>
           </AuthProvider>
