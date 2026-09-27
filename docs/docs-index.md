@@ -28,6 +28,7 @@ This page provides a guide to all project documentation.
 | [ID Code Backend API Change Request](idcode-backend-api-change-request.md) | Change request for shared AppConfig API and rider `personalCode` payload support |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 | [Migration Cleanup](migration-cleanup.md) | Obsolete/superseded code from the SPA→multi-screen navigation migration, pending user sign-off before removal |
+| [Project Audit Findings](Project-Audit-Findings.md) | Audit of `feature-event-engine`: security, design, performance, refactoring and UX findings with decision checkboxes |
 
 ## Quick Navigation
 
