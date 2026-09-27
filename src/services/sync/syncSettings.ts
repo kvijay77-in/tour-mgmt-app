@@ -91,6 +91,14 @@ export const SYNC_SETTING_LIMITS: Record<SyncSettingKey, SyncSettingLimit> = {
     unit: 'attempts',
     description: 'Wrong password attempts before offline sign-in is locked.',
   },
+  clockSkewWarnMinutes: {
+    min: 1,
+    max: 60,
+    defaultValue: 5,
+    label: 'Clock difference warning',
+    unit: 'min',
+    description: 'Warn when the device clock differs from server time by more than this.',
+  },
 };
 
 const ALL_KEYS = Object.keys(SYNC_SETTING_LIMITS) as SyncSettingKey[];

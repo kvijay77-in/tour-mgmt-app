@@ -24,6 +24,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useNameDirectory } from '../../context/NameDirectoryContext';
 import { useOffline } from '../../context/OfflineContext';
 import { useSyncStatus } from '../../context/SyncStatusContext';
+import { useTour } from '../../context/TourContext';
 import {
   CancelEventRecordPayload,
   CreateEventRecordPayload,
@@ -31,6 +32,10 @@ import {
   PendingOperation,
 } from '../../services/database/pendingStore';
 import { discardOperation, retryFailedOperations } from '../../services/sync/outboundSyncService';
+import { CrossCheckResult, resendMissingCheckIn, verifySentCheckIns } from '../../services/sync/checkInCrossCheck';
+import { describeClockSkew } from '../../services/sync/clockSkew';
+import { SentCheckIn } from '../../services/database/sentCheckInStore';
+import { isNetworkError } from '../../services/api/apiClient';
 import { CheckInRequest } from '../../types/api';
 import { logger } from '../../utils/logger';
 
@@ -80,10 +85,17 @@ export default function SyncStatusScreen({ onClose }: SyncStatusScreenProps) {
     oldestPendingAt,
     isStale,
     readinessSyncedAt,
+    clockSkewMs,
+    isClockSkewed,
     engine,
     syncNow,
     retryAllFailed,
   } = useSyncStatus();
+  const { tour } = useTour();
+  const [crossCheck, setCrossCheck] = useState<CrossCheckResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [crossCheckError, setCrossCheckError] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   const [operations, setOperations] = useState<PendingOperation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -178,6 +190,47 @@ export default function SyncStatusScreen({ onClose }: SyncStatusScreenProps) {
       void loadOperations();
     }
   }, [discardTarget, loadOperations]);
+
+  const handleVerify = useCallback(async () => {
+    if (!tour) return;
+    setIsVerifying(true);
+    setCrossCheckError(null);
+    try {
+      setCrossCheck(await verifySentCheckIns(tour.tourId));
+    } catch (error) {
+      logger.warn(TAG, 'Server cross-check failed', error);
+      setCrossCheckError(isNetworkError(error)
+        ? 'The server could not be reached. Try again when online.'
+        : 'The server check could not be completed. Please try again.');
+    } finally {
+      setIsVerifying(false);
+    }
+  }, [tour]);
+
+  const handleResend = useCallback(async (entries: SentCheckIn[]) => {
+    if (!user || entries.length === 0) return;
+    setCrossCheckError(null);
+    setResendingId(entries.length === 1 ? entries[0].localId : 'all');
+    const resent = new Set<string>();
+    try {
+      for (const entry of entries) {
+        await resendMissingCheckIn(entry, { userId: user.userId, checkedInBy: user.username });
+        resent.add(entry.localId);
+      }
+    } catch (error) {
+      logger.error(TAG, 'Queuing missing check-in failed', error);
+      setCrossCheckError('Some check-ins could not be queued again. Please try again.');
+    } finally {
+      setResendingId(null);
+      setCrossCheck((current) => current
+        ? { ...current, missing: current.missing.filter((entry) => !resent.has(entry.localId)) }
+        : current);
+      void loadOperations();
+    }
+  }, [user, loadOperations]);
+
+  const describeSent = (entry: SentCheckIn) =>
+    `${getRiderDisplayName(entry.riderId).name} · ${describeCheckIn(entry.request)} · captured ${formatDateTime(entry.request.timestamp ?? entry.sentAt)}`;
 
   const connectionText = isOffline
     ? 'Offline — data is saved on this device'
@@ -283,6 +336,15 @@ export default function SyncStatusScreen({ onClose }: SyncStatusScreenProps) {
               </View>
             ) : null}
 
+            {isClockSkewed && clockSkewMs !== null ? (
+              <View style={styles.warningBanner}>
+                <MaterialIcons name="schedule" size={18} color={STATUS_BANNER_COLORS.warning.text} />
+                <Text style={styles.warningText}>
+                  {`The device clock is ${describeClockSkew(clockSkewMs)}. Check-ins and scans saved offline use this clock — set the date and time to automatic.`}
+                </Text>
+              </View>
+            ) : null}
+
             {actionError ? <Text style={styles.actionError}>{actionError}</Text> : null}
 
             <View style={styles.toolbar}>
@@ -306,6 +368,59 @@ export default function SyncStatusScreen({ onClose }: SyncStatusScreenProps) {
             </View>
           </View>
         )}
+        ListFooterComponent={tour && Platform.OS !== 'web' ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Verify with server</Text>
+            <Text style={styles.summaryLine}>
+              Checks that every check-in sent from this device's queue is on the server.
+            </Text>
+            {crossCheck ? (
+              <Text style={styles.summaryLine}>
+                {crossCheck.missing.length === 0
+                  ? `All ${crossCheck.checkedCount} sent check-in${crossCheck.checkedCount === 1 ? '' : 's'} found on the server (${formatDateTime(crossCheck.verifiedAt)}).`
+                  : `${crossCheck.missing.length} of ${crossCheck.checkedCount} sent check-ins are not on the server.`}
+              </Text>
+            ) : null}
+            {crossCheck?.missing.map((entry) => (
+              <View key={entry.localId} style={styles.missingRow}>
+                <Text style={styles.missingText}>{describeSent(entry)}</Text>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  disabled={!canSend || resendingId !== null}
+                  onPress={() => void handleResend([entry])}
+                  style={styles.actionButton}
+                >
+                  {resendingId === entry.localId
+                    ? <ActivityIndicator size="small" color={COLORS.primary} />
+                    : <Text style={styles.actionText}>Send again</Text>}
+                </TouchableOpacity>
+              </View>
+            ))}
+            {crossCheckError ? <Text style={styles.itemError}>{crossCheckError}</Text> : null}
+            <View style={styles.toolbar}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                disabled={!canSend || isVerifying}
+                onPress={() => void handleVerify()}
+                style={[styles.toolbarButton, styles.toolbarButtonSecondary, (!canSend || isVerifying) && styles.toolbarButtonDisabled]}
+              >
+                {isVerifying
+                  ? <ActivityIndicator size="small" color={COLORS.primary} />
+                  : <Text style={styles.toolbarButtonSecondaryText}>Verify with server</Text>}
+              </TouchableOpacity>
+              {crossCheck && crossCheck.missing.length > 1 ? (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  disabled={!canSend || resendingId !== null}
+                  onPress={() => void handleResend(crossCheck.missing)}
+                  style={[styles.toolbarButton, (!canSend || resendingId !== null) && styles.toolbarButtonDisabled]}
+                >
+                  <Text style={styles.toolbarButtonText}>Send all again</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
         ListEmptyComponent={isLoading
           ? <ActivityIndicator style={styles.loader} color={COLORS.primary} />
           : <Text style={styles.emptyText}>All data on this device has been sent.</Text>}
@@ -397,6 +512,8 @@ const styles = StyleSheet.create({
   actionButton: { minWidth: 56, paddingHorizontal: 4, paddingVertical: 6 },
   actionText: { color: COLORS.primary, fontSize: 14, fontWeight: '600', textAlign: 'center' },
   discardText: { color: COLORS.danger, fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  missingRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 8 },
+  missingText: { color: COLORS.textPrimary, flex: 1, fontSize: 13 },
   loader: { marginTop: 24 },
   emptyText: { color: COLORS.textSecondary, fontSize: 14, marginTop: 24, textAlign: 'center' },
 });

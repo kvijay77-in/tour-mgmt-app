@@ -23,6 +23,7 @@ import {
   replaceLocalWithServerCheckIn,
 } from '../database/checkInStore';
 import { enqueueCheckIn, PendingOperation } from '../database/pendingStore';
+import { recordSentCheckIn } from '../database/sentCheckInStore';
 import {
   flushFamilyNow,
   getOutboundSyncStatus,
@@ -34,6 +35,7 @@ import {
 import { publishDashboardRefreshEvent } from '../dashboard/dashboardEvents';
 import { CheckInRequest } from '../../types/api';
 import { CheckIn, CheckInMethod } from '../../types/models';
+import { isServerCopyOfRequest } from '../../utils/checkInValidation';
 import { logger } from '../../utils/logger';
 
 const TAG = 'CheckInSync';
@@ -144,13 +146,6 @@ function parseRequest(op: PendingOperation): CheckInRequest | null {
   }
 }
 
-function isSameCheckIn(server: CheckIn, request: CheckInRequest): boolean {
-  if (server.timestamp !== request.timestamp) return false;
-  if (Boolean(server.isQuitRiding) !== Boolean(request.isQuitRiding)) return false;
-  if (Boolean(server.isNotRiding) !== Boolean(request.isNotRiding)) return false;
-  return request.isQuitRiding || server.stageNumber === request.stageNumber;
-}
-
 /** An earlier attempt may have reached the server before the connection dropped. */
 async function findOnServer(tourId: string, request: CheckInRequest): Promise<CheckIn | null> {
   const existing = await listCheckIns(
@@ -158,7 +153,7 @@ async function findOnServer(tourId: string, request: CheckInRequest): Promise<Ch
     { rideId: request.rideId, riderId: request.riderId },
     SEND_OPTIONS,
   );
-  return existing.find((checkIn) => isSameCheckIn(checkIn, request)) ?? null;
+  return existing.find((checkIn) => isServerCopyOfRequest(checkIn, request)) ?? null;
 }
 
 function classifyError(error: unknown, retryCount: number): HandlerResult | null {
@@ -177,6 +172,23 @@ function classifyError(error: unknown, retryCount: number): HandlerResult | null
   return null;
 }
 
+/** Log a delivered check-in for "Verify with server" (never fails the send). */
+async function logSent(op: PendingOperation, tourId: string, request: CheckInRequest, serverCheckInId: string | null) {
+  try {
+    await recordSentCheckIn({
+      localId: op.localId,
+      tourId,
+      rideId: request.rideId,
+      riderId: request.riderId,
+      request,
+      serverCheckInId,
+      ownerUserId: op.ownerUserId,
+    });
+  } catch (error) {
+    logger.warn(TAG, 'Recording sent check-in failed', { localId: op.localId, error });
+  }
+}
+
 async function processCheckIn(op: PendingOperation, tourId: string): Promise<HandlerResult> {
   const request = parseRequest(op);
   if (!request) return { kind: 'rejected', message: 'Corrupt queued check-in' };
@@ -185,6 +197,7 @@ async function processCheckIn(op: PendingOperation, tourId: string): Promise<Han
     const existing = await findOnServer(tourId, request);
     if (existing) {
       await replaceLocalWithServerCheckIn(op.localId, existing, tourId);
+      await logSent(op, tourId, request, existing.checkInId);
       syncedInBackground = true;
       logger.info(TAG, 'Retried check-in already on server; marked synced', { localId: op.localId });
       return { kind: 'synced' };
@@ -194,6 +207,7 @@ async function processCheckIn(op: PendingOperation, tourId: string): Promise<Han
   try {
     const created = await createCheckIn(tourId, request, SEND_OPTIONS);
     await replaceLocalWithServerCheckIn(op.localId, created, tourId);
+    await logSent(op, tourId, request, created.checkInId);
     syncedInBackground = true;
     return { kind: 'synced' };
   } catch (error) {
@@ -202,6 +216,7 @@ async function processCheckIn(op: PendingOperation, tourId: string): Promise<Han
     if (result.kind === 'synced' || result.kind === 'dropped') {
       // The server already has this check-in; the next refresh shows its copy.
       await deleteLocalCheckIn(op.localId);
+      await logSent(op, tourId, request, null);
       syncedInBackground = true;
       logger.info(TAG, 'Check-in already on server; local copy removed', { localId: op.localId });
     }

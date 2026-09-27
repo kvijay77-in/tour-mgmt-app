@@ -293,6 +293,26 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    description: 'Offline mode: log of check-ins sent from the device queue (server cross-check)',
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS sent_check_ins (
+          localId TEXT PRIMARY KEY,
+          tourId TEXT NOT NULL,
+          rideId TEXT NOT NULL,
+          riderId TEXT NOT NULL,
+          requestJson TEXT NOT NULL,
+          serverCheckInId TEXT,
+          ownerUserId TEXT,
+          sentAt TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sent_check_ins_ride ON sent_check_ins(tourId, rideId);
+      `);
+    },
+  },
 ];
 
 /** Latest schema version this build knows about. */

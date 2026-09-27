@@ -17,6 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useOffline } from '../../context/OfflineContext';
 import { useSyncStatus } from '../../context/SyncStatusContext';
 import { AppStackParamList } from '../../types/navigation';
+import { describeClockSkew } from '../../services/sync/clockSkew';
 
 export interface OfflineBannerProps {
   /** compact = single line for headers */
@@ -36,7 +37,7 @@ export default function OfflineBanner({ variant = 'full', captureLabel = 'Scans'
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const { user } = useAuth();
   const { isOffline, isManualOffline, offlineReason, setManualOffline, isOfflineSupported } = useOffline();
-  const { pendingCount, failedCount, isStale, readinessSyncedAt } = useSyncStatus();
+  const { pendingCount, failedCount, isStale, readinessSyncedAt, clockSkewMs, isClockSkewed } = useSyncStatus();
   const isCompact = variant === 'compact';
   const isOfflineSession = Boolean(user?.isOfflineSession);
 
@@ -61,11 +62,13 @@ export default function OfflineBanner({ variant = 'full', captureLabel = 'Scans'
     readiness,
   ].filter(Boolean).join(' · ');
 
-  const needsAttention = failedCount > 0 || isStale;
+  const needsAttention = failedCount > 0 || isStale || isClockSkewed;
   const showWarning = isOffline || isOfflineSession || needsAttention;
   const hint = isStale
     ? 'Some data has not been sent for a while. Tap to review.'
-    : isOffline
+    : isClockSkewed && clockSkewMs !== null
+      ? `Device clock is ${describeClockSkew(clockSkewMs)}. Fix the date and time so offline times are correct.`
+      : isOffline
       ? `${captureLabel} are saved on this device and sent when online.`
       : isOfflineSession
         ? 'Data is saved on this device and sent after you sign in online.'
@@ -85,7 +88,7 @@ export default function OfflineBanner({ variant = 'full', captureLabel = 'Scans'
       ]}
     >
       <MaterialIcons
-        name={isOffline || isOfflineSession ? 'cloud-off' : needsAttention ? 'sync-problem' : 'cloud-done'}
+        name={isClockSkewed ? 'schedule' : isOffline || isOfflineSession ? 'cloud-off' : needsAttention ? 'sync-problem' : 'cloud-done'}
         size={18}
         color={showWarning ? STATUS_BANNER_COLORS.warning.text : COLORS.success}
       />
@@ -95,7 +98,7 @@ export default function OfflineBanner({ variant = 'full', captureLabel = 'Scans'
           {isCompact && details ? <Text style={styles.inlineDetails}>{` · ${details}`}</Text> : null}
         </Text>
         {!isCompact && details ? <Text style={styles.details}>{details}</Text> : null}
-        {hint && (!isCompact || isStale) ? <Text style={styles.details}>{hint}</Text> : null}
+        {hint && (!isCompact || isStale || isClockSkewed) ? <Text style={styles.details}>{hint}</Text> : null}
       </View>
       {isOfflineSupported ? (
         <>

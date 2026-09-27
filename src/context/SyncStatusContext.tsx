@@ -40,6 +40,12 @@ import { getRidesByTour } from '../services/database/rideStore';
 import { getSyncSettings, subscribeSyncSettings } from '../services/sync/syncSettingsService';
 import { runRetentionIfDue } from '../services/offline/retentionService';
 import {
+  getClockSkew,
+  isClockSkewSignificant,
+  loadClockSkew,
+  subscribeClockSkew,
+} from '../services/sync/clockSkew';
+import {
   getRideReadinessSyncedAt,
   OFFLINE_CACHE_ENABLED,
   refreshRideReadiness,
@@ -67,6 +73,10 @@ export interface SyncStatusContextValue {
    * rides, riders and today's live ride check-ins); null = not downloaded yet
    */
   readinessSyncedAt: string | null;
+  /** Server time minus device time (ms) from the last API responses; null = unknown */
+  clockSkewMs: number | null;
+  /** True when the device clock is off by more than clockSkewWarnMinutes */
+  isClockSkewed: boolean;
   /** Engine status (running, next retry, last error) */
   engine: OutboundSyncStatus;
   /** Clear retry waits and send now (no-op while offline) */
@@ -92,6 +102,7 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
   const [oldestPendingAt, setOldestPendingAt] = useState<string | null>(null);
   const [isStale, setIsStale] = useState(false);
   const [readinessSyncedAt, setReadinessSyncedAt] = useState<string | null>(null);
+  const [clockSkewMs, setClockSkewMs] = useState<number | null>(() => getClockSkew().skewMs);
   const [engine, setEngine] = useState<OutboundSyncStatus>(getOutboundSyncStatus());
   const [settings, setSettings] = useState(getSyncSettings());
   const [logoutPromptVisible, setLogoutPromptVisible] = useState(false);
@@ -112,6 +123,14 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   useEffect(() => subscribeSyncSettings(setSettings), []);
+
+  // Device clock check (from API response Date headers; last value persisted).
+  useEffect(() => {
+    const unsubscribe = subscribeClockSkew((next) => setClockSkewMs(next.skewMs));
+    void loadClockSkew();
+    return unsubscribe;
+  }, []);
+  const isClockSkewed = OFFLINE_CACHE_ENABLED && isClockSkewSignificant(clockSkewMs, settings.clockSkewWarnMinutes);
 
   // Local data retention: checked on start and each foreground (runs at most twice a day).
   useEffect(() => {
@@ -282,12 +301,14 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
     oldestPendingAt,
     isStale,
     readinessSyncedAt,
+    clockSkewMs,
+    isClockSkewed,
     engine,
     syncNow,
     retryAllFailed,
     refreshCounts,
     requestLogout,
-  }), [pendingCount, failedCount, oldestPendingAt, isStale, readinessSyncedAt, engine, syncNow, retryAllFailed, refreshCounts, requestLogout]);
+  }), [pendingCount, failedCount, oldestPendingAt, isStale, readinessSyncedAt, clockSkewMs, isClockSkewed, engine, syncNow, retryAllFailed, refreshCounts, requestLogout]);
 
   return (
     <SyncStatusContext.Provider value={value}>

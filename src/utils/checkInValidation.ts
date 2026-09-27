@@ -287,3 +287,32 @@ export function evaluateCheckInAgainstHistory(
 
   return null;
 }
+
+/**
+ * Whether a server check-in is the record created from `request` (same rider,
+ * capture timestamp, kind and stage). The backend stores the client timestamp
+ * exactly, so this identifies a check-in sent from the device queue.
+ */
+export function isServerCopyOfRequest(server: CheckIn, request: CheckInRequest): boolean {
+  if (server.riderId && server.riderId !== request.riderId) return false;
+  if (server.timestamp !== request.timestamp) return false;
+  if (Boolean(server.isQuitRiding) !== Boolean(request.isQuitRiding)) return false;
+  if (Boolean(server.isNotRiding) !== Boolean(request.isNotRiding)) return false;
+  return Boolean(request.isQuitRiding) || resolveStageNumber(server) === request.stageNumber;
+}
+
+/**
+ * Whether the server holds an equivalent record for `request` (same rider and
+ * kind — used for check-ins the server reported as duplicates, whose server
+ * copy may carry another timestamp).
+ */
+export function hasEquivalentServerCheckIn(serverCheckIns: CheckIn[], request: CheckInRequest): boolean {
+  return serverCheckIns.some((server) => {
+    if (server.riderId !== request.riderId) return false;
+    if (request.isQuitRiding) return Boolean(server.isQuitRiding);
+    if (request.isNotRiding) return Boolean(server.isNotRiding);
+    if (request.isFloat) return Boolean(server.isFloat);
+    return deriveCheckInStatus(server) === CheckInStatus.CHECKED_IN
+      && resolveStageNumber(server) === request.stageNumber;
+  });
+}

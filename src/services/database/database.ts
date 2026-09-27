@@ -76,6 +76,7 @@ export interface PurgeResult {
   occurrences: number;
   snapshots: number;
   roomAllocations: number;
+  sentCheckIns: number;
 }
 
 /**
@@ -87,7 +88,7 @@ export interface PurgeResult {
  * @param cutoffIso   ISO time — records/snapshots older than this
  */
 export async function purgeExpiredLocalData(cutoffDate: string, cutoffIso: string): Promise<PurgeResult> {
-  const result: PurgeResult = { checkIns: 0, eventRecords: 0, occurrences: 0, snapshots: 0, roomAllocations: 0 };
+  const result: PurgeResult = { checkIns: 0, eventRecords: 0, occurrences: 0, snapshots: 0, roomAllocations: 0, sentCheckIns: 0 };
   await withWriteTransaction(async (db) => {
     result.checkIns = (await db.runAsync(
       `DELETE FROM check_ins
@@ -120,6 +121,10 @@ export async function purgeExpiredLocalData(cutoffDate: string, cutoffIso: strin
     result.roomAllocations = (await db.runAsync(
       'DELETE FROM room_allocations WHERE stayDate < ?',
       [cutoffDate],
+    )).changes;
+    result.sentCheckIns = (await db.runAsync(
+      'DELETE FROM sent_check_ins WHERE sentAt < ?',
+      [cutoffIso],
     )).changes;
   });
   return result;

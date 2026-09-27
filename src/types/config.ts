@@ -116,4 +116,6 @@ export interface OfflineSyncConfig {
   offlineLoginMaxDays?: number;
   /** Wrong offline password attempts before offline sign-in is locked (not user-editable) */
   offlineLoginMaxAttempts?: number;
+  /** Warn when the device clock differs from server time by more than this (minutes, not user-editable) */
+  clockSkewWarnMinutes?: number;
 }

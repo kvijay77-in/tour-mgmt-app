@@ -14,6 +14,7 @@
 
 import { ApiResponse } from '../../types/api';
 import { logger } from '../../utils/logger';
+import { recordServerTime } from '../sync/clockSkew';
 
 const TAG = 'ApiClient';
 
@@ -355,8 +356,10 @@ async function request<T>(
         });
       }
 
+      const requestStartedAt = Date.now();
       const response = await fetch(url, fetchOptions);
       clearTimeout(timeoutId);
+      recordServerTime(response.headers?.get?.('date'), requestStartedAt);
 
       if (debugMethod) {
         logger.debug(TAG, `Response ${response.status} (attempt ${attempt + 1})`, {
