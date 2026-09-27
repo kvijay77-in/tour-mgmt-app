@@ -8,8 +8,7 @@ import { useEventSession } from '../../context/EventSessionContext';
 /** Connectivity strip with the manual offline toggle and queued/failed counts (Events screens only). */
 export default function OfflineBanner() {
   const { isOffline, isManualOffline, offlineReason, setManualOffline } = useOffline();
-  const { pendingCount, failedRecords } = useEventSession();
-  const failedCount = failedRecords.length;
+  const { pendingCount, failedCount } = useEventSession();
 
   const statusText = offlineReason === 'manual'
     ? 'Offline mode'

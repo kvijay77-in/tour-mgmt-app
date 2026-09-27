@@ -1,13 +1,13 @@
 /**
- * Event sync service — pushes queued event operations (activity record
- * create/cancel) from pending_operations to the backend. Check-in operations
- * are never touched here (they belong to syncService.ts).
+ * Event sync — outbound handlers for event operations (activity record
+ * create/cancel) on the shared outbound sync engine (outboundSyncService.ts),
+ * plus the write-local-first queue helpers used by EventScanScreen.
  *
- * - One serial queue: the ~3 s loop and interactive "send now" calls never run
- *   concurrently, and an interactive call first flushes older queued event ops
- *   so prerequisites reach the server in scan order.
+ * - Interactive "send now" (scan/cancel while online) goes through the engine
+ *   queue, which first flushes older queued event operations so the server
+ *   sees them in scan order.
  * - Transient failures (network, timeout, 401, 5xx, malformed) keep the op
- *   queued and stop the batch; the loop is the retry (apiClient retries = 0).
+ *   queued with backoff; the engine moves repeated server failures to FAILED.
  * - Expected API rejections follow docs/DataIntegrationDesign.md § Event Outbound Sync.
  */
 
@@ -19,16 +19,8 @@ import {
 import {
   CancelEventRecordPayload,
   CreateEventRecordPayload,
-  dropOperation,
   enqueueEventRecordCancel,
   enqueueEventRecordCreate,
-  getPendingOperation,
-  getPendingOperations,
-  markAttemptFailed,
-  markFailed as markOpFailed,
-  markSynced as markOpSynced,
-  markSyncing,
-  OperationType,
   PendingOperation,
 } from '../database/pendingStore';
 import {
@@ -39,22 +31,25 @@ import {
   LocalEventActivityRecord,
   markEventRecordCancelled,
   markEventRecordFailed,
+  markEventRecordPending,
   markEventRecordSynced,
   NewLocalEventActivityRecord,
 } from '../database/eventRecordStore';
-import { resetStuckOperations } from '../database/database';
+import {
+  discardOperation,
+  getOutboundSyncStatus,
+  HandlerResult,
+  notifyQueueChanged,
+  OperationResult,
+  registerOperationHandler,
+  sendOperationNow,
+  subscribeOutboundSync,
+} from './outboundSyncService';
 import { CreateActivityRecordRequest } from '../../types/api';
 import { ActivityOutcome } from '../../types/models';
 import { logger } from '../../utils/logger';
 
 const TAG = 'EventSync';
-
-export const EVENT_OUTBOUND_POLL_INTERVAL_MS = 3_000;
-
-const EVENT_OPERATION_TYPES: readonly OperationType[] = [
-  'CREATE_EVENT_ACTIVITY_RECORD',
-  'CANCEL_EVENT_ACTIVITY_RECORD',
-];
 
 const SEND_OPTIONS = { maxRetries: 0 };
 
@@ -69,66 +64,44 @@ export type EventOperationResult =
   | { status: 'skipped' };
 
 // ---------------------------------------------------------------------------
-// Change notifications (EventSessionContext reloads counts/records)
+// Change notifications
 // ---------------------------------------------------------------------------
 
-type Listener = () => void;
-const listeners = new Set<Listener>();
+/** Notified whenever queued data or the sync status changes (all operation types). */
+export function subscribeEventSync(listener: () => void): () => void {
+  return subscribeOutboundSync(listener);
+}
 
-export function subscribeEventSync(listener: Listener): () => void {
-  listeners.add(listener);
+type BatchListener = () => void;
+const batchListeners = new Set<BatchListener>();
+let syncedInBackground = false;
+
+/**
+ * Notified once after a background batch sent at least one event operation
+ * (EventSessionContext then refreshes the dashboard cache).
+ */
+export function subscribeEventBatchSynced(listener: BatchListener): () => void {
+  batchListeners.add(listener);
   return () => {
-    listeners.delete(listener);
+    batchListeners.delete(listener);
   };
 }
 
-function notify(): void {
-  listeners.forEach((listener) => {
+subscribeOutboundSync(() => {
+  if (!syncedInBackground || getOutboundSyncStatus().isRunning) return;
+  syncedInBackground = false;
+  batchListeners.forEach((listener) => {
     try {
       listener();
     } catch (error) {
-      logger.warn(TAG, 'Sync listener failed', error);
+      logger.warn(TAG, 'Batch listener failed', error);
     }
   });
-}
+});
 
 // ---------------------------------------------------------------------------
-// Serial queue
+// Handlers
 // ---------------------------------------------------------------------------
-
-let chain: Promise<unknown> = Promise.resolve();
-
-function serialize<T>(work: () => Promise<T>): Promise<T> {
-  const next = chain.then(work, work);
-  chain = next.catch(() => undefined);
-  return next;
-}
-
-// ---------------------------------------------------------------------------
-// Operation processing
-// ---------------------------------------------------------------------------
-
-function describeTransient(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function processOperation(
-  tourId: string,
-  op: PendingOperation,
-  interactive: boolean,
-): Promise<EventOperationResult> {
-  // Re-read: the op may have been processed or dropped since the list was fetched.
-  const fresh = await getPendingOperation(op.localId);
-  if (!fresh || fresh.syncStatus !== 'PENDING') {
-    return { status: 'skipped' };
-  }
-
-  await markSyncing(fresh.localId);
-  if (fresh.operationType === 'CREATE_EVENT_ACTIVITY_RECORD') {
-    return processCreate(tourId, fresh, interactive);
-  }
-  return processCancel(tourId, fresh);
-}
 
 function parsePayload<T>(op: PendingOperation): T | null {
   try {
@@ -138,41 +111,25 @@ function parsePayload<T>(op: PendingOperation): T | null {
   }
 }
 
-async function processCreate(
-  tourId: string,
-  op: PendingOperation,
-  interactive: boolean,
-): Promise<EventOperationResult> {
+async function processCreate(op: PendingOperation, tourId: string, interactive: boolean): Promise<HandlerResult> {
   const payload = parsePayload<CreateEventRecordPayload>(op);
   if (!payload) {
-    await markOpFailed(op.localId, 'Corrupt queued payload');
-    await markEventRecordFailed(op.localId, 'Corrupt queued payload');
-    return { status: 'skipped' };
+    return { kind: 'rejected', message: 'Corrupt queued payload' };
   }
 
-  let outcome;
-  try {
-    outcome = await createActivityRecord(
-      tourId,
-      payload.eventId,
-      payload.occurrenceId,
-      payload.request,
-      SEND_OPTIONS,
-    );
-  } catch (error) {
-    const reason = describeTransient(error);
-    await markAttemptFailed(op.localId, reason);
-    await incrementEventRecordRetry(op.localId);
-    return { status: 'queued', reason };
-  }
+  const outcome = await createActivityRecord(
+    tourId,
+    payload.eventId,
+    payload.occurrenceId,
+    payload.request,
+    SEND_OPTIONS,
+  );
 
   if (outcome.kind === 'success') {
-    await markEventRecordSynced(op.localId, {
-      recordId: outcome.data.recordId,
-      isFlagged: Boolean(outcome.data.isFlagged),
-    });
-    await markOpSynced(op.localId);
-    return { status: 'synced', isFlagged: Boolean(outcome.data.isFlagged) };
+    const isFlagged = Boolean(outcome.data.isFlagged);
+    await markEventRecordSynced(op.localId, { recordId: outcome.data.recordId, isFlagged });
+    if (!interactive) syncedInBackground = true;
+    return { kind: 'synced', detail: { isFlagged } };
   }
 
   const { error } = outcome;
@@ -184,55 +141,42 @@ async function processCreate(
         recordId: `${riderId}#${activityId}#${timestamp}`,
         isFlagged: false,
       });
-      await markOpSynced(op.localId);
       logger.info(TAG, 'Retried record already on server; marked synced', { localId: op.localId });
-      return { status: 'synced', isFlagged: false };
+      if (!interactive) syncedInBackground = true;
+      return { kind: 'synced', detail: { isFlagged: false } };
     }
-    await dropOperation(op.localId);
     await deleteEventRecord(op.localId);
-    return { status: 'duplicate', error };
+    return { kind: 'dropped', reason: 'duplicate', error };
   }
 
+  logger.info(TAG, 'Event record rejected', { code: error.code, interactive });
   if (interactive) {
     // The scanner sees the message immediately; nothing is kept for later review.
-    await dropOperation(op.localId);
     await deleteEventRecord(op.localId);
-  } else {
-    await markOpFailed(op.localId, error.message);
-    await markEventRecordFailed(op.localId, error.message);
+    return { kind: 'dropped', reason: 'rejected', error };
   }
-  logger.info(TAG, 'Event record rejected', { code: error.code, interactive });
-  return { status: 'rejected', error };
+  return { kind: 'rejected', message: error.message, error };
 }
 
-async function processCancel(tourId: string, op: PendingOperation): Promise<EventOperationResult> {
+async function processCancel(op: PendingOperation, tourId: string): Promise<HandlerResult> {
   const payload = parsePayload<CancelEventRecordPayload>(op);
   if (!payload) {
     logger.warn(TAG, 'Dropping cancel op with corrupt payload', { localId: op.localId });
-    await dropOperation(op.localId);
-    return { status: 'skipped' };
+    return { kind: 'dropped', reason: 'invalid' };
   }
 
-  let outcome;
-  try {
-    outcome = await cancelActivityRecord(
-      tourId,
-      payload.eventId,
-      payload.occurrenceId,
-      payload.recordId,
-      payload.cancelReason ? { cancelReason: payload.cancelReason } : {},
-      SEND_OPTIONS,
-    );
-  } catch (error) {
-    const reason = describeTransient(error);
-    await markAttemptFailed(op.localId, reason);
-    return { status: 'queued', reason };
-  }
+  const outcome = await cancelActivityRecord(
+    tourId,
+    payload.eventId,
+    payload.occurrenceId,
+    payload.recordId,
+    payload.cancelReason ? { cancelReason: payload.cancelReason } : {},
+    SEND_OPTIONS,
+  );
 
   if (outcome.kind === 'success' || outcome.error.code === 'RECORD_ALREADY_CANCELLED') {
     await markEventRecordCancelled(payload.recordLocalId, true);
-    await markOpSynced(op.localId);
-    return { status: 'synced', isFlagged: false };
+    return { kind: 'synced', detail: { isFlagged: false } };
   }
 
   logger.warn(TAG, 'Cancel rejected; record restored', {
@@ -240,108 +184,87 @@ async function processCancel(tourId: string, op: PendingOperation): Promise<Even
     recordLocalId: payload.recordLocalId,
   });
   await markEventRecordCancelled(payload.recordLocalId, false);
-  await dropOperation(op.localId);
-  return { status: 'rejected', error: outcome.error };
+  return { kind: 'dropped', reason: 'rejected', error: outcome.error };
 }
 
+registerOperationHandler('CREATE_EVENT_ACTIVITY_RECORD', {
+  family: 'EVENT',
+  process: (op, { tourId, interactive }) => processCreate(op, tourId, interactive),
+  onFailed: (op, message) => markEventRecordFailed(op.localId, message),
+  onRetryScheduled: (op) => incrementEventRecordRetry(op.localId),
+  onRequeued: (op) => markEventRecordPending(op.localId),
+  onDiscarded: (op) => deleteEventRecord(op.localId),
+});
+
+registerOperationHandler('CANCEL_EVENT_ACTIVITY_RECORD', {
+  family: 'EVENT',
+  process: (op, { tourId }) => processCancel(op, tourId),
+  onFailed: async (op) => {
+    // A cancel that cannot be sent is not kept: restore the record.
+    const payload = parsePayload<CancelEventRecordPayload>(op);
+    if (payload) await markEventRecordCancelled(payload.recordLocalId, false);
+  },
+  onRequeued: async (op) => {
+    const payload = parsePayload<CancelEventRecordPayload>(op);
+    if (payload) await markEventRecordCancelled(payload.recordLocalId, true);
+  },
+  onDiscarded: async (op) => {
+    const payload = parsePayload<CancelEventRecordPayload>(op);
+    if (payload) await markEventRecordCancelled(payload.recordLocalId, false);
+  },
+});
+
 // ---------------------------------------------------------------------------
-// Batch + interactive entry points
+// Interactive entry point
 // ---------------------------------------------------------------------------
 
-interface BatchSummary {
-  synced: number;
-  stoppedOnTransient: boolean;
-}
-
-async function runBatch(tourId: string, stopAtLocalId?: string): Promise<BatchSummary> {
-  const pending = await getPendingOperations(EVENT_OPERATION_TYPES);
-  const summary: BatchSummary = { synced: 0, stoppedOnTransient: false };
-
-  for (const op of pending) {
-    if (op.localId === stopAtLocalId) break;
-    const result = await processOperation(tourId, op, false);
-    if (result.status === 'synced') summary.synced += 1;
-    if (result.status !== 'skipped') notify();
-    if (result.status === 'queued') {
-      summary.stoppedOnTransient = true;
-      break;
+function toEventResult(result: OperationResult): EventOperationResult {
+  switch (result.kind) {
+    case 'synced': {
+      const detail = result.detail as { isFlagged?: boolean } | undefined;
+      return { status: 'synced', isFlagged: Boolean(detail?.isFlagged) };
     }
+    case 'dropped':
+    case 'rejected': {
+      const error = result.error as EventApiError | undefined;
+      if (!error) return { status: 'skipped' };
+      return result.kind === 'dropped' && result.reason === 'duplicate'
+        ? { status: 'duplicate', error }
+        : { status: 'rejected', error };
+    }
+    case 'transient':
+      return { status: 'queued', reason: result.reason };
+    case 'queued':
+      return { status: 'queued', reason: result.reason };
+    default:
+      return { status: 'skipped' };
   }
-  return summary;
 }
 
 /**
  * Send one queued operation now (scan/cancel while online). Older queued event
  * operations are sent first so the server sees them in order.
  */
-export function processEventOperationNow(tourId: string, localId: string): Promise<EventOperationResult> {
-  return serialize(async () => {
-    const earlier = await runBatch(tourId, localId);
-    if (earlier.stoppedOnTransient) {
-      return { status: 'queued', reason: 'Earlier queued scans could not be sent' } as EventOperationResult;
-    }
-    const op = await getPendingOperation(localId);
-    if (!op) return { status: 'skipped' } as EventOperationResult;
-    const result = await processOperation(tourId, op, true);
-    notify();
-    return result;
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Loop lifecycle (EventSessionContext starts/stops with tour + connectivity)
-// ---------------------------------------------------------------------------
-
-let timer: ReturnType<typeof setInterval> | null = null;
-let batchQueued = false;
-let stuckOpsReset = false;
-
-function scheduleBatch(tourId: string, onBatchSynced: () => void): void {
-  if (batchQueued) return;
-  batchQueued = true;
-  void serialize(() => runBatch(tourId))
-    .then((summary) => {
-      if (summary.synced > 0) onBatchSynced();
-    })
-    .catch((error) => logger.warn(TAG, 'Outbound event batch failed', error))
-    .finally(() => {
-      batchQueued = false;
-    });
-}
-
-export function startEventSync(tourId: string, onBatchSynced: () => void): void {
-  stopEventSync();
-
-  if (!stuckOpsReset) {
-    stuckOpsReset = true;
-    // Ops left SYNCING by a crash/kill are requeued once per app session.
-    void serialize(() => resetStuckOperations())
-      .catch((error) => logger.warn(TAG, 'Resetting stuck ops failed', error));
-  }
-  scheduleBatch(tourId, onBatchSynced);
-  timer = setInterval(() => scheduleBatch(tourId, onBatchSynced), EVENT_OUTBOUND_POLL_INTERVAL_MS);
-}
-
-export function stopEventSync(): void {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
+export async function processEventOperationNow(localId: string): Promise<EventOperationResult> {
+  return toEventResult(await sendOperationNow(localId));
 }
 
 /**
  * Removes a local record that never reached the server, with its queued create.
- * Runs in the serial queue so it cannot race an in-flight send.
+ * Runs in the outbound queue so it cannot race an in-flight send.
  */
-export function discardUnsyncedEventRecord(localId: string): Promise<boolean> {
-  return serialize(async () => {
-    const record = await getEventRecordByLocalId(localId);
-    if (!record || record.syncStatus === 'SYNCED') return false;
-    await dropOperation(localId);
+export async function discardUnsyncedEventRecord(localId: string): Promise<boolean> {
+  const record = await getEventRecordByLocalId(localId);
+  if (!record || record.syncStatus === 'SYNCED') return false;
+  const removed = await discardOperation(localId);
+  if (!removed) {
+    // Record without a queued op (should not happen): remove it anyway.
+    const latest = await getEventRecordByLocalId(localId);
+    if (!latest || latest.syncStatus === 'SYNCED') return false;
     await deleteEventRecord(localId);
-    notify();
-    return true;
-  });
+    notifyQueueChanged();
+  }
+  return true;
 }
 
 function createLocalId(): string {
@@ -357,8 +280,11 @@ export function toRecordTimestamp(date: Date = new Date()): string {
 
 export type NewEventScan = Omit<NewLocalEventActivityRecord, 'localId'>;
 
-/** Write-local-first: stores the record and queues its create. Returns the localId. */
-export async function queueEventRecord(scan: NewEventScan): Promise<string> {
+/**
+ * Write-local-first: stores the record and queues its create. Returns the localId.
+ * @param ownerUserId Cognito sub of the scanning user (only they can send it)
+ */
+export async function queueEventRecord(scan: NewEventScan, ownerUserId: string | null): Promise<string> {
   const localId = createLocalId();
   const request: CreateActivityRecordRequest = {
     activityId: scan.activityId,
@@ -375,14 +301,15 @@ export async function queueEventRecord(scan: NewEventScan): Promise<string> {
     eventId: scan.eventId,
     occurrenceId: scan.occurrenceId,
     request,
-  }, null);
-  notify();
+  }, ownerUserId);
+  notifyQueueChanged();
   return localId;
 }
 
 /** Marks a synced record cancelled locally and queues the server cancel. Returns the op localId. */
 export async function queueEventRecordCancel(
   record: LocalEventActivityRecord,
+  ownerUserId: string | null,
   cancelReason?: string,
 ): Promise<string | null> {
   if (!record.recordId) return null;
@@ -394,7 +321,7 @@ export async function queueEventRecordCancel(
     recordId: record.recordId,
     recordLocalId: record.localId,
     cancelReason: cancelReason?.trim() || undefined,
-  }, null);
-  notify();
+  }, ownerUserId);
+  notifyQueueChanged();
   return localId;
 }

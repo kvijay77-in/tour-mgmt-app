@@ -263,6 +263,17 @@ export async function markAttemptFailed(
 }
 
 /**
+ * Clear the backoff wait of every pending operation (connectivity restored,
+ * app foregrounded or the user asked to sync now).
+ */
+export async function clearPendingBackoff(): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE pending_operations SET nextAttemptAt = NULL WHERE syncStatus = 'PENDING' AND nextAttemptAt IS NOT NULL`,
+  );
+}
+
+/**
  * Re-queue a failed operation for retry.
  */
 export async function requeueFailed(localId: string): Promise<void> {
@@ -271,20 +282,6 @@ export async function requeueFailed(localId: string): Promise<void> {
     `UPDATE pending_operations SET syncStatus = 'PENDING', syncError = NULL, nextAttemptAt = NULL WHERE localId = ?`,
     [localId],
   );
-}
-
-/**
- * Re-queue every failed operation and clear any backoff (manual "Retry all" /
- * "Sync now"). Returns the number of failed operations re-queued.
- */
-export async function requeueAllFailed(): Promise<number> {
-  const db = await getDatabase();
-  await db.runAsync(`UPDATE pending_operations SET nextAttemptAt = NULL WHERE syncStatus = 'PENDING'`);
-  const result = await db.runAsync(
-    `UPDATE pending_operations SET syncStatus = 'PENDING', syncError = NULL, nextAttemptAt = NULL
-     WHERE syncStatus = 'FAILED'`,
-  );
-  return result.changes;
 }
 
 /**

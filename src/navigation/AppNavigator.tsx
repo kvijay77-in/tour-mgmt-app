@@ -47,6 +47,7 @@ import HotelAllocationAdjustScreen from '../screens/events/HotelAllocationAdjust
 import RiderExitScreen from '../screens/admin/RiderExitScreen';
 import TourUserAssignmentScreen from '../screens/admin/TourUserAssignmentScreen';
 import { EventSessionProvider } from '../context/EventSessionContext';
+import { SyncStatusProvider } from '../context/SyncStatusContext';
 import { Permission } from '../types/models';
 import { hasPermission } from '../utils/permissions';
 
@@ -311,14 +312,16 @@ export default function AppNavigator() {
   const showSideNav = Platform.OS === 'web' && width >= DESKTOP_MIN_WIDTH && hasHome;
 
   return (
-    <EventSessionProvider>
-      <View style={styles.shell}>
-        {showSideNav && <SideNav sections={sections} />}
-        <View style={styles.content}>
-          <AppStack />
+    <SyncStatusProvider>
+      <EventSessionProvider>
+        <View style={styles.shell}>
+          {showSideNav && <SideNav sections={sections} />}
+          <View style={styles.content}>
+            <AppStack />
+          </View>
         </View>
-      </View>
-    </EventSessionProvider>
+      </EventSessionProvider>
+    </SyncStatusProvider>
   );
 }
 

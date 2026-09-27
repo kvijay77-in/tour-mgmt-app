@@ -2,11 +2,11 @@
  * Event Session Context — shared state for event scanning.
  *
  * - Selected event / occurrence / activity (EventScanScreen).
- * - This device's recent records for the selected occurrence, failed records
- *   ("Sync issues") and the unsynced record count, reloaded on sync changes.
+ * - This device's recent records for the selected occurrence and the failed /
+ *   unsynced record counts, reloaded on sync changes.
  * - The caller's own tour assignment (my_tour_assignment cache).
- * - Owns the event bootstrap refresh triggers and the event outbound sync loop
- *   (runs while a tour is loaded and the app is online).
+ * - Owns the event bootstrap refresh triggers. Sending queued records is done
+ *   by the shared outbound sync engine (see SyncStatusContext).
  *
  * Mounted in AppNavigator above the stack. See docs/Event-Engine-Design.md § State.
  */
@@ -19,10 +19,10 @@ import {
   EventBootstrapRefreshResult,
   refreshEventBootstrap,
 } from '../services/events/eventBootstrapService';
-import { startEventSync, stopEventSync, subscribeEventSync } from '../services/sync/eventSyncService';
+import { subscribeEventBatchSynced, subscribeEventSync } from '../services/sync/eventSyncService';
 import {
   getEventRecordsByOccurrence,
-  getFailedEventRecords,
+  getFailedEventRecordCount,
   getUnsyncedEventRecordCount,
   LocalEventActivityRecord,
 } from '../services/database/eventRecordStore';
@@ -44,7 +44,7 @@ interface EventSessionContextValue {
   /** This device's records for the selected occurrence, newest first */
   recentRecords: LocalEventActivityRecord[];
   /** Records the server rejected during background sync, all occurrences */
-  failedRecords: LocalEventActivityRecord[];
+  failedCount: number;
   /** Records not yet sent, all occurrences */
   pendingCount: number;
   refreshRecords: () => Promise<void>;
@@ -66,7 +66,7 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
   const [selectedOccurrenceId, setSelectedOccurrenceId] = useState<string | null>(null);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
   const [recentRecords, setRecentRecords] = useState<LocalEventActivityRecord[]>([]);
-  const [failedRecords, setFailedRecords] = useState<LocalEventActivityRecord[]>([]);
+  const [failedCount, setFailedCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [myAssignment, setMyAssignment] = useState<TourUserAssignment | null | undefined>(undefined);
   const [cacheVersion, setCacheVersion] = useState(0);
@@ -112,11 +112,11 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
         selectedOccurrenceId
           ? getEventRecordsByOccurrence(selectedOccurrenceId, RECENT_RECORDS_LIMIT)
           : Promise.resolve([] as LocalEventActivityRecord[]),
-        getFailedEventRecords(),
+        getFailedEventRecordCount(),
         getUnsyncedEventRecordCount(),
       ]);
       setRecentRecords(recent);
-      setFailedRecords(failed);
+      setFailedCount(failed);
       setPendingCount(count);
     } catch (error) {
       logger.warn(TAG, 'Reading local event records failed', error);
@@ -157,17 +157,10 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
     return () => subscription.remove();
   }, [refreshBootstrap]);
 
-  // Outbound event sync loop while online; a batch that synced anything refreshes the cache.
-  useEffect(() => {
-    if (!tourId || isOffline) {
-      stopEventSync();
-      return undefined;
-    }
-    startEventSync(tourId, () => {
-      void refreshBootstrap();
-    });
-    return () => stopEventSync();
-  }, [tourId, isOffline, refreshBootstrap]);
+  // A background batch that sent event records refreshes the dashboard cache.
+  useEffect(() => subscribeEventBatchSynced(() => {
+    void refreshBootstrap();
+  }), [refreshBootstrap]);
 
   useEffect(() => {
     void refreshRecords();
@@ -196,7 +189,7 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
     setSelectedActivityId,
     clearSelection,
     recentRecords,
-    failedRecords,
+    failedCount,
     pendingCount,
     refreshRecords,
     myAssignment,
@@ -209,7 +202,7 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
     setSelection,
     clearSelection,
     recentRecords,
-    failedRecords,
+    failedCount,
     pendingCount,
     refreshRecords,
     myAssignment,

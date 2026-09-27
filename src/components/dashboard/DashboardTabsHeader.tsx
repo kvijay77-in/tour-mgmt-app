@@ -18,6 +18,7 @@ import { COLORS } from '../../constants/colors';
 import { useRideSession } from '../../context/RideSessionContext';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSyncStatus } from '../../context/SyncStatusContext';
 import { closePitStopStage, openPitStopStage } from '../../services/api/rideApi';
 import { loadRides as loadRidesCacheThrough } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
@@ -103,7 +104,8 @@ export default function DashboardTabsHeader() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const { tour } = useTour();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { requestLogout } = useSyncStatus();
   const { hasHome } = useVisibleModules();
   const {
     currentRide,
@@ -472,7 +474,7 @@ export default function DashboardTabsHeader() {
         showScanPauseConfigOption={true}
         scanPauseSeconds={scanPauseSeconds}
         onOpenScanPauseConfig={handleOpenScanPauseConfig}
-        onLogout={logout}
+        onLogout={requestLogout}
       />
 
       <Modal

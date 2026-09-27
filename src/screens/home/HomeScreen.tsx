@@ -24,6 +24,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { COLORS } from '../../constants/colors';
 import { DESKTOP_MIN_WIDTH } from '../../constants/layout';
 import { useAuth } from '../../context/AuthContext';
+import { useSyncStatus } from '../../context/SyncStatusContext';
 import { useTour } from '../../context/TourContext';
 import { loadOrgConfig } from '../../services/config/orgConfigService';
 import { AppStackParamList } from '../../types/navigation';
@@ -60,7 +61,8 @@ export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { requestLogout } = useSyncStatus();
   const { tour } = useTour();
   const { sections, entries } = useVisibleModules();
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -174,9 +176,9 @@ export default function HomeScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.accountItem}
-              onPress={async () => {
+              onPress={() => {
                 setIsAccountMenuOpen(false);
-                await logout();
+                requestLogout();
               }}
             >
               <MaterialIcons name="logout" size={18} color={COLORS.textPrimary} />
