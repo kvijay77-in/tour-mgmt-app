@@ -207,7 +207,7 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept (a) ☐ Accept (b) ☐ Reject ☐ Defer
 
-**Status:** ✅ Completed. Ride check-ins are captured locally when offline (checkInSync.captureCheckInLocally), validated against cached history (utils/checkInValidation) and sent by the outbound sync engine with capture timestamps.
+**Status:** ✅ Completed. Ride check-ins are captured locally when offline (checkInSync.captureCheckInLocally), validated against cached history (utils/checkInValidation) and sent by the outbound sync engine with capture timestamps. Sync status adds "Verify with server" (sent log `sent_check_ins`, Send again) and a device clock warning.
 
 ### DES-03 "Today" is computed in UTC in the ride module
 - **Severity:** High (functional bug)
@@ -249,7 +249,7 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
-**Status:** ✅ Completed. Unified outbound sync engine (services/sync/outboundSyncService.ts) with exponential backoff + jitter, maxSyncAttempts, per-family head-of-line protection, FAILED items surfaced in Sync status.
+**Status:** ✅ Completed. Unified outbound sync engine (services/sync/outboundSyncService.ts) with exponential backoff + jitter, maxSyncAttempts, per-family head-of-line protection, FAILED items surfaced in Sync status. Event-driven triggers only (no polling loop).
 
 ### DES-07 401 handling retries with the same cached token
 - **Severity:** Medium
@@ -288,7 +288,7 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
-**Status:** ◐ Partially addressed. Audit findings updated; remaining offline design docs to be refreshed.
+**Status:** ◐ Partially addressed. Offline-related docs refreshed: Requirements (Offline Mode Details), SolutionDesign (Offline Architecture), DataIntegrationDesign §4.2/§4.8, project-structure (offline, sync, auth, settings, tests), Event-Engine-Design and dashboard-call-trigger-baseline. The non-offline drift listed above (hooks, other contexts, migration-cleanup) is outside this work.
 
 ---
 

@@ -54,7 +54,7 @@ Frontend design for the events engine in `tour-mgmt-app`, adapted from the cross
 | `resolveScannedRiderId(qrText, allowedTypes = ['RIDER'])` | `resolveScannedRiderId(qrText, allowedTypeCodes?)` taking ID_CODE_TYPE codes | Omitted list keeps exact check-in behaviour; codes come from event config |
 | Drag-and-drop reorder on web | Move up/down buttons on all form factors | No drag-and-drop dependency |
 | Exit/release actions in `RiderCardModal` | Dedicated `RiderExitScreen` | Keeps the ride card read-only |
-| Offline built on existing sync | Event-only sync orchestrator; check-in path untouched | Existing sync is not wired today |
+| Offline built on existing sync | Event-only sync orchestrator; check-in path untouched | Existing sync is not wired today. *Superseded by offline mode completion: check-ins and events now share one outbound engine (see [Data Integration Design § 4.8](DataIntegrationDesign.md#48-offline-mode-implemented)).* |
 | Free role picker in tour assignment | Role derived from Cognito groups, read-only | Group hierarchy decides role |
 | Assignment filtering for all scanners | Admin/SU unfiltered | Product owner decision |
 | Upload progress bar | Indeterminate "Uploading…" indicator | Existing uploader has no progress callback; CSV files are small |
@@ -62,7 +62,7 @@ Frontend design for the events engine in `tour-mgmt-app`, adapted from the cross
 | Cancel only from `ACTIVE` | Cancel offered for `PLANNED` and `ACTIVE` occurrences | API Guide example cancels a planned (rest-day) occurrence |
 | Quick toggle sends the new value | Quick toggle sends `null` when the new value equals the inherited value | Avoids pinning redundant overrides; the entry disappears when nothing is overridden |
 | Toast confirmations | In-screen info `StatusBanner` that clears after 4 s | No toast library |
-| Event ops share the check-in outbound timer | Separate `eventSyncService` loop (~3 s) for event op types only | Check-in sync is not wired; check-in path untouched |
+| Event ops share the check-in outbound timer | Separate `eventSyncService` loop (~3 s) for event op types only | Check-in sync is not wired; check-in path untouched. *Superseded: the ~3 s loop was replaced by the shared event-driven engine with backoff (no polling).* |
 | Every hard reject goes to "Sync issues" | Only background-sync rejects are kept (FAILED, "Sync issues"); a reject while sending interactively is shown at once and the local record is removed | The scanner already saw the message; no stale failed rows |
 | Manual entry of a rider ID only | Manual entry also picks the ID type when the activity allows more than one (`typeCode` is required unless opted out) | Contract needs `typeCode` |
 | `BAGGAGE_NOT_IN_TOUR` pre-check | Client block only while offline (baggage type + cached `WITH_RIDER`); online the server decides | Server message is authoritative online |
@@ -247,10 +247,10 @@ Administrator only, shown once `provisionedAt` is set: `ConfirmDialog` → `tour
 
 Detail in [DataIntegrationDesign.md § Event Engine Offline](DataIntegrationDesign.md#47-event-engine-offline).
 
-- `OfflineProvider` is mounted in `RootNavigator` (authenticated tree); effective offline = manual toggle or NetInfo. The manual toggle is offered on Events screens only.
-- `EventSessionContext` (mounted in `AppNavigator` above the stack): selected event/occurrence/activity, this device's recent records for the selected occurrence, failed records, unsynced count, cached own assignment, `cacheVersion`, `refreshBootstrap()`. It starts/stops the event sync loop with tour + connectivity.
+- `OfflineProvider` is mounted in `RootNavigator` (authenticated tree); effective offline = manual toggle or NetInfo. The manual toggle is in the shared offline strip (`components/common/OfflineBanner.tsx`) on Home, the ride header and the Events screens.
+- `EventSessionContext` (mounted in `AppNavigator` above the stack): selected event/occurrence/activity, this device's recent records for the selected occurrence, failed records, unsynced count, cached own assignment, `cacheVersion`, `refreshBootstrap()`. It reloads records when event operations sync; sending is done by the shared outbound engine (`SyncStatusContext`).
 - Bootstrap (`src/services/events/eventBootstrapService.ts`): `GET .../events/bootstrap` with `If-None-Match` (304 keeps the cache) plus `GET /v1/tours/{tourId}/users/me` (404 → no assignment). Triggers: tour ready and online (retried on reconnect until it succeeds), foreground after > 5 min in background, pull-to-refresh on EventsHome, after an outbound event batch that synced something.
-- Event sync (`src/services/sync/eventSyncService.ts`): one serial queue for the ~3 s loop and interactive sends; only `CREATE_EVENT_ACTIVITY_RECORD`/`CANCEL_EVENT_ACTIVITY_RECORD`. Check-in offline wiring remains a known gap.
+- Event sync (`src/services/sync/eventSyncService.ts`): handlers for `CREATE_EVENT_ACTIVITY_RECORD`/`CANCEL_EVENT_ACTIVITY_RECORD` registered with the shared outbound engine (`outboundSyncService.ts`), one serial queue shared with interactive sends. Ride check-ins use the same engine.
 - Assumption (non-blocking, not yet confirmed by backend): `assignedActivityIds` narrowing does not apply to activities with `restrictToAssignedUsers=false` (backend §9.3 point 3).
 
 ## Types

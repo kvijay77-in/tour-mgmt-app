@@ -338,6 +338,20 @@ Persisted pit-stop context must be validated at login/day-start against the curr
 
 Since 'Not Riding' status is records before the ride starts, this data should be synced to local offline database and used in the offline mode Dashboard view. This is to ensure pit-stop stage users are made aware of riders who won't be checking in for the day at their pit stop location.
 
+## Offline Mode Details
+Offline mode applies to the mobile app only (ride check-ins and event scans). The web app is used mainly for administration and always works online.
+
+1. **Always ready for offline:** Data needed offline (tour, rides, riders, the ride's check-ins including 'Not Riding', names, events data) is kept on the device while the app is used online and refreshed regularly while a ride is live. The user can switch to offline mode at any time without downloading anything first. The app shows when the offline data was last refreshed.
+2. **Remember me and offline sign-in:** The user can choose 'Remember me'. The password is saved only in the device's secure storage, which requires a device screen lock. If there is no screen lock, the sign-in screen warns that the password cannot be saved securely and offline sign-in will not be available; the user can still continue. Offline sign-in is allowed only for the last user who signed in online on the device, within a configured number of days, and is locked after a configured number of wrong passwords. Biometric/PIN unlock can be used.
+3. **One user per device:** The device is not shared by multiple users. If a different user signs in and the previous user still has unsent data, sign-in is stopped with a message asking the previous user to sign in and sync first; the new user can instead choose to discard that data (with confirmation). Otherwise the previous user's cached data is removed.
+4. **Online-only actions:** Start-stage Override/Cancel, pit-stop open/close, cancelling a check-in and admin features need a connection and are disabled or clearly explained while offline.
+5. **Sending offline data:** Offline data is sent automatically when the app is online and the user has signed in online, in the order it was captured and with the original capture time. Sending is triggered by events (new capture, connection restored, app opened) and does not poll, to avoid battery drain. Failed sends are retried with increasing delays; items the server keeps rejecting are marked 'Needs attention'.
+6. **Sync status:** A Sync status screen lists every unsent item with its reason and allows Sync now, Retry, Retry all and Discard (with confirmation). The offline strip on Home, the ride screens and the event screens shows unsent and failed counts and warns when data has not been sent for too long. Signing out with unsent data asks for confirmation.
+7. **Verify with server:** From Sync status the user can check that the check-ins sent from the device are held by the server and send any missing ones again.
+8. **Device clock warning:** The app warns when the device clock differs from the server time by more than a configured number of minutes, because offline capture times come from the device clock.
+9. **Local data retention:** Sent data older than a configured number of days is removed from the device automatically. Unsent data is never removed automatically.
+10. **Settings:** Offline settings come from AppConfig (`OFFLINE_SYNC`) so they can be changed without an app update. Users (all roles except GUEST) can change some of them on their device in Advanced settings; the changes are kept on the device and can be reset.
+
 # Administrator Features  
 
 1. Add/Modify Ride
