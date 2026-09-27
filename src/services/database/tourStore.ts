@@ -31,6 +31,13 @@ export async function saveActiveTour(tour: Tour): Promise<void> {
   });
 }
 
+/** Remove the cached active tour (the server reported no active tour). */
+export async function clearCachedActiveTour(): Promise<void> {
+  await withWriteTransaction(async (db) => {
+    await db.runAsync('DELETE FROM tour');
+  });
+}
+
 /** The cached active tour, or null when none was cached yet. */
 export async function getCachedActiveTour(): Promise<Tour | null> {
   const db = await getDatabase();

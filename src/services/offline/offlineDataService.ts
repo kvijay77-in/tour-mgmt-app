@@ -17,7 +17,7 @@ import { getRideRiderDetails, listRiders } from '../api/riderApi';
 import { getDashboardProgress } from '../api/dashboardApi';
 import { listCognitoUserNames, listTourRiderNames } from '../api/nameDirectoryApi';
 import { isApiOfflineMode, isNetworkError } from '../api/apiClient';
-import { getCachedActiveTour, saveActiveTour } from '../database/tourStore';
+import { clearCachedActiveTour, getCachedActiveTour, saveActiveTour } from '../database/tourStore';
 import { getRidesByTour, replaceRidesForTour } from '../database/rideStore';
 import { getRiderById, getRidersByTour, upsertRiders } from '../database/riderStore';
 import {
@@ -136,6 +136,7 @@ export function loadActiveTour(): Promise<LoadResult<Tour | null>> {
     fetchRemote: getActiveTour,
     writeCache: async (tour) => {
       if (tour) await saveActiveTour(tour);
+      else await clearCachedActiveTour();
     },
     readCache: async () => (await getCachedActiveTour()) ?? null,
   });

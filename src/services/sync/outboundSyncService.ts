@@ -289,6 +289,8 @@ async function runBatch(options: {
       continue;
     }
 
+    // Earlier queued items are background data, not the item the user is waiting on:
+    // keep their rejections as FAILED (Sync status) instead of dropping them.
     const result = await processOperation(op, false);
     if (result.kind === 'synced') summary.synced += 1;
     if (result.kind === 'transient') {
