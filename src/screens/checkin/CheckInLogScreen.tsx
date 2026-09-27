@@ -10,6 +10,7 @@ import { CheckIn, CheckInMethod, deriveCheckInStatus, isCancelledCheckIn } from 
 import { COLORS } from '../../constants/colors';
 import { useNameDirectory } from '../../context/NameDirectoryContext';
 import RiderCardModal from '../../components/dashboard/RiderCardModal';
+import { getLocalToday } from '../../utils/dates';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
@@ -43,7 +44,7 @@ export default function CheckInLogScreen() {
 
   const canCancelEntries = useMemo(() => {
     if (!currentRide || isHistorical) return false;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalToday();
     return currentRide.date === today;
   }, [currentRide, isHistorical]);
 

@@ -94,3 +94,26 @@ export interface HotelUploadProcessingConfig {
   maxStoredErrors?: number;
   timeReserveSeconds?: number;
 }
+
+/**
+ * AppConfig OFFLINE_SYNC / DEFAULT — offline readiness, outbound sync and
+ * offline sign-in limits. All fields are optional; the app clamps each value
+ * to a safe range and falls back to built-in defaults
+ * (see services/sync/syncSettingsService.ts).
+ */
+export interface OfflineSyncConfig {
+  /** Readiness refresh interval while online and a ride is live (minutes) */
+  readinessRefreshMinutes?: number;
+  /** Attempts before a queued operation is marked FAILED */
+  maxSyncAttempts?: number;
+  /** Alert when the oldest unsent item is older than this (minutes) */
+  staleQueueAlertMinutes?: number;
+  /** Days to keep synced records of past rides/occurrences on the device */
+  retentionDays?: number;
+  /** Upper bound of the exponential retry backoff (minutes) */
+  maxBackoffMinutes?: number;
+  /** Days an offline sign-in is allowed after the last online sign-in (not user-editable) */
+  offlineLoginMaxDays?: number;
+  /** Wrong offline password attempts before offline sign-in is locked (not user-editable) */
+  offlineLoginMaxAttempts?: number;
+}

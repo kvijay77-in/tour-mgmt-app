@@ -17,7 +17,6 @@ import { useAuth } from '../context/AuthContext';
 import { TourProvider } from '../context/TourContext';
 import { AppConfigProvider } from '../context/AppConfigContext';
 import { NameDirectoryProvider } from '../context/NameDirectoryContext';
-import { OfflineProvider } from '../context/OfflineContext';
 import { COLORS } from '../constants/colors';
 import AuthNavigator from './AuthNavigator';
 import AppNavigator from './AppNavigator';
@@ -38,16 +37,14 @@ export default function RootNavigator() {
   }
 
   return (
-    <OfflineProvider>
-      <TourProvider>
-        <AppConfigProvider>
-          <NameDirectoryProvider>
-            <StatusBar style="auto" />
-            <AppNavigator />
-          </NameDirectoryProvider>
-        </AppConfigProvider>
-      </TourProvider>
-    </OfflineProvider>
+    <TourProvider>
+      <AppConfigProvider>
+        <NameDirectoryProvider>
+          <StatusBar style="auto" />
+          <AppNavigator />
+        </NameDirectoryProvider>
+      </AppConfigProvider>
+    </TourProvider>
   );
 }
 

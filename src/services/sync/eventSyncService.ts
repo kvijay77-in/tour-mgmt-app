@@ -375,7 +375,7 @@ export async function queueEventRecord(scan: NewEventScan): Promise<string> {
     eventId: scan.eventId,
     occurrenceId: scan.occurrenceId,
     request,
-  });
+  }, null);
   notify();
   return localId;
 }
@@ -394,7 +394,7 @@ export async function queueEventRecordCancel(
     recordId: record.recordId,
     recordLocalId: record.localId,
     cancelReason: cancelReason?.trim() || undefined,
-  });
+  }, null);
   notify();
   return localId;
 }

@@ -42,6 +42,8 @@ export interface CheckInRequest {
   isFloat?: boolean;
   floatNo?: number;
   notes?: string;
+  /** Capture time (ISO 8601) for check-ins recorded offline and synced later */
+  timestamp?: string;
 }
 
 /**

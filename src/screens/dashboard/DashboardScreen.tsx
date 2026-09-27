@@ -38,6 +38,7 @@ import {
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
 // SortIcon not used in this file (kept in StageFilterBar)
 import { useRideSession } from '../../context/RideSessionContext';
+import { getLocalToday } from '../../utils/dates';
 
 const { width: WINDOW_WIDTH } = Dimensions.get('window');
 const STALE_SESSION_REFRESH_MS = 2 * 60 * 1000;
@@ -57,7 +58,7 @@ function isExitedTourRider(status?: string): boolean {
 }
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalToday();
   const todayRides = rides.filter((ride) => ride.date === today);
 
   if (todayRides.length === 0) {

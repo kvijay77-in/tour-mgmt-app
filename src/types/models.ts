@@ -453,6 +453,12 @@ export interface CheckIn {
 
   /** Created timestamp */
   createdAt?: string;
+
+  /**
+   * Device-only sync state for check-ins captured on this device and not yet
+   * accepted by the backend (undefined once synced / for server records).
+   */
+  localSyncStatus?: 'PENDING' | 'FAILED';
 }
 
 // ============================================================================

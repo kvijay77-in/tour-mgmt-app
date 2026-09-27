@@ -1,6 +1,6 @@
 import { CONFIG_TYPE } from '../../constants/idCodes';
 import { AppConfigItem, IdCodeFormatConfig, IdCodeTypeConfig, IdCodeTypeName } from '../../types/config';
-import { getDatabase } from './database';
+import { getDatabase, withWriteTransaction } from './database';
 
 function normalizeIdCodeTypeName(value: unknown): IdCodeTypeName | null {
   if (typeof value !== 'string') return null;
@@ -116,29 +116,30 @@ function mapToIdCodeFormat(item: AppConfigItem): IdCodeFormatConfig | null {
 export async function upsertAppConfigs(items: AppConfigItem[]): Promise<void> {
   if (items.length === 0) return;
 
-  const db = await getDatabase();
   const now = new Date().toISOString();
 
-  for (const item of items) {
-    const configType = item.configType?.trim();
-    const configId = item.configId?.trim();
-    if (!configType || !configId) continue;
+  await withWriteTransaction(async (db) => {
+    for (const item of items) {
+      const configType = item.configType?.trim();
+      const configId = item.configId?.trim();
+      if (!configType || !configId) continue;
 
-    await db.runAsync(
-      `INSERT OR REPLACE INTO app_config
-        (configType, configId, enabled, configJson, version, updatedAt, lastSyncedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        configType,
-        configId,
-        item.enabled ? 1 : 0,
-        JSON.stringify(item.config ?? {}),
-        item.version ?? null,
-        item.updatedAt ?? null,
-        now,
-      ],
-    );
-  }
+      await db.runAsync(
+        `INSERT OR REPLACE INTO app_config
+          (configType, configId, enabled, configJson, version, updatedAt, lastSyncedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          configType,
+          configId,
+          item.enabled ? 1 : 0,
+          JSON.stringify(item.config ?? {}),
+          item.version ?? null,
+          item.updatedAt ?? null,
+          now,
+        ],
+      );
+    }
+  });
 }
 
 export async function getAppConfigsByType(configType: string): Promise<AppConfigItem[]> {

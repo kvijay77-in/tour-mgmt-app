@@ -35,9 +35,10 @@ import { CheckIn, CheckInStatus, Ride, RideStatus, Stage, StageType, UserRole } 
 import StageFilterBar from './StageFilterBar';
 import { AppMenu } from '../common/AppMenu';
 import { useVisibleModules } from '../../navigation/modules';
+import { getLocalToday } from '../../utils/dates';
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalToday();
   const todayRides = rides.filter((ride) => ride.date === today);
 
   if (todayRides.length === 0) {
@@ -155,7 +156,7 @@ export default function DashboardTabsHeader() {
   }, [loadRides]);
 
   const handleSelectRide = useCallback((ride: Ride) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalToday();
     setCurrentRide(ride, ride.date !== today);
   }, [setCurrentRide]);
 
