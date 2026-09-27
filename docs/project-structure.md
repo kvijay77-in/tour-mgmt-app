@@ -58,6 +58,7 @@ tour-mgmt-app/
 │   │   │   ├── UserModifyScreen.tsx            # Administrator-only user profile modify
 │   │   │   ├── RiderExitScreen.tsx             # RIDER_EXIT rider exit (baggage disposition), cancel exit, retained-baggage release
 │   │   │   ├── TourUserAssignmentScreen.tsx    # MANAGE_TOUR_USERS User-{tourId} create/update (role from groups, stage, hotel, events, activities)
+│   │   │   ├── RiderProfileDefinitionsScreen.tsx # RIDER_PROFILE_DEFINITION_MANAGE rider profile definitions (sections/attributes/LOV)
 │   │   │   └── TourManagementScreen.tsx        # Tour definition, provisioning, re-provisioning, and ride tabs
 │   │   ├── settings/               # Offline sync screens (mobile)
 │   │   │   ├── SyncStatusScreen.tsx         # Unsent items, retry/discard, Sync now, Verify with server, clock warning
@@ -112,6 +113,7 @@ tour-mgmt-app/
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
 │   │   │   ├── configApi.ts        # Generic app configuration API helpers
+│   │   │   ├── riderProfileConfigApi.ts # Rider profile definitions admin API helpers
 │   │   │   ├── eventsApi.ts        # Event definitions, occurrences, overrides, dashboards/progress/reconciliation, rider progress, records, bootstrap (outcome unions)
 │   │   │   ├── hotelsApi.ts        # Hotels, hotel stays, manual stay upsert, allocation upload presign/status, upload error groups (outcome unions)
 │   │   │   ├── tourUserApi.ts      # Tour-scoped users: own record (/users/me), list, create, update (outcome unions)
@@ -180,11 +182,16 @@ tour-mgmt-app/
 │   │   ├── models.ts               # Data models
 │   │   ├── api.ts                  # API types
 │   │   ├── config.ts               # OrgConfig type for runtime org configuration
+│   │   ├── riderProfile.ts         # Rider profile definition contracts (sections, attributes, LOV)
 │   │   └── navigation.ts           # Navigation types
 │   │
 │   ├── utils/                      # Helper utility functions
 │   │   ├── logger.ts               # Structured, level-gated logging utility
 │   │   ├── permissions.ts          # RBAC permission utilities
+│   │   ├── riderProfilePermissions.ts # Rider profile feature-label gate helpers
+│   │   ├── riderProfileDefinitions.ts # Rider profile section ordering + visibleWhen evaluation
+│   │   ├── riderProfileDefinitionEditor.ts # Definition editor immutable/system checks
+│   │   ├── riderProfileMasking.ts  # Sensitive rider-profile attribute masking helpers
 │   │   ├── eventActivity.ts        # Event engine effective-activity, assignment and local-date rules (pure)
 │   │   ├── riderStatus.ts          # Shared RiderStatus derivation (Dashboard grid + RiderCardModal)
 │   │   ├── checkInValidation.ts    # Check-in validation shared by online/offline flows (pure)

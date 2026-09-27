@@ -32,6 +32,8 @@ Detailed functional requirements, use cases, and feature specifications for the 
 - [Administrator Features](#administrator-features)
   - [Ride Status Management](#ride-status-management)
   - [User Management](#user-management)
+  - [Rider Profile Definitions](#rider-profile-definitions)
+  - [Rider Card and Rider Details Profile Attributes](#rider-card-and-rider-details-profile-attributes)
     - [New User Onboarding](#new-user-onboarding)
     - [Enable/Disable Existing User](#enabledisable-existing-user)
     - [Delete User](#delete-user)
@@ -425,6 +427,27 @@ Administrator and Super User (Home hub Administration section and web sidebar). 
 4. Release retained baggage (only while `RETAINED`): confirmation with an optional note; baggage becomes `WITH_RIDER` and baggage scans for the rider are blocked.
 5. Server messages (for example rider already exited) are shown as returned.
 
+### Rider Profile Definitions
+
+Administrator-only (feature label `RIDER_PROFILE_DEFINITION_MANAGE`), online only, web-first with mobile fallback.
+
+1. Entry points are in Home hub → Administration and in the web sidebar.
+2. Manage three config types from backend AppConfig:
+   - `RIDER_PROFILE_SECTION` (label/icon/order/description, enable/disable, reorder)
+   - `RIDER_PROFILE_ATTRIBUTE` (grouped by section, create/edit/move/reorder/enable/disable with type-aware settings)
+   - `LOV` (value lists and list items, including parent relationships and CSV import)
+3. Attribute key and type are immutable after creation.
+4. System attributes cannot be disabled and keep locked key/type/storage.
+5. Save calls must send current `version`; on version conflict reload latest definitions and let admin retry.
+
+### Rider Card and Rider Details Profile Attributes
+
+1. Rider card and rider details show configuration-driven profile attributes grouped by configured section and ordered by configured order.
+2. UI shows only keys returned by backend role-filtered rider endpoints and only when matching enabled definitions.
+3. Sensitive keys (`sensitiveKeys`) are masked by default and can be revealed on demand in-session.
+4. Offline SQLite cache must never store sensitive profile-attribute values.
+5. Non-sensitive visible attributes may be cached using existing offline patterns.
+
 ### Enable/Disable Existing User
 
 1. Launches a dedicated screen with registered users list.
@@ -453,6 +476,8 @@ Data model and fields to be determined as part of design and development stage.
 
 # Backend
 Data model and APIs for data access is provided by solution developed by the repo - [Backend](https://github.com/kvijay77-in/tour-data-api). Read through it's requirements and how it is implemented. Follow guidelines and recommendations in this repo for any data access implementation. Ensure data privacy and security is not compromised for any reason. 
+
+Rider profile definition contract for this feature: [tour-data-api/docs/rider-profile-attributes-design.md](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/rider-profile-attributes-design.md).
 
 **API Gap / Change Request:**
 

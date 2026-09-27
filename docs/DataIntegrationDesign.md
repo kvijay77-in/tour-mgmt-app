@@ -137,6 +137,11 @@ interface ApiClient {
 }
 ```
 
+Rider profile definition/admin APIs used by management screens:
+- `GET /v1/admin/config/{configType}` for `RIDER_PROFILE_SECTION`, `RIDER_PROFILE_ATTRIBUTE`, `LOV` (includes disabled items).
+- `PUT /v1/admin/config/{configType}/{configId}` with current `version` for optimistic concurrency (`CONFIG_VERSION_CONFLICT` handling).
+- `PUT /v1/riders/profile/{profileId}` with changed keys only and `definitionsVersion` for admin-only attribute edits.
+
 The client uses `fetch` (available in React Native) — no additional HTTP library needed.
 
 ### 2.4 Tour Context
@@ -156,6 +161,9 @@ Production scan support requires two additional backend-fed datasets:
 1. Shared configuration from AppConfig via `GET /v1/config`:
   - `ID_CODE_FORMAT`
   - `ID_CODE_TYPE`
+  - `RIDER_PROFILE_SECTION`
+  - `RIDER_PROFILE_ATTRIBUTE`
+  - `LOV`
 2. Rider `personalCode` mapping from existing rider names endpoint:
   - `GET /v1/tours/{tourId}/riders/names`
 
@@ -284,6 +292,7 @@ Implemented privacy behavior:
 - Rider popup details are memory-only in the Dashboard screen state.
 - No rider-detail persistence to SQLite or SecureStore in default path.
 - Offline (mobile), the rider popup is rebuilt from the cached rider and the ride's cached check-ins (`loadRideRiderDetails`); nothing extra is persisted.
+- Sensitive profile-attribute values (`sensitiveKeys`) are excluded from any offline SQLite persistence.
 
 Implemented payload contracts used by frontend:
 
@@ -346,8 +355,18 @@ Used by the Check-In Log tab's "Cancel Entry" action (see [Dashboard-Feature.md]
       "profileId": "abc-123",
       "name": "Jane Doe",
       "phone": "+1-555-1000",
-      "photoS3Key": "photos/R57.jpg"
+      "photoS3Key": "photos/R57.jpg",
+      "attributes": {
+        "bloodGroup": "O+"
+      },
+      "sensitiveKeys": ["personalCode"]
     },
+    "profileAttributes": {
+      "bloodGroup": "O+",
+      "personalCode": "D220"
+    },
+    "sensitiveKeys": ["personalCode"],
+    "definitionsVersion": 14,
     "checkInTimeline": [],
     "latestStatus": "CHECKED_IN"
   },
@@ -1192,6 +1211,7 @@ These are loaded at sign-in, persisted for offline use, and reused for fast scan
 - [Dashboard Feature](Dashboard-Feature.md) — Dashboard screen specification
 - [tour-data-api Solution Design](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/SolutionDesign.md) — Backend data model and API specifications
 - [tour-data-api Requirements](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/Requirements.md) — Backend data requirements
+- [tour-data-api Rider Profile Attributes Design](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/rider-profile-attributes-design.md) — Rider profile section/attribute/LOV contract
 
 ---
 

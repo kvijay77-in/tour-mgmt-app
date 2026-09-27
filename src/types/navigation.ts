@@ -59,6 +59,7 @@ export type AppStackParamList = {
   // Event engine Phase 7
   RiderExit: undefined;
   TourUserAssignment: { userId?: string } | undefined;
+  RiderProfileDefinitions: undefined;
 };
 
 // Phase 2: Main tab navigator (Dashboard, CheckIn, Log)

@@ -104,6 +104,8 @@ Located in the header, displays cumulative counts:
 - Touch rider icon (Zoom level 1/2) to open rider card
 - Rider card data is fetched on demand per rider via rider-details API (no bulk preloading)
 - Rider card shows loading and retry/error states when details fetch is in progress or fails
+- Rider card includes configuration-driven profile attributes grouped by section and ordered by definition
+- Sensitive profile attributes are masked by default using backend `sensitiveKeys`, with in-session reveal
 
 **Ride Details (shared route from header and All Rides info action):**
 - Compact layout optimized to fit within visible screen area
@@ -159,6 +161,7 @@ Detail: [Event Engine Design → Screens](Event-Engine-Design.md#screens).
   - In-flight request guards prevent concurrent duplicate dashboard bootstrap/progress requests for the same resource
 - Rider profile/timeline data for popup is held in-memory only for the current modal session
 - Offline rider-profile cache is intentionally disabled by default; feature-flag placeholder exists for future enhancement
+- Sensitive profile attribute values are never stored in offline SQLite caches
 - Implements React Native Animated API for FAB drag
 - Responsive grid adjusts to screen width
 - State management: React hooks (useState, useRef)

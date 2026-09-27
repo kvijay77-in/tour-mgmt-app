@@ -30,6 +30,8 @@ export const ADMINISTRATOR_ROLE: Role = {
     Permission.MANAGE_HOTEL_ALLOCATIONS,
     Permission.MANAGE_TOUR_USERS,
     Permission.RIDER_EXIT,
+    Permission.RIDER_PROFILE_DEFINITION_MANAGE,
+    Permission.RIDER_PROFILE_ADMIN_EDIT,
   ],
 };
 
