@@ -13,15 +13,16 @@
 import { Platform } from 'react-native';
 import { getActiveTour } from '../api/tourApi';
 import { listRides } from '../api/rideApi';
-import { listRiders } from '../api/riderApi';
+import { getRideRiderDetails, listRiders } from '../api/riderApi';
 import { getDashboardProgress } from '../api/dashboardApi';
 import { listCognitoUserNames, listTourRiderNames } from '../api/nameDirectoryApi';
 import { isApiOfflineMode, isNetworkError } from '../api/apiClient';
 import { getCachedActiveTour, saveActiveTour } from '../database/tourStore';
 import { getRidesByTour, replaceRidesForTour } from '../database/rideStore';
-import { getRidersByTour, upsertRiders } from '../database/riderStore';
+import { getRiderById, getRidersByTour, upsertRiders } from '../database/riderStore';
 import {
   getCheckInsByRide,
+  getCheckInsByRider,
   getUnsyncedCheckInsByRide,
   replaceServerCheckInsForRide,
 } from '../database/checkInStore';
@@ -33,7 +34,7 @@ import {
 } from '../database/nameDirectoryStore';
 import { replaceRiderPersonalCodes } from '../database/riderPersonalCodeStore';
 import { datasetKey, getDatasetSyncedAt, getOldestSyncedAt, setDatasetSyncedAt } from '../database/syncMetaStore';
-import { CheckIn, DashboardProgressData, Ride, Rider, Tour } from '../../types/models';
+import { CheckIn, DashboardProgressData, Ride, Rider, RiderDetailsData, Tour } from '../../types/models';
 import { logger } from '../../utils/logger';
 
 const TAG = 'OfflineData';
@@ -47,6 +48,30 @@ export interface LoadResult<T> {
   fromCache: boolean;
   /** When the cached copy was last refreshed from the server */
   syncedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Change notifications (readiness indicator)
+// ---------------------------------------------------------------------------
+
+const updateListeners = new Set<() => void>();
+
+/** Notified after any offline dataset was refreshed from the server. */
+export function subscribeOfflineDataUpdated(listener: () => void): () => void {
+  updateListeners.add(listener);
+  return () => {
+    updateListeners.delete(listener);
+  };
+}
+
+function notifyUpdated(): void {
+  updateListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch (error) {
+      logger.warn(TAG, 'Offline data listener failed', error);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +96,7 @@ async function cacheThrough<T>(params: {
       try {
         await writeCache(data);
         await setDatasetSyncedAt(key, syncedAt);
+        notifyUpdated();
       } catch (cacheError) {
         logger.warn(TAG, `Failed to cache ${key}`, cacheError);
       }
@@ -157,6 +183,34 @@ export async function mergeUnsyncedCheckIns(rideId: string, serverCheckIns: Chec
 
 function isCancelled(checkIn: CheckIn): boolean {
   return (checkIn.status ?? '').toUpperCase() === 'CANCELLED';
+}
+
+/**
+ * Rider card details for a ride. Online: from the API (not cached — it is
+ * derived data). Offline or unreachable: rebuilt from the cached rider and
+ * the ride's cached check-ins (including unsynced local ones).
+ */
+export async function loadRideRiderDetails(
+  tourId: string,
+  rideId: string,
+  riderId: string,
+): Promise<LoadResult<RiderDetailsData | null>> {
+  if (!OFFLINE_CACHE_ENABLED) {
+    return { data: await getRideRiderDetails(tourId, rideId, riderId), fromCache: false, syncedAt: null };
+  }
+  if (!isApiOfflineMode()) {
+    try {
+      return { data: await getRideRiderDetails(tourId, rideId, riderId), fromCache: false, syncedAt: null };
+    } catch (error) {
+      if (!isNetworkError(error)) throw error;
+      logger.info(TAG, 'Server unreachable — using cached rider details');
+    }
+  }
+  const rider = await getRiderById(riderId);
+  const syncedAt = await getDatasetSyncedAt(datasetKey('checkins', rideId)).catch(() => null);
+  if (!rider || !syncedAt) throw new OfflineDataUnavailableError(datasetKey('riders', tourId));
+  const timeline = (await getCheckInsByRider(riderId, rideId)).filter((checkIn) => !isCancelled(checkIn));
+  return { data: { rider, checkInTimeline: timeline }, fromCache: true, syncedAt };
 }
 
 /**

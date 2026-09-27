@@ -101,7 +101,7 @@ import { hasPermission } from '../../utils/permissions';
 import ConfirmDialog from '../../components/artifacts/ConfirmDialog';
 import EventScreenHeader from '../../components/events/EventScreenHeader';
 import OccurrenceStatusBadge from '../../components/events/OccurrenceStatusBadge';
-import OfflineBanner from '../../components/events/OfflineBanner';
+import OfflineBanner from '../../components/common/OfflineBanner';
 import ScanConfirmationCard from '../../components/events/ScanConfirmationCard';
 import StatusBanner, { StatusBannerAction } from '../../components/events/StatusBanner';
 

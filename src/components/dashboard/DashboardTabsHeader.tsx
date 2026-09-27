@@ -19,6 +19,7 @@ import { useRideSession } from '../../context/RideSessionContext';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSyncStatus } from '../../context/SyncStatusContext';
+import { useOffline } from '../../context/OfflineContext';
 import { closePitStopStage, openPitStopStage } from '../../services/api/rideApi';
 import { loadRides as loadRidesCacheThrough } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
@@ -31,11 +32,12 @@ import {
   MIN_SCAN_PAUSE_SECONDS,
   normalizeScanPauseSeconds,
 } from '../../services/config/scanPauseConfigService';
-import { getPitStopStageNumbersFromRoles, isPitStopUserRole } from '../../utils/permissions';
+import { canUseAdvancedSettings, getPitStopStageNumbersFromRoles, isPitStopUserRole } from '../../utils/permissions';
 import { AppStackParamList } from '../../types/navigation';
 import { CheckIn, CheckInStatus, Ride, RideStatus, Stage, StageType, UserRole } from '../../types/models';
 import StageFilterBar from './StageFilterBar';
 import { AppMenu } from '../common/AppMenu';
+import OfflineBanner from '../common/OfflineBanner';
 import { useVisibleModules } from '../../navigation/modules';
 import { getLocalToday } from '../../utils/dates';
 
@@ -105,7 +107,10 @@ export default function DashboardTabsHeader() {
   const insets = useSafeAreaInsets();
   const { tour } = useTour();
   const { user } = useAuth();
-  const { requestLogout } = useSyncStatus();
+  const { requestLogout, pendingCount, failedCount } = useSyncStatus();
+  const { isOffline, isOfflineSupported } = useOffline();
+  // Pit-stop open/close is an online-only action.
+  const isPitStopActionBlocked = isOffline || Boolean(user?.isOfflineSession);
   const { hasHome } = useVisibleModules();
   const {
     currentRide,
@@ -358,8 +363,8 @@ export default function DashboardTabsHeader() {
     && availablePitStopStagesForManagement.length > 0;
 
   const selectedPitStopStatus = selectedPitStopStageForManagement?.pitStopStatus ?? null;
-  const canOpenSelectedPitStop = selectedPitStopStatus === null;
-  const canCloseSelectedPitStop = selectedPitStopStatus === 'OPEN';
+  const canOpenSelectedPitStop = selectedPitStopStatus === null && !isPitStopActionBlocked;
+  const canCloseSelectedPitStop = selectedPitStopStatus === 'OPEN' && !isPitStopActionBlocked;
 
   const formatDateTimeForDisplay = (value?: string): string => {
     if (!value) return 'N/A';
@@ -420,6 +425,8 @@ export default function DashboardTabsHeader() {
         </View>
       </View>
 
+      {isOfflineSupported && <OfflineBanner variant="compact" captureLabel="Check-ins" />}
+
       {isHistorical && (
         <View style={styles.historicalWrap}>
           <View style={styles.historicalBadge}>
@@ -475,6 +482,8 @@ export default function DashboardTabsHeader() {
         scanPauseSeconds={scanPauseSeconds}
         onOpenScanPauseConfig={handleOpenScanPauseConfig}
         onLogout={requestLogout}
+        showAdvancedSettingsOption={canUseAdvancedSettings(user?.userRole)}
+        unsentCount={pendingCount + failedCount}
       />
 
       <Modal
@@ -643,6 +652,12 @@ export default function DashboardTabsHeader() {
                   <Text style={styles.pitStopManagementActionButtonText}>CLOSE</Text>
                 </TouchableOpacity>
               </View>
+
+              {isPitStopActionBlocked && (
+                <Text style={styles.pitStopManagementOfflineText}>
+                  Opening or closing a pit stop needs a connection.
+                </Text>
+              )}
 
               {isPitStopActionSubmitting && (
                 <View style={styles.pitStopManagementSubmittingRow}>
@@ -913,6 +928,12 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 13,
     fontWeight: '700',
+  },
+  pitStopManagementOfflineText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
   pitStopManagementSubmittingRow: {
     marginTop: 2,

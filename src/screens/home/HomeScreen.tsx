@@ -25,6 +25,9 @@ import { COLORS } from '../../constants/colors';
 import { DESKTOP_MIN_WIDTH } from '../../constants/layout';
 import { useAuth } from '../../context/AuthContext';
 import { useSyncStatus } from '../../context/SyncStatusContext';
+import { useOffline } from '../../context/OfflineContext';
+import OfflineBanner from '../../components/common/OfflineBanner';
+import { canUseAdvancedSettings } from '../../utils/permissions';
 import { useTour } from '../../context/TourContext';
 import { loadOrgConfig } from '../../services/config/orgConfigService';
 import { AppStackParamList } from '../../types/navigation';
@@ -62,7 +65,9 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user } = useAuth();
-  const { requestLogout } = useSyncStatus();
+  const { requestLogout, pendingCount, failedCount } = useSyncStatus();
+  const { isOfflineSupported } = useOffline();
+  const unsentCount = pendingCount + failedCount;
   const { tour } = useTour();
   const { sections, entries } = useVisibleModules();
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -112,13 +117,16 @@ export default function HomeScreen() {
           style={styles.accountButton}
           onPress={() => setIsAccountMenuOpen(true)}
           accessibilityRole="button"
-          accessibilityLabel="Open account menu"
+          accessibilityLabel={unsentCount > 0 ? `Open account menu, ${unsentCount} unsent` : 'Open account menu'}
         >
           <MaterialIcons name="account-circle" size={28} color={COLORS.white} />
+          {unsentCount > 0 && <View style={[styles.badgeDot, failedCount > 0 && styles.badgeDotFailed]} />}
         </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
+        {isOfflineSupported && <OfflineBanner />}
+
         {sections.length === 0 && (
           <Text style={styles.emptyText}>No modules are available for your role.</Text>
         )}
@@ -174,6 +182,30 @@ export default function HomeScreen() {
               <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
               <Text style={styles.accountItemText}>Change password</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.accountItem}
+              onPress={() => {
+                setIsAccountMenuOpen(false);
+                navigation.navigate('SyncStatus');
+              }}
+            >
+              <MaterialIcons name="sync" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.accountItemText}>
+                {unsentCount > 0 ? `Sync status (${unsentCount} unsent)` : 'Sync status'}
+              </Text>
+            </TouchableOpacity>
+            {canUseAdvancedSettings(user?.userRole) && (
+              <TouchableOpacity
+                style={styles.accountItem}
+                onPress={() => {
+                  setIsAccountMenuOpen(false);
+                  navigation.navigate('AdvancedSettings');
+                }}
+              >
+                <MaterialIcons name="tune" size={18} color={COLORS.textPrimary} />
+                <Text style={styles.accountItemText}>Advanced settings</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={styles.accountItem}
               onPress={() => {
@@ -276,6 +308,20 @@ const styles = StyleSheet.create({
   },
   tileDesktop: {
     width: 180,
+  },
+  badgeDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.warning,
+    borderWidth: 1,
+    borderColor: COLORS.white,
+  },
+  badgeDotFailed: {
+    backgroundColor: COLORS.danger,
   },
   tileText: {
     fontSize: 14,

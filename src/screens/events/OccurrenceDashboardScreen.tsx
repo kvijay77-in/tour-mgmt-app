@@ -48,7 +48,7 @@ import { AppStackParamList } from '../../types/navigation';
 import { logger } from '../../utils/logger';
 import EventScreenHeader from '../../components/events/EventScreenHeader';
 import OccurrenceStatusBadge from '../../components/events/OccurrenceStatusBadge';
-import OfflineBanner from '../../components/events/OfflineBanner';
+import OfflineBanner from '../../components/common/OfflineBanner';
 import StatusBanner from '../../components/events/StatusBanner';
 
 const TAG = 'OccurrenceDashboardScreen';

@@ -70,6 +70,61 @@ export async function vacuumDatabase(): Promise<void> {
   await db.execAsync('VACUUM;');
 }
 
+export interface PurgeResult {
+  checkIns: number;
+  eventRecords: number;
+  occurrences: number;
+  snapshots: number;
+  roomAllocations: number;
+}
+
+/**
+ * Retention (DES-05): delete synced data of past rides/events that is no
+ * longer needed offline. Never touches unsynced rows or anything referenced
+ * by a queued operation.
+ *
+ * @param cutoffDate  YYYY-MM-DD — rides/occurrences/stays before this date
+ * @param cutoffIso   ISO time — records/snapshots older than this
+ */
+export async function purgeExpiredLocalData(cutoffDate: string, cutoffIso: string): Promise<PurgeResult> {
+  const result: PurgeResult = { checkIns: 0, eventRecords: 0, occurrences: 0, snapshots: 0, roomAllocations: 0 };
+  await withWriteTransaction(async (db) => {
+    result.checkIns = (await db.runAsync(
+      `DELETE FROM check_ins
+       WHERE isLocal = 0 AND syncStatus = 'SYNCED'
+         AND rideId IN (SELECT rideId FROM rides WHERE date < ?)`,
+      [cutoffDate],
+    )).changes;
+    result.eventRecords = (await db.runAsync(
+      `DELETE FROM event_activity_records
+       WHERE syncStatus = 'SYNCED' AND isLocal = 0 AND timestamp < ?
+         AND NOT EXISTS (
+           SELECT 1 FROM pending_operations p
+           WHERE p.localId = event_activity_records.localId
+              OR instr(p.payload, event_activity_records.localId) > 0
+         )`,
+      [cutoffIso],
+    )).changes;
+    result.occurrences = (await db.runAsync(
+      `DELETE FROM event_occurrences
+       WHERE date < ?
+         AND NOT EXISTS (
+           SELECT 1 FROM event_activity_records r WHERE r.occurrenceId = event_occurrences.occurrenceId
+         )`,
+      [cutoffDate],
+    )).changes;
+    result.snapshots = (await db.runAsync(
+      'DELETE FROM event_dashboard_snapshots WHERE fetchedAt < ?',
+      [cutoffIso],
+    )).changes;
+    result.roomAllocations = (await db.runAsync(
+      'DELETE FROM room_allocations WHERE stayDate < ?',
+      [cutoffDate],
+    )).changes;
+  });
+  return result;
+}
+
 /**
  * Reset any operations stuck in SYNCING state (e.g. after app crash).
  * Called at app startup.

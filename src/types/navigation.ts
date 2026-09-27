@@ -29,6 +29,10 @@ export type AppStackParamList = {
   MainTabs: undefined;
   RideInfo: { ride: Ride; source?: 'dashboard' | 'menu' };
   ChangePassword: undefined;
+  /** Unsent / failed data captured on this device (offline sync) */
+  SyncStatus: undefined;
+  /** Per-device offline sync settings (mobile, non-GUEST) */
+  AdvancedSettings: undefined;
   Artifacts: undefined;
   RideStatusManagement: undefined;
   UserOnboarding: undefined;

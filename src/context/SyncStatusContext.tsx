@@ -38,10 +38,12 @@ import '../services/sync/eventSyncService';
 import { getOldestPendingCreatedAt, getOperationCounts } from '../services/database/pendingStore';
 import { getRidesByTour } from '../services/database/rideStore';
 import { getSyncSettings, subscribeSyncSettings } from '../services/sync/syncSettingsService';
+import { runRetentionIfDue } from '../services/offline/retentionService';
 import {
   getRideReadinessSyncedAt,
   OFFLINE_CACHE_ENABLED,
   refreshRideReadiness,
+  subscribeOfflineDataUpdated,
 } from '../services/offline/offlineDataService';
 import { RideStatus } from '../types/models';
 import { getLocalToday } from '../utils/dates';
@@ -60,6 +62,11 @@ export interface SyncStatusContextValue {
   oldestPendingAt: string | null;
   /** Unsent data older than the stale-queue alert threshold */
   isStale: boolean;
+  /**
+   * Oldest refresh time of the data needed to keep working offline (tour,
+   * rides, riders and today's live ride check-ins); null = not downloaded yet
+   */
+  readinessSyncedAt: string | null;
   /** Engine status (running, next retry, last error) */
   engine: OutboundSyncStatus;
   /** Clear retry waits and send now (no-op while offline) */
@@ -84,12 +91,14 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
   const [failedCount, setFailedCount] = useState(0);
   const [oldestPendingAt, setOldestPendingAt] = useState<string | null>(null);
   const [isStale, setIsStale] = useState(false);
+  const [readinessSyncedAt, setReadinessSyncedAt] = useState<string | null>(null);
   const [engine, setEngine] = useState<OutboundSyncStatus>(getOutboundSyncStatus());
   const [settings, setSettings] = useState(getSyncSettings());
   const [logoutPromptVisible, setLogoutPromptVisible] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   const countTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sendingEnabled = Boolean(user) && !user?.isOfflineSession && !isOffline && appActive && Boolean(tourId);
@@ -103,6 +112,12 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   useEffect(() => subscribeSyncSettings(setSettings), []);
+
+  // Local data retention: checked on start and each foreground (runs at most twice a day).
+  useEffect(() => {
+    if (!OFFLINE_CACHE_ENABLED || !user || !appActive) return;
+    void runRetentionIfDue();
+  }, [user, appActive]);
 
   // Engine session: owner, tour and whether sending is allowed.
   useEffect(() => {
@@ -164,6 +179,48 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
     };
   }, [oldestPendingAt, settings.staleQueueAlertMinutes]);
 
+  /** Today's OPEN/STARTED ride from the device cache, if any. */
+  const findLiveRideId = useCallback(async (): Promise<string | null> => {
+    if (!tourId) return null;
+    const today = getLocalToday();
+    const rides = await getRidesByTour(tourId);
+    const liveRide = rides.find(
+      (ride) => ride.date === today && (ride.status === RideStatus.OPEN || ride.status === RideStatus.STARTED),
+    );
+    return liveRide?.rideId ?? null;
+  }, [tourId]);
+
+  // Readiness indicator: recomputed (debounced) whenever cached data is refreshed.
+  useEffect(() => {
+    if (!OFFLINE_CACHE_ENABLED || !tourId) {
+      setReadinessSyncedAt(null);
+      return undefined;
+    }
+    let active = true;
+    const recompute = async () => {
+      try {
+        const syncedAt = await getRideReadinessSyncedAt(tourId, await findLiveRideId());
+        if (active) setReadinessSyncedAt(syncedAt);
+      } catch (error) {
+        logger.warn(TAG, 'Reading offline readiness failed', error);
+      }
+    };
+    void recompute();
+    const unsubscribe = subscribeOfflineDataUpdated(() => {
+      if (readinessTimerRef.current) return;
+      readinessTimerRef.current = setTimeout(() => {
+        readinessTimerRef.current = null;
+        void recompute();
+      }, COUNT_RELOAD_DEBOUNCE_MS);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+      if (readinessTimerRef.current) clearTimeout(readinessTimerRef.current);
+      readinessTimerRef.current = null;
+    };
+  }, [tourId, findLiveRideId]);
+
   // Offline readiness refresh while online and today's ride is live.
   useEffect(() => {
     if (!OFFLINE_CACHE_ENABLED || !sendingEnabled || !tourId) return undefined;
@@ -172,15 +229,11 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
 
     const refreshIfDue = async () => {
       try {
-        const today = getLocalToday();
-        const rides = await getRidesByTour(tourId);
-        const liveRide = rides.find(
-          (ride) => ride.date === today && (ride.status === RideStatus.OPEN || ride.status === RideStatus.STARTED),
-        );
-        if (!liveRide || cancelled) return;
-        const syncedAt = await getRideReadinessSyncedAt(tourId, liveRide.rideId);
+        const liveRideId = await findLiveRideId();
+        if (!liveRideId || cancelled) return;
+        const syncedAt = await getRideReadinessSyncedAt(tourId, liveRideId);
         if (syncedAt && Date.now() - Date.parse(syncedAt) < intervalMs) return;
-        await refreshRideReadiness(tourId, liveRide.rideId);
+        await refreshRideReadiness(tourId, liveRideId);
       } catch (error) {
         logger.warn(TAG, 'Offline readiness refresh failed', error);
       }
@@ -192,7 +245,7 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [sendingEnabled, tourId, settings.readinessRefreshMinutes]);
+  }, [sendingEnabled, tourId, settings.readinessRefreshMinutes, findLiveRideId]);
 
   const syncNow = useCallback(() => {
     requestOutboundSync({ resetBackoff: true });
@@ -228,12 +281,13 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
     failedCount,
     oldestPendingAt,
     isStale,
+    readinessSyncedAt,
     engine,
     syncNow,
     retryAllFailed,
     refreshCounts,
     requestLogout,
-  }), [pendingCount, failedCount, oldestPendingAt, isStale, engine, syncNow, retryAllFailed, refreshCounts, requestLogout]);
+  }), [pendingCount, failedCount, oldestPendingAt, isStale, readinessSyncedAt, engine, syncNow, retryAllFailed, refreshCounts, requestLogout]);
 
   return (
     <SyncStatusContext.Provider value={value}>
