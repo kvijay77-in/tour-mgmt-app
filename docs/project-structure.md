@@ -25,6 +25,7 @@ tour-mgmt-app/
 │   ├── idcode-backend-api-change-request.md
 │   ├── Event-Engine-Requirements.md
 │   ├── Event-Engine-Design.md
+│   ├── Project-Audit-Findings.md
 │   └── Images/
 │   ├── dashboard-backend-api-change-request.md
 │
