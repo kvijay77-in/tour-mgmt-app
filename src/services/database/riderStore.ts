@@ -3,22 +3,24 @@
  * Riders are read-only from the app's perspective (synced from API).
  */
 
-import { getDatabase } from './database';
+import { getDatabase, withWriteTransaction } from './database';
 import { DietaryPreference, Rider } from '../../types/models';
 
 /**
- * Upsert riders into the local cache (from API response).
+ * Replace the cached roster for a tour (from API response) in one
+ * transaction with a prepared statement (PERF-03).
+ * Upsert (not REPLACE) so the lazily cached dietaryPreference survives
+ * rider refreshes; riders no longer in the roster (or from another tour)
+ * are removed.
  */
-export async function upsertRiders(riders: Rider[]): Promise<void> {
-  const db = await getDatabase();
+export async function upsertRiders(riders: Rider[], tourId?: string): Promise<void> {
   const now = new Date().toISOString();
 
-  for (const rider of riders) {
-    // Upsert (not REPLACE) so the lazily cached dietaryPreference survives rider refreshes.
-    await db.runAsync(
+  await withWriteTransaction(async (db) => {
+    const statement = await db.prepareAsync(
       `INSERT INTO riders
-        (riderId, profileId, name, email, phone, emergencyContactName, emergencyContactPhone, photoS3Key, qrCodeData, status, lastSyncedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (riderId, profileId, name, email, phone, emergencyContactName, emergencyContactPhone, photoS3Key, qrCodeData, status, tourId, lastSyncedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(riderId) DO UPDATE SET
          profileId = excluded.profileId,
          name = excluded.name,
@@ -29,22 +31,49 @@ export async function upsertRiders(riders: Rider[]): Promise<void> {
          photoS3Key = excluded.photoS3Key,
          qrCodeData = excluded.qrCodeData,
          status = excluded.status,
+         tourId = COALESCE(excluded.tourId, riders.tourId),
          lastSyncedAt = excluded.lastSyncedAt`,
-      [
-        rider.riderId,
-        rider.profileId ?? null,
-        rider.name,
-        rider.email ?? null,
-        rider.phone ?? null,
-        rider.emergencyContactName ?? null,
-        rider.emergencyContactPhone ?? null,
-        rider.photoS3Key ?? null,
-        rider.qrCodeData ?? null,
-        rider.status ?? null,
-        now,
-      ],
     );
-  }
+    try {
+      for (const rider of riders) {
+        await statement.executeAsync([
+          rider.riderId,
+          rider.profileId ?? null,
+          rider.name,
+          rider.email ?? null,
+          rider.phone ?? null,
+          rider.emergencyContactName ?? null,
+          rider.emergencyContactPhone ?? null,
+          rider.photoS3Key ?? null,
+          rider.qrCodeData ?? null,
+          rider.status ?? null,
+          tourId ?? null,
+          now,
+        ]);
+      }
+    } finally {
+      await statement.finalizeAsync();
+    }
+
+    if (tourId) {
+      await db.runAsync(
+        'DELETE FROM riders WHERE lastSyncedAt IS NULL OR lastSyncedAt < ? OR tourId IS NULL OR tourId != ?',
+        [now, tourId],
+      );
+    }
+  });
+}
+
+/**
+ * Get the cached roster for a tour.
+ */
+export async function getRidersByTour(tourId: string): Promise<Rider[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    'SELECT * FROM riders WHERE tourId = ? ORDER BY riderId',
+    [tourId],
+  );
+  return rows.map(mapRowToRider);
 }
 
 /**

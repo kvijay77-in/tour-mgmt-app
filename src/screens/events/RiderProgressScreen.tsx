@@ -45,7 +45,7 @@ import { logger } from '../../utils/logger';
 import ActivityStepper from '../../components/events/ActivityStepper';
 import EventScreenHeader from '../../components/events/EventScreenHeader';
 import OccurrenceStatusBadge from '../../components/events/OccurrenceStatusBadge';
-import OfflineBanner from '../../components/events/OfflineBanner';
+import OfflineBanner from '../../components/common/OfflineBanner';
 import StatusBanner from '../../components/events/StatusBanner';
 
 const TAG = 'RiderProgressScreen';

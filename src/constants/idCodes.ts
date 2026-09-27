@@ -9,7 +9,11 @@ export const CONFIG_TYPE = {
   ID_CODE_TYPE: 'ID_CODE_TYPE',
   ARTIFACTS: 'ARTIFACTS',
   HOTEL_UPLOAD: 'HOTEL_UPLOAD',
+  OFFLINE_SYNC: 'OFFLINE_SYNC',
 } as const;
+
+/** configId of the OFFLINE_SYNC AppConfig item. */
+export const OFFLINE_SYNC_CONFIG_ID = 'DEFAULT';
 
 export const HOTEL_UPLOAD_PROCESSING_CONFIG_ID = 'PROCESSING';
 

@@ -14,6 +14,7 @@ import {
   UserRole,
 } from '../types/models';
 import type { DashboardActivityStatus } from '../types/api';
+import { toLocalDateString } from './dates';
 
 const ACTIVITY_ID_PREFIX = 'ACT-';
 const ACTIVITY_ID_DIGITS = 3;
@@ -85,11 +86,7 @@ export function recomputeSequence<T extends Pick<EventActivity, 'sequenceNo'>>(a
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Device-local calendar date (YYYY-MM-DD); occurrences are dated in tour-local time. */
-export function toLocalDateString(date: Date = new Date()): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-}
+export { toLocalDateString };
 
 export function isValidDateString(value: string): boolean {
   if (!DATE_PATTERN.test(value)) return false;

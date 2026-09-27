@@ -11,7 +11,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-nati
 import { MaterialIcons } from '@expo/vector-icons';
 import { CommonActions } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
-import { useAuth } from '../../context/AuthContext';
+import { useSyncStatus } from '../../context/SyncStatusContext';
 import { useTour } from '../../context/TourContext';
 import { navigationRef } from '../../navigation/navigationRef';
 import {
@@ -57,7 +57,7 @@ export interface SideNavProps {
 }
 
 export default function SideNav({ sections }: SideNavProps) {
-  const { logout } = useAuth();
+  const { requestLogout } = useSyncStatus();
   const { tour } = useTour();
   const [focusedRoute, setFocusedRoute] = useState<string | undefined>(getFocusedStackRouteName);
 
@@ -124,7 +124,7 @@ export default function SideNav({ sections }: SideNavProps) {
             }
           }}
         />
-        <SideNavItem title="Logout" icon="logout" active={false} onPress={() => void logout()} />
+        <SideNavItem title="Logout" icon="logout" active={false} onPress={requestLogout} />
       </View>
     </View>
   );

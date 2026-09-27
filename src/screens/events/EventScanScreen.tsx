@@ -46,7 +46,12 @@ import { useTour } from '../../context/TourContext';
 import { describeUnexpectedEventError, getEvent, getOccurrence } from '../../services/api/eventsApi';
 import { getRiderById as fetchTourRider, getRiderProfileDietaryPreference } from '../../services/api/riderApi';
 import { getIdCodeTypeMap } from '../../services/database/appConfigStore';
-import { findActiveEventRecord, LocalEventActivityRecord } from '../../services/database/eventRecordStore';
+import {
+  findActiveEventRecord,
+  getFailedEventRecords,
+  LocalEventActivityRecord,
+} from '../../services/database/eventRecordStore';
+import { retryFailedOperations } from '../../services/sync/outboundSyncService';
 import {
   getEventById,
   getOccurrenceById,
@@ -96,11 +101,12 @@ import { hasPermission } from '../../utils/permissions';
 import ConfirmDialog from '../../components/artifacts/ConfirmDialog';
 import EventScreenHeader from '../../components/events/EventScreenHeader';
 import OccurrenceStatusBadge from '../../components/events/OccurrenceStatusBadge';
-import OfflineBanner from '../../components/events/OfflineBanner';
+import OfflineBanner from '../../components/common/OfflineBanner';
 import ScanConfirmationCard from '../../components/events/ScanConfirmationCard';
 import StatusBanner, { StatusBannerAction } from '../../components/events/StatusBanner';
 
 const TAG = 'EventScanScreen';
+const SYNC_ISSUES_LIMIT = 50;
 
 interface EventScanScreenProps {
   eventId: string;
@@ -183,7 +189,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
     selectedActivityId,
     setSelectedActivityId,
     recentRecords,
-    failedRecords,
+    failedCount,
     myAssignment,
     cacheVersion,
     refreshBootstrap,
@@ -219,6 +225,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   const [cancelTarget, setCancelTarget] = useState<LocalEventActivityRecord | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
+  const [issues, setIssues] = useState<LocalEventActivityRecord[]>([]);
 
   const processingRef = useRef(false);
   const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -228,6 +235,19 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   useEffect(() => {
     setSelection(eventId, occurrenceId, null);
   }, [eventId, occurrenceId, setSelection]);
+
+  // Sync issues of this occurrence only (reloaded when records or the failed count change).
+  useEffect(() => {
+    let active = true;
+    getFailedEventRecords(occurrenceId, SYNC_ISSUES_LIMIT)
+      .then((records) => {
+        if (active) setIssues(records);
+      })
+      .catch((error) => logger.warn(TAG, 'Reading sync issues failed', error));
+    return () => {
+      active = false;
+    };
+  }, [occurrenceId, recentRecords, failedCount]);
 
   useEffect(() => {
     let active = true;
@@ -442,8 +462,8 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
         variantSelected: optedOut ? null : variant,
         method: scan.method,
         timestamp: toRecordTimestamp(),
-      });
-      const result = isOffline ? null : await processEventOperationNow(tourId, localId);
+      }, user?.userId ?? null);
+      const result = isOffline ? null : await processEventOperationNow(localId);
       renderResult(result, scan, scan.typeCode);
       resetPending();
       releaseScanner(true);
@@ -454,7 +474,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
     } finally {
       setIsSubmitting(false);
     }
-  }, [event, occurrence, activity, tourId, isOffline, renderResult, resetPending, releaseScanner]);
+  }, [event, occurrence, activity, tourId, isOffline, user?.userId, renderResult, resetPending, releaseScanner]);
 
   const handleResolved = useCallback(async (scan: PendingScan) => {
     if (!occurrence || !activity || !tourId) return;
@@ -595,13 +615,13 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
         setBanner({ kind: 'info', message: removed ? EVENT_SCAN_MESSAGES.UNSENT_REMOVED : EVENT_SCAN_MESSAGES.ALREADY_SENT });
         return;
       }
-      const opLocalId = await queueEventRecordCancel(record, cancelReason);
+      const opLocalId = await queueEventRecordCancel(record, user?.userId ?? null, cancelReason);
       if (!opLocalId) return;
       if (isOffline) {
         setBanner({ kind: 'info', message: EVENT_SCAN_MESSAGES.CANCEL_QUEUED });
         return;
       }
-      const result = await processEventOperationNow(tourId, opLocalId);
+      const result = await processEventOperationNow(opLocalId);
       if (result.status === 'rejected' || result.status === 'duplicate') {
         setBanner({ kind: result.error.kind, message: result.error.message });
       } else if (result.status === 'queued') {
@@ -673,7 +693,6 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   }
 
   const recent = recentRecords.filter((record) => record.syncStatus !== 'FAILED');
-  const issues = failedRecords.filter((record) => record.occurrenceId === occurrenceId);
   const pendingDisplay = pendingScan ? getRiderDisplayName(pendingScan.riderId) : null;
   const scannerActive = canScan && !pendingScan && !banner && !showManualEntry && isFocused;
 
@@ -906,6 +925,20 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
                   </Text>
                   <Text style={styles.issueText}>{record.syncError}</Text>
                 </View>
+                {!isOffline ? (
+                  <TouchableOpacity
+                    accessibilityLabel={`Retry failed scan for ${record.riderId}`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      retryFailedOperations([record.localId]).catch((error) =>
+                        logger.warn(TAG, 'Retrying failed scan failed', error),
+                      );
+                    }}
+                    style={styles.smallButton}
+                  >
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                   accessibilityLabel={`Dismiss failed scan for ${record.riderId}`}
                   accessibilityRole="button"
@@ -1112,6 +1145,7 @@ const styles = StyleSheet.create({
   },
   smallButton: { alignItems: 'center', justifyContent: 'center', minHeight: 40, minWidth: 40, paddingHorizontal: 8 },
   smallButtonText: { color: COLORS.danger, fontSize: 13, fontWeight: '600' },
+  retryButtonText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: COLORS.primary,

@@ -7,7 +7,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { getRideRiderDetails } from '../../services/api/riderApi';
+import { loadRideRiderDetails, OfflineDataUnavailableError } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn } from '../../utils/riderStatus';
 import { logger } from '../../utils/logger';
@@ -102,7 +102,7 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
     setError(null);
     setDetails(null);
     try {
-      const data = await getRideRiderDetails(tourId, ride.rideId, riderId);
+      const { data } = await loadRideRiderDetails(tourId, ride.rideId, riderId);
       if (!data) {
         setError('Rider details are not available for this rider.');
         return;
@@ -121,7 +121,9 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
     } catch (err) {
       logger.error('RiderCardModal', 'Failed to load rider details', err);
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
-      if (isApiError) {
+      if (err instanceof OfflineDataUnavailableError) {
+        setError(err.message);
+      } else if (isApiError) {
         const apiErr = err as ApiError;
         setError(apiErr.statusCode >= 500
           ? 'The server encountered an error. Please try again later.'

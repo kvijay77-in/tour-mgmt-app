@@ -57,6 +57,10 @@ export interface AppMenuProps {
   scanPauseSeconds: number;
   onOpenScanPauseConfig: () => void;
   onLogout: () => void | Promise<void>;
+  /** Show "Advanced settings" (mobile, non-GUEST) with the account options */
+  showAdvancedSettingsOption?: boolean;
+  /** Unsent + failed items on this device, shown next to "Sync status" */
+  unsentCount?: number;
 }
 
 export function AppMenu({
@@ -80,6 +84,8 @@ export function AppMenu({
   scanPauseSeconds,
   onOpenScanPauseConfig,
   onLogout,
+  showAdvancedSettingsOption = false,
+  unsentCount = 0,
 }: AppMenuProps) {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
@@ -125,6 +131,11 @@ export function AppMenu({
     navigation.navigate('ChangePassword');
   };
 
+  const navigateTo = (route: 'SyncStatus' | 'AdvancedSettings') => {
+    onClose();
+    navigation.navigate(route);
+  };
+
   const handleSelectRide = (ride: Ride) => {
     onClose();
     onSelectRide(ride);
@@ -162,6 +173,22 @@ export function AppMenu({
             <TouchableOpacity style={styles.menuItem} onPress={navigateToChangePassword}>
               <MaterialIcons name="lock-reset" size={18} color={COLORS.textPrimary} />
               <Text style={styles.menuItemText}>Change password</Text>
+            </TouchableOpacity>
+          )}
+
+          {showAccountOptions && (
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('SyncStatus')}>
+              <MaterialIcons name="sync" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>
+                {unsentCount > 0 ? `Sync status (${unsentCount} unsent)` : 'Sync status'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {showAccountOptions && showAdvancedSettingsOption && (
+            <TouchableOpacity style={styles.menuItem} onPress={() => navigateTo('AdvancedSettings')}>
+              <MaterialIcons name="tune" size={18} color={COLORS.textPrimary} />
+              <Text style={styles.menuItemText}>Advanced settings</Text>
             </TouchableOpacity>
           )}
 

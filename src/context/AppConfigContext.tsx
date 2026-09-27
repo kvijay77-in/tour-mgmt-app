@@ -2,7 +2,12 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { CONFIG_TYPE } from '../constants/idCodes';
 import { useAuth } from './AuthContext';
 import { listAppConfigs } from '../services/api/configApi';
-import { getEnabledIdCodeFormat, getIdCodeTypeMap, upsertAppConfigs } from '../services/database/appConfigStore';
+import {
+  getEnabledIdCodeFormat,
+  getIdCodeTypeMap,
+  upsertAppConfigs,
+} from '../services/database/appConfigStore';
+import { hydrateSyncSettingsFromCache } from '../services/sync/syncSettingsService';
 import { logger } from '../utils/logger';
 
 const TAG = 'AppConfigContext';
@@ -25,6 +30,22 @@ export function useAppConfig(): AppConfigContextValue {
   return useContext(AppConfigContext);
 }
 
+/**
+ * Load the optional OFFLINE_SYNC AppConfig (best effort, separate call so a
+ * missing item never blocks mandatory config) and apply it to sync settings.
+ */
+async function refreshOfflineSyncConfig(): Promise<void> {
+  try {
+    const items = await listAppConfigs([CONFIG_TYPE.OFFLINE_SYNC]);
+    if (items.length > 0) {
+      await upsertAppConfigs(items);
+    }
+  } catch (error) {
+    logger.info(TAG, 'OFFLINE_SYNC config not fetched; using cached/default values.', error);
+  }
+  await hydrateSyncSettingsFromCache();
+}
+
 export function AppConfigProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [isReady, setIsReady] = useState(false);
@@ -36,10 +57,18 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
     setIsReady(false);
 
     try {
-      const items = await listAppConfigs([CONFIG_TYPE.ID_CODE_FORMAT, CONFIG_TYPE.ID_CODE_TYPE]);
-      if (items.length > 0) {
-        await upsertAppConfigs(items);
+      // Cache-through: when the server can't be reached (offline) the cached
+      // config from the last online start is used.
+      try {
+        const items = await listAppConfigs([CONFIG_TYPE.ID_CODE_FORMAT, CONFIG_TYPE.ID_CODE_TYPE]);
+        if (items.length > 0) {
+          await upsertAppConfigs(items);
+        }
+      } catch (fetchError) {
+        logger.warn(TAG, 'App configuration fetch failed; using cached configuration.', fetchError);
       }
+
+      await refreshOfflineSyncConfig();
 
       const [format, typeMap] = await Promise.all([
         getEnabledIdCodeFormat(),

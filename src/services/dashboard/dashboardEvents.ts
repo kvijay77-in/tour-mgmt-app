@@ -10,7 +10,7 @@ export type DashboardCancelEvent = {
 };
 
 export type DashboardRefreshEvent = {
-  reason: 'ride_status_changed';
+  reason: 'ride_status_changed' | 'checkins_synced';
   rideId?: string;
 };
 

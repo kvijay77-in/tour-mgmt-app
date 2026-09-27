@@ -26,6 +26,8 @@ import RideInfoScreen from '../screens/dashboard/RideInfoScreen';
 import MainTabNavigator from './MainTabNavigator';
 import { RideSessionProvider } from '../context/RideSessionContext';
 import ChangePasswordScreen from '../screens/auth/ChangePasswordScreen';
+import SyncStatusScreen from '../screens/settings/SyncStatusScreen';
+import AdvancedSettingsScreen from '../screens/settings/AdvancedSettingsScreen';
 import ArtifactsScreen from '../screens/admin/ArtifactsScreen';
 import RideStatusManagementScreen from '../screens/admin/RideStatusManagementScreen';
 import UserOnboardingScreen from '../screens/admin/UserOnboardingScreen';
@@ -47,8 +49,9 @@ import HotelAllocationAdjustScreen from '../screens/events/HotelAllocationAdjust
 import RiderExitScreen from '../screens/admin/RiderExitScreen';
 import TourUserAssignmentScreen from '../screens/admin/TourUserAssignmentScreen';
 import { EventSessionProvider } from '../context/EventSessionContext';
+import { SyncStatusProvider } from '../context/SyncStatusContext';
 import { Permission } from '../types/models';
-import { hasPermission } from '../utils/permissions';
+import { canUseAdvancedSettings, hasPermission } from '../utils/permissions';
 
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
@@ -58,6 +61,14 @@ function RideInfoRoute({ route, navigation }: NativeStackScreenProps<AppStackPar
 
 function ChangePasswordRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'ChangePassword'>) {
   return <ChangePasswordScreen onClose={() => navigation.goBack()} />;
+}
+
+function SyncStatusRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'SyncStatus'>) {
+  return <SyncStatusScreen onClose={() => navigation.goBack()} />;
+}
+
+function AdvancedSettingsRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'AdvancedSettings'>) {
+  return <AdvancedSettingsScreen onClose={() => navigation.goBack()} />;
 }
 
 function ArtifactsRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'Artifacts'>) {
@@ -215,6 +226,18 @@ function AppStack() {
         component={ChangePasswordRoute}
         options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
       />
+      <Stack.Screen
+        name="SyncStatus"
+        component={SyncStatusRoute}
+        options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+      />
+      {canUseAdvancedSettings(user?.userRole) && (
+        <Stack.Screen
+          name="AdvancedSettings"
+          component={AdvancedSettingsRoute}
+          options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+        />
+      )}
 
       {isAdministrator && (
         <Stack.Screen
@@ -311,14 +334,16 @@ export default function AppNavigator() {
   const showSideNav = Platform.OS === 'web' && width >= DESKTOP_MIN_WIDTH && hasHome;
 
   return (
-    <EventSessionProvider>
-      <View style={styles.shell}>
-        {showSideNav && <SideNav sections={sections} />}
-        <View style={styles.content}>
-          <AppStack />
+    <SyncStatusProvider>
+      <EventSessionProvider>
+        <View style={styles.shell}>
+          {showSideNav && <SideNav sections={sections} />}
+          <View style={styles.content}>
+            <AppStack />
+          </View>
         </View>
-      </View>
-    </EventSessionProvider>
+      </EventSessionProvider>
+    </SyncStatusProvider>
   );
 }
 

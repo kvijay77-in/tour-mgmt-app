@@ -59,6 +59,9 @@ tour-mgmt-app/
 │   │   │   ├── RiderExitScreen.tsx             # RIDER_EXIT rider exit (baggage disposition), cancel exit, retained-baggage release
 │   │   │   ├── TourUserAssignmentScreen.tsx    # MANAGE_TOUR_USERS User-{tourId} create/update (role from groups, stage, hotel, events, activities)
 │   │   │   └── TourManagementScreen.tsx        # Tour definition, provisioning, re-provisioning, and ride tabs
+│   │   ├── settings/               # Offline sync screens (mobile)
+│   │   │   ├── SyncStatusScreen.tsx         # Unsent items, retry/discard, Sync now, Verify with server, clock warning
+│   │   │   └── AdvancedSettingsScreen.tsx   # Per-device overrides of OFFLINE_SYNC settings (all roles except GUEST)
 │   │   └── auth/                   # Authentication screens
 │   │       ├── LoginScreen.tsx
 │   │       ├── ForgotPasswordScreen.tsx
@@ -71,6 +74,7 @@ tour-mgmt-app/
 │   │   │   ├── AppMenu.tsx         # Custom slide-in ride header menu (ride items; no drawer/reanimated dep)
 │   │   │   ├── SideNav.tsx         # Persistent web sidebar (≥ DESKTOP_MIN_WIDTH) listing Home hub modules
 │   │   │   ├── ErrorBoundary.tsx
+│   │   │   ├── OfflineBanner.tsx   # Offline strip: toggle, readiness, unsent/failed counts, stale/clock warnings (full + compact)
 │   │   │   └── SortIcon.tsx
 │   │   ├── artifacts/              # Artifact upload and management components (Phase 3)
 │   │   │   ├── ArtifactRow.tsx     # Presentational row/card for artifact display
@@ -82,7 +86,6 @@ tour-mgmt-app/
 │   │   │   ├── TypeCodeMultiSelect.tsx   # ID_CODE_TYPE chip multi-select (+ useIdCodeTypeOptions)
 │   │   │   ├── ActivityChipList.tsx      # Read-only activity chips with per-occurrence override badges
 │   │   │   ├── ActivityOverrideEditor.tsx # Per-activity override editor (side panel ≥768, sheet below)
-│   │   │   ├── OfflineBanner.tsx         # Connectivity strip, manual offline toggle, queued/sync-issue counts (Events screens)
 │   │   │   ├── ActivityStepper.tsx       # Vertical activity stepper (pending/completed/opted-out/flagged/blocked/queued)
 │   │   │   ├── RowErrorTable.tsx         # Hotel upload issues (Row/Code/Message, row 0 = File, capped-list footer)
 │   │   │   ├── ReadOnlyProfileHeader.tsx # Read-only rider identity strip (name, riderId, photo or initials)
@@ -122,9 +125,19 @@ tour-mgmt-app/
 │   │   │   ├── orgConfigService.ts # HMAC verification, expo-secure-store persistence
 │   │   │   └── pitStopContextService.ts # Persist/clear selected pit-stop stage context
 │   │   ├── auth/                   # AWS Cognito authentication and user management
-│   │   │   └── cognitoUserManagementService.ts # Admin create/list/enable/disable/delete/update via Cognito APIs
+│   │   │   ├── cognitoUserManagementService.ts # Admin create/list/enable/disable/delete/update via Cognito APIs
+│   │   │   ├── offlineAuthPolicy.ts        # Offline sign-in rules (last user, max days, attempts) — pure
+│   │   │   ├── offlineCredentialService.ts # Remember me / offline credential in SecureStore, biometric unlock
+│   │   │   └── __tests__/                  # Unit tests
 │   │   ├── database/               # SQLite for offline support
+│   │   │   ├── database.ts         # Database open, local stores, withWriteTransaction, retention purge
+│   │   │   ├── migrations.ts       # Versioned schema migrations (PRAGMA user_version)
 │   │   │   ├── appConfigStore.ts   # AppConfig SQLite persistence and lookups
+│   │   │   ├── tourStore.ts / rideStore.ts / riderStore.ts / checkInStore.ts # Offline data caches
+│   │   │   ├── pendingStore.ts     # Outbound queue storage
+│   │   │   ├── syncMetaStore.ts    # Last refresh time per cached dataset
+│   │   │   ├── nameDirectoryStore.ts # Rider and app-user name directories
+│   │   │   ├── sentCheckInStore.ts # Check-ins sent from the queue (Verify with server)
 │   │   │   ├── riderPersonalCodeStore.ts # Rider personalCode mapping persistence
 │   │   │   ├── eventStore.ts       # Event definitions, occurrences, baggage status, dashboard snapshots, own tour assignment
 │   │   │   ├── eventRecordStore.ts # Write-local-first event activity records with sync state
@@ -134,9 +147,19 @@ tour-mgmt-app/
 │   │   │   └── eventDashboardService.ts # Occurrence dashboard/progress (ETag reuse) + reconciliation → snapshot cache
 │   │   ├── idcode/                 # Production ID code parsing and resolution service
 │   │   │   └── idCodeService.ts
-│   │   ├── sync/                   # Data synchronization service
-│   │   │   ├── syncService.ts      # Check-in sync (CHECK_IN ops only; not wired yet)
-│   │   │   └── eventSyncService.ts # Event record create/cancel queue + ~3 s outbound loop
+│   │   ├── offline/                # Offline readiness
+│   │   │   ├── offlineDataService.ts # Cache-through loaders (online → SQLite; offline → SQLite)
+│   │   │   └── retentionService.ts   # Purge of old synced data
+│   │   ├── sync/                   # Outbound sync
+│   │   │   ├── outboundSyncService.ts # Single engine: handlers, backoff, triggers, status
+│   │   │   ├── checkInSync.ts      # CHECK_IN handler, offline capture, sent log
+│   │   │   ├── eventSyncService.ts # Event record create/cancel handlers
+│   │   │   ├── checkInCrossCheck.ts # Verify with server / Send again
+│   │   │   ├── clockSkew.ts        # Device vs server clock check
+│   │   │   ├── backoff.ts          # Retry backoff with jitter
+│   │   │   ├── syncSettings.ts     # OFFLINE_SYNC settings, limits and defaults
+│   │   │   ├── syncSettingsService.ts # AppConfig + device overrides
+│   │   │   └── __tests__/          # Unit tests
 │   │   └── qrcode/                 # QR code scanning service
 │   │
 │   ├── hooks/                      # Custom React hooks
@@ -149,6 +172,7 @@ tour-mgmt-app/
 │   │   ├── AppConfigContext.tsx    # ID code config bootstrap context
 │   │   ├── TourContext.tsx         # Active tour context (resolves tourId at startup)
 │   │   ├── OfflineContext.tsx      # Offline mode context (mounted in RootNavigator)
+│   │   ├── SyncStatusContext.tsx   # Sync monitoring, readiness refresh, retention (mounted in AppNavigator)
 │   │   ├── EventSessionContext.tsx # Event scan selection, local records, bootstrap + event sync lifecycle
 │   │   └── RoleContext.tsx         # RBAC role context
 │   │
@@ -163,6 +187,8 @@ tour-mgmt-app/
 │   │   ├── permissions.ts          # RBAC permission utilities
 │   │   ├── eventActivity.ts        # Event engine effective-activity, assignment and local-date rules (pure)
 │   │   ├── riderStatus.ts          # Shared RiderStatus derivation (Dashboard grid + RiderCardModal)
+│   │   ├── checkInValidation.ts    # Check-in validation shared by online/offline flows (pure)
+│   │   ├── __tests__/              # Unit tests (jest-expo; `npm test`)
 │   │   ├── validators.ts           # Input validation
 │   │   └── formatters.ts           # Data formatting utilities
 │   │
@@ -195,7 +221,7 @@ tour-mgmt-app/
 ├── App.tsx                         # Root application component
 ├── app.json                        # Expo configuration
 ├── eas.json                        # EAS Build profiles (development / preview / production)
-├── package.json                    # NPM dependencies and scripts
+├── package.json                    # NPM dependencies, scripts and Jest config (`npm test`, `npm run typecheck`)
 └── tsconfig.json                   # TypeScript configuration
 ```
 

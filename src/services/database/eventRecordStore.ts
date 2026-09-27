@@ -130,17 +130,36 @@ export async function getUnsyncedEventRecordCount(occurrenceId?: string): Promis
   return row?.count ?? 0;
 }
 
-export async function getFailedEventRecords(occurrenceId?: string): Promise<LocalEventActivityRecord[]> {
+/** Count of records the server rejected (COUNT query for banners). */
+export async function getFailedEventRecordCount(): Promise<number> {
   const db = await getDatabase();
-  const rows = occurrenceId
-    ? await db.getAllAsync<Record<string, unknown>>(
-        `SELECT * FROM event_activity_records WHERE syncStatus = 'FAILED' AND occurrenceId = ? ORDER BY timestamp DESC`,
-        [occurrenceId],
-      )
-    : await db.getAllAsync<Record<string, unknown>>(
-        `SELECT * FROM event_activity_records WHERE syncStatus = 'FAILED' ORDER BY timestamp DESC`,
-      );
+  const row = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM event_activity_records WHERE syncStatus = 'FAILED'`,
+  );
+  return row?.count ?? 0;
+}
+
+/** Failed records of one occurrence, newest first, at most `limit`. */
+export async function getFailedEventRecords(
+  occurrenceId: string,
+  limit = 50,
+): Promise<LocalEventActivityRecord[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    `SELECT * FROM event_activity_records WHERE syncStatus = 'FAILED' AND occurrenceId = ?
+     ORDER BY timestamp DESC LIMIT ?`,
+    [occurrenceId, limit],
+  );
   return rows.map(mapRowToRecord);
+}
+
+/** Put a failed record back to PENDING when the user retries it. */
+export async function markEventRecordPending(localId: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE event_activity_records SET syncStatus = 'PENDING', syncError = NULL WHERE localId = ? AND syncStatus = 'FAILED'`,
+    [localId],
+  );
 }
 
 export async function markEventRecordSynced(

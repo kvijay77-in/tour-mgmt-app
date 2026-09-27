@@ -100,13 +100,22 @@ src/services/
 │   ├── userApi.ts          # User endpoints
 │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 ├── database/               # SQLite for offline support
-│   ├── database.ts         # Database initialisation, schema management
-│   ├── riderStore.ts       # Rider data local storage
-│   ├── rideStore.ts        # Ride data local storage
-│   ├── checkInStore.ts     # Check-in data local storage
-│   └── pendingStore.ts     # Pending sync queue storage
-└── sync/                   # Data synchronisation
-    └── syncService.ts      # Background sync logic
+│   ├── database.ts         # Database initialisation, local stores, retention purge
+│   ├── migrations.ts       # Versioned schema migrations (PRAGMA user_version)
+│   ├── riderStore.ts / rideStore.ts / tourStore.ts / checkInStore.ts # Cached data
+│   ├── pendingStore.ts     # Outbound queue storage
+│   ├── syncMetaStore.ts / nameDirectoryStore.ts # Readiness timestamps, name directories
+│   └── sentCheckInStore.ts # Log of check-ins sent from the queue (Verify with server)
+├── offline/                # Offline readiness
+│   ├── offlineDataService.ts # Cache-through loaders (online → SQLite, offline → SQLite)
+│   └── retentionService.ts   # Purge of old synced data
+├── auth/                   # Offline sign-in
+│   ├── offlineAuthPolicy.ts
+│   └── offlineCredentialService.ts
+└── sync/                   # Outbound sync (see §4.8)
+    ├── outboundSyncService.ts # Single engine for check-ins and event operations
+    ├── checkInSync.ts / eventSyncService.ts # Per-family handlers
+    ├── backoff.ts / syncSettings.ts / clockSkew.ts / checkInCrossCheck.ts
 ```
 
 ### 2.3 API Client (`apiClient.ts`)
@@ -274,7 +283,7 @@ Current implemented frontend flow (`src/screens/dashboard/DashboardScreen.tsx`):
 Implemented privacy behavior:
 - Rider popup details are memory-only in the Dashboard screen state.
 - No rider-detail persistence to SQLite or SecureStore in default path.
-- Optional offline rider-profile cache remains a future enhancement behind a disabled feature-flag placeholder.
+- Offline (mobile), the rider popup is rebuilt from the cached rider and the ride's cached check-ins (`loadRideRiderDetails`); nothing extra is persisted.
 
 Implemented payload contracts used by frontend:
 
@@ -391,6 +400,16 @@ Note on duplicate-call interpretation:
 Offline support is critical for pit-stop stage users (`PS_x_USER`) at remote locations. The design uses SQLite (via `expo-sqlite`) as the local database for caching and offline check-in capture.
 
 ### 4.2 SQLite Schema
+
+The schema is versioned with `PRAGMA user_version` (`src/services/database/migrations.ts`). Migrations run in order at database open, each in its own transaction, and are idempotent:
+
+| Version | Changes |
+|---|---|
+| v1 | Base schema below (plus `check_ins.isFloat`, `check_ins.floatNo`, `riders.dietaryPreference`) |
+| v2 | `pending_operations.nextAttemptAt`, `ownerUserId`; `check_ins.tourId`, `ownerUserId`, `cancelledAt`, `cancelledBy`, `status`, `prevStatus`; `riders.tourId`; `rides.tourId`, `payloadJson`; `tour.payloadJson`; tables `sync_meta`, `rider_names`, `app_user_names`; indexes `idx_pending_ops_due`, `idx_check_ins_ride_sync` |
+| v3 | Table `sent_check_ins` and index `idx_sent_check_ins_ride` |
+
+Bulk writes (cache replacement, purge) run inside `withWriteTransaction`, which serialises writers on the single expo-sqlite connection.
 
 ```sql
 -- Tour context (single active tour cached)
@@ -586,7 +605,41 @@ CREATE INDEX IF NOT EXISTS idx_event_records_sync ON event_activity_records(sync
 CREATE INDEX IF NOT EXISTS idx_room_allocations_hotel ON room_allocations(hotelId, stayDate);
 ```
 
-The existing check-in outbound sync (`processOutboundSync`) reads only `CHECK_IN` operations; event operation types are processed by the event sync service (Phase 4).
+Offline-mode tables added by migrations v2–v3:
+
+```sql
+-- Last refresh time per cached dataset (e.g. rides:{tourId}, checkins:{rideId}); drives "Offline ready · data as of"
+CREATE TABLE IF NOT EXISTS sync_meta (
+  dataset TEXT PRIMARY KEY,
+  lastSyncedAt TEXT NOT NULL
+);
+
+-- Name directories used offline
+CREATE TABLE IF NOT EXISTS rider_names (
+  tourId TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  name TEXT,
+  PRIMARY KEY (tourId, riderId)
+);
+CREATE TABLE IF NOT EXISTS app_user_names (
+  sub TEXT PRIMARY KEY,
+  name TEXT
+);
+
+-- Check-ins delivered by the outbound queue; used by "Verify with server"
+CREATE TABLE IF NOT EXISTS sent_check_ins (
+  localId TEXT PRIMARY KEY,
+  tourId TEXT NOT NULL,
+  rideId TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  requestJson TEXT NOT NULL,        -- the request as sent (original capture timestamp)
+  serverCheckInId TEXT,             -- NULL when the server reported a duplicate
+  ownerUserId TEXT,
+  sentAt TEXT NOT NULL
+);
+```
+
+Both check-in operations (`CHECK_IN`) and event operation types are processed by the single outbound engine (§4.8).
 
 ### 4.2.1 Storage Estimation and Optimisation
 
@@ -613,6 +666,8 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
 4. **Index only necessary columns:** Primary keys and foreign keys (`riderId`, `rideId`, `stageNumber`) are indexed. No additional indexes unless query performance requires it.
 
 ### 4.3 Data Flow
+
+> **Implementation note (offline mode completion).** The sections below describe the original target design. The implemented behaviour is: online screens read from the API and write the data through to SQLite (cache-through); offline they read from SQLite. Online check-ins are sent directly after any queued ones; offline (or unreachable-server) check-ins go to SQLite and the queue. See §4.8.
 
 #### Design Principle: SQLite as Single Source of Truth
 
@@ -869,7 +924,7 @@ This keeps scan latency predictable and ensures scan-path continuity in low-conn
 
 ### 4.7 Event Engine Offline
 
-Event scanning is the only event write path that works offline. Check-in offline wiring remains a known gap (check-ins still call the API directly).
+Event scanning works offline alongside ride check-ins (§4.8).
 
 #### Event Bootstrap
 
@@ -886,7 +941,7 @@ Triggers (owned by `EventSessionContext`): tour ready and online (repeated on re
 
 Scans are written local-first: `event_activity_records` row (`syncStatus = PENDING`) plus a `pending_operations` row with the same `localId` (`CREATE_EVENT_ACTIVITY_RECORD`). Cancelling a synced record sets `isCancelled` locally and queues `CANCEL_EVENT_ACTIVITY_RECORD` (own `localId`, payload carries `recordId` and `recordLocalId`). Cancelling an unsynced record deletes it and drops its queued create.
 
-`src/services/sync/eventSyncService.ts` processes only these two types, FIFO, in one serial queue shared by the ~3 s loop (running while a tour is loaded and online) and interactive sends. An interactive send first flushes older queued event ops. Requests use `maxRetries: 0`.
+`src/services/sync/eventSyncService.ts` registers the handlers for these two types with the shared outbound engine (§4.8); they are sent FIFO in one serial queue shared with interactive sends. There is no fixed-interval loop. An interactive send first flushes older queued event ops. Requests use `maxRetries: 0`.
 
 | Result | Create | Cancel |
 |---|---|---|
@@ -904,6 +959,59 @@ Ops left `SYNCING` by a crash are reset to PENDING once per app session before t
 - `BAGGAGE` ID types are blocked when `rider_baggage_status.baggageStatus = WITH_RIDER` (message includes rider and `baggageReleasedAt`). Online the server decides.
 - Local duplicate check: this device's non-cancelled, non-failed record for the same occurrence, rider and activity.
 - Variant default: `riders.dietaryPreference` (refreshed online from `GET /v1/riders/profile/{profileId}` on each variant scan).
+
+### 4.8 Offline Mode (Implemented)
+
+Mobile only; web is always online.
+
+#### Offline readiness (cache-through)
+
+`src/services/offline/offlineDataService.ts` loaders are used by the screens: online they call the API and write the result to SQLite (`sync_meta` records the time); offline they read SQLite. Datasets: active tour, rides, tour riders and rider names, app-user names, the ride's check-ins (including Not Riding) and the events bootstrap. While online and today's ride is OPEN/STARTED, `SyncStatusContext` refreshes the ride datasets every `readinessRefreshMinutes` (skipped when fresh). No explicit download is needed before going offline.
+
+#### Outbound engine
+
+`src/services/sync/outboundSyncService.ts` sends `pending_operations` through handlers registered per operation type (`checkInSync.ts`: `CHECK_IN`; `eventSyncService.ts`: event create/cancel).
+
+| Aspect | Behaviour |
+|---|---|
+| Triggers | New capture, reconnect, app foreground, online sign-in, "Sync now"/"Retry". No polling loop. |
+| Conditions | Mobile, foreground, online, signed in online. An offline sign-in session never sends. |
+| Order | FIFO per family; a failing item blocks only its own family. |
+| Retry | Exponential backoff with jitter (`nextAttemptAt`), capped at `maxBackoffMinutes`. |
+| Connectivity failure | Item stays PENDING; attempts are not used up. |
+| Server failure | After `maxSyncAttempts`, item becomes FAILED ("Needs attention"). |
+| Duplicate on server | `DUPLICATE_CHECKIN` / `DUPLICATE_ACTIVITY_RECORD` on a retried item is treated as sent. |
+| Crash recovery | Items left SYNCING are reset to PENDING once per session. |
+| Owner | Items carry `ownerUserId`; only the owner's items are sent. |
+
+The backend stores the client capture timestamp, so offline check-ins keep their real time.
+
+#### Monitoring and recovery
+
+- **Sync status** screen: unsent items with error, Retry / Retry all / Discard (confirmation), Sync now, readiness time.
+- **Stale queue alert** when an item is unsent for more than `staleQueueAlertMinutes` while online.
+- **Sign-out guard**: signing out with unsent data lists the items and asks for confirmation.
+- **Verify with server** (on demand): for each ride in `sent_check_ins`, `GET /dashboard/progress` is called once and the sent check-ins are matched against the server check-ins and cancelled records (by server id, otherwise rider + timestamp + kind + stage). Missing ones are listed with **Send again**, which re-queues the original request (original timestamp). Only check-ins sent from the queue are logged; check-ins sent directly online already had the server's confirmation.
+- **Device clock check**: `apiClient` reads the `Date` header of normal responses (`clockSkew.ts`, midpoint of the request, last 3 samples, smallest wins). A difference over `clockSkewWarnMinutes` shows a warning in the offline strip and Sync status. No extra requests.
+
+#### Retention
+
+`retentionService.ts` runs at most every 12 hours on start/foreground and calls `purgeExpiredLocalData`: synced check-ins of rides older than `retentionDays`, synced/cancelled event records of past occurrences, and `sent_check_ins` older than `retentionDays`. Unsent or failed data is never purged.
+
+#### Settings (`OFFLINE_SYNC/DEFAULT` AppConfig)
+
+| Key | Default | Limits | Device override |
+|---|---:|---|---|
+| `readinessRefreshMinutes` | 5 | 1–60 | Yes |
+| `maxSyncAttempts` | 8 | 3–20 | Yes |
+| `staleQueueAlertMinutes` | 30 | 5–240 | Yes |
+| `retentionDays` | 2 | 1–14 | Yes |
+| `maxBackoffMinutes` | 15 | 1–60 | Yes |
+| `offlineLoginMaxDays` | 7 | 1–30 | No |
+| `offlineLoginMaxAttempts` | 5 | 3–10 | No |
+| `clockSkewWarnMinutes` | 5 | 1–60 | No |
+
+Values are clamped to the limits. Device overrides (Advanced settings, all roles except GUEST) are stored in AsyncStorage and can be reset to the AppConfig values.
 
 ---
 

@@ -6,6 +6,11 @@
  * 2. Middle: auto check-in toggle + scanned rider confirmation card + Confirm/Re-scan.
  * 3. Bottom: rolling log of the last 5 check-ins done on this device this session.
  *
+ * Offline (or when the server cannot be reached) check-ins are validated
+ * against the device cache, saved on the device and sent later by the
+ * outbound sync engine (services/sync/checkInSync.ts). Start-stage overrides
+ * need a connection.
+ *
  * See docs/Requirements.md § Check-In and docs/SolutionDesign.md § Check-In Flow.
  */
 
@@ -29,11 +34,17 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useTour } from '../../context/TourContext';
 import { useRideSession } from '../../context/RideSessionContext';
+import { useOffline } from '../../context/OfflineContext';
 import { createInteractiveCheckIn, overrideInteractiveCheckIn } from '../../services/api/checkInApi';
+import { isNetworkError } from '../../services/api/apiClient';
 import { getRiderById } from '../../services/api/riderApi';
+import { getRiderById as getCachedRiderById } from '../../services/database/riderStore';
+import { getCheckInsByRider } from '../../services/database/checkInStore';
+import { captureCheckInLocally, flushQueuedCheckIns } from '../../services/sync/checkInSync';
+import { evaluateCheckInAgainstHistory } from '../../utils/checkInValidation';
 import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { COLORS, QR_SCANNER_COLORS } from '../../constants/colors';
-import { CheckInMethod, Permission, RideStatus, Stage, StageType, TourRiderStatus } from '../../types/models';
+import { CheckIn, CheckInMethod, Permission, RideStatus, Stage, StageType, TourRiderStatus } from '../../types/models';
 import { CheckInRequest } from '../../types/api';
 import { getPitStopStageNumbersFromRoles, hasPermission, isPitStopUserRole } from '../../utils/permissions';
 import { logger } from '../../utils/logger';
@@ -102,7 +113,10 @@ function getConflictMessage(error: unknown): string | null {
 export default function CheckInScreen() {
   const { user } = useAuth();
   const { tour } = useTour();
+  const { isOffline } = useOffline();
   const { getRiderDisplayName } = useNameDirectory();
+  /** Capture locally instead of calling the API (offline, or signed in offline) */
+  const captureOffline = isOffline || Boolean(user?.isOfflineSession);
   const [permission, requestPermission] = useCameraPermissions();
   const {
     currentRide: activeRide,
@@ -415,7 +429,29 @@ export default function CheckInScreen() {
     }
 
     try {
-      const rider = await getRiderById(tour.tourId, riderId);
+      let rider = null;
+      if (!captureOffline) {
+        try {
+          rider = await getRiderById(tour.tourId, riderId);
+        } catch (error) {
+          if (!isNetworkError(error)) throw error;
+          rider = await getCachedRiderById(riderId);
+        }
+      } else {
+        rider = await getCachedRiderById(riderId);
+        if (!rider) {
+          showStatusMessage({
+            kind: 'error',
+            text: `Rider ${riderId} is not in the offline data on this device.`,
+            primaryAction: {
+              label: 'OK',
+              onPress: dismissStatusMessage,
+            },
+          });
+          void playFailure('error');
+          return false;
+        }
+      }
       const normalizedStatus = typeof rider?.status === 'string' && rider.status.trim().length > 0
         ? rider.status.trim().toUpperCase()
         : 'UNKNOWN';
@@ -447,7 +483,40 @@ export default function CheckInScreen() {
       void playFailure('error');
       return false;
     }
-  }, [tour, dismissStatusMessage, showStatusMessage]);
+  }, [tour, captureOffline, dismissStatusMessage, showStatusMessage]);
+
+  /**
+   * Validate against the device cache and save the check-in on the device
+   * (sent later by the sync engine). Returns the saved check-in, or null when
+   * it was blocked (a message is shown).
+   */
+  const captureLocally = useCallback(async (request: CheckInRequest, stageId: string): Promise<CheckIn | null> => {
+    if (!tour || !user) return null;
+    const history = await getCheckInsByRider(request.riderId, request.rideId);
+    const conflict = evaluateCheckInAgainstHistory(request, history);
+    if (conflict && conflict.kind !== 'success') {
+      const text = conflict.kind === 'override_required'
+        ? `${conflict.message.replace(/ Override it with .*\?$/, '')} Changing it needs a connection.`
+        : conflict.message;
+      showStatusMessage({
+        kind: conflict.kind === 'override_required' ? 'warning' : 'info',
+        text,
+        primaryAction: {
+          label: 'OK',
+          onPress: acknowledgeStatusAndReadyForNextScan,
+        },
+      });
+      void playFailure('warning');
+      return null;
+    }
+    return captureCheckInLocally({
+      tourId: tour.tourId,
+      request,
+      stageId,
+      ownerUserId: user.userId,
+      checkedInBy: user.username,
+    });
+  }, [tour, user, showStatusMessage, acknowledgeStatusAndReadyForNextScan]);
 
   const submitCheckIn = useCallback(async (riderId: string, method: CheckInMethod, overrideRequested: boolean = false) => {
     if (!tour || !riderId || !activeRide) return;
@@ -515,22 +584,52 @@ export default function CheckInScreen() {
             isQuitRiding: false,
           };
 
-      let outcome: Awaited<ReturnType<typeof createInteractiveCheckIn>> | Awaited<ReturnType<typeof overrideInteractiveCheckIn>>;
-      try {
-        outcome = overrideRequested
-          ? await overrideInteractiveCheckIn(tour.tourId, request)
-          : await createInteractiveCheckIn(tour.tourId, request);
-      } catch (error) {
-        const conflictMessage = getConflictMessage(error);
-        if (conflictMessage) {
-          logger.info(TAG, 'Check-in conflict handled in screen layer', {
-            riderId,
-            checkInType,
-            stageNumber: effectiveStage?.stageNumber ?? null,
-          });
+      const stageId = checkInType === 'quit_riding' ? '' : (effectiveStage?.stageId ?? '');
+      let saveLocally = captureOffline;
+      if (!saveLocally && !overrideRequested) {
+        // Earlier offline check-ins go first; if they cannot be sent, queue this one behind them.
+        saveLocally = !(await flushQueuedCheckIns().catch(() => false));
+      }
+
+      let outcome: Awaited<ReturnType<typeof createInteractiveCheckIn>> | Awaited<ReturnType<typeof overrideInteractiveCheckIn>> | null = null;
+      if (!saveLocally) {
+        try {
+          outcome = overrideRequested
+            ? await overrideInteractiveCheckIn(tour.tourId, request)
+            : await createInteractiveCheckIn(tour.tourId, request);
+        } catch (error) {
+          if (isNetworkError(error) && !overrideRequested) {
+            logger.info(TAG, 'Server unreachable; saving check-in on device', { riderId });
+            saveLocally = true;
+          } else {
+            const conflictMessage = getConflictMessage(error);
+            if (conflictMessage) {
+              logger.info(TAG, 'Check-in conflict handled in screen layer', {
+                riderId,
+                checkInType,
+                stageNumber: effectiveStage?.stageNumber ?? null,
+              });
+              showStatusMessage({
+                kind: 'info',
+                text: conflictMessage,
+                primaryAction: {
+                  label: 'OK',
+                  onPress: acknowledgeStatusAndReadyForNextScan,
+                },
+              });
+              void playFailure('warning');
+              return;
+            }
+            throw error;
+          }
+        }
+      }
+
+      if (saveLocally) {
+        if (overrideRequested) {
           showStatusMessage({
-            kind: 'info',
-            text: conflictMessage,
+            kind: 'warning',
+            text: 'Changing a Start-stage check-in needs a connection. Try again when online.',
             primaryAction: {
               label: 'OK',
               onPress: acknowledgeStatusAndReadyForNextScan,
@@ -539,8 +638,12 @@ export default function CheckInScreen() {
           void playFailure('warning');
           return;
         }
-        throw error;
+        const saved = await captureLocally(request, stageId);
+        if (!saved) return;
+        outcome = { kind: 'success', checkIn: saved };
       }
+
+      if (!outcome) return;
 
       if (outcome.kind === 'override_required') {
         setIsSubmitting(false);
@@ -583,7 +686,7 @@ export default function CheckInScreen() {
       setCheckIns([outcome.checkIn, ...(checkIns ?? [])]);
       publishDashboardCheckInEvent({ checkIn: outcome.checkIn });
       void playSuccess();
-      logger.info(TAG, `Check-in recorded: ${riderId} at ${effectiveStage?.name ?? 'N/A'} (${checkInType})`);
+      logger.info(TAG, `Check-in recorded${saveLocally ? ' on device' : ''}: ${riderId} at ${effectiveStage?.name ?? 'N/A'} (${checkInType})`);
 
       const riderName = getRiderDisplayName(riderId).name;
 
@@ -596,7 +699,8 @@ export default function CheckInScreen() {
               ? ((activeRide.floats?.length ?? 0) > 1 && selectedFloatNo ? `Float-${selectedFloatNo}` : 'Float')
               : 'Quit Riding';
 
-      setRecentCheckIns((prev) => [{ riderId, riderName, ts: Date.now(), stage: stageLabel }, ...prev].slice(0, RECENT_CHECKINS_LIMIT));
+      const recentStage = saveLocally ? `${stageLabel} · saved offline` : stageLabel;
+      setRecentCheckIns((prev) => [{ riderId, riderName, ts: Date.now(), stage: recentStage }, ...prev].slice(0, RECENT_CHECKINS_LIMIT));
       resetPendingEntry();
     } catch (err) {
       logger.error(TAG, 'Check-in submission failed', err);
@@ -618,6 +722,8 @@ export default function CheckInScreen() {
     activeRide,
     checkInType,
     selectedStage,
+    captureOffline,
+    captureLocally,
     checkIns,
     setCheckIns,
     selectedFloatNo,

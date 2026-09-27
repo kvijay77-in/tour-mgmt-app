@@ -21,6 +21,7 @@ import {
 import { publishDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { Ride, RideStatus } from '../../types/models';
 import { logger } from '../../utils/logger';
+import { getLocalToday } from '../../utils/dates';
 
 const TAG = 'RideStatusManagementScreen';
 
@@ -91,7 +92,7 @@ export default function RideStatusManagementScreen({
     loadRides();
   }, [loadRides]);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalToday();
 
   const todayRide = useMemo(
     () => rides.find((ride) => ride.date === today),

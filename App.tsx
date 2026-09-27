@@ -17,6 +17,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { ErrorBoundary } from './src/components/common/ErrorBoundary';
 import { AuthProvider } from './src/context/AuthContext';
+import { OfflineProvider } from './src/context/OfflineContext';
 import { configureAmplify } from './src/config/amplify';
 import { initBackendRouting } from './src/config/reviewAccess';
 import { COLORS } from './src/constants/colors';
@@ -123,11 +124,13 @@ export default function App() {
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>
         <ErrorBoundary>
-          <AuthProvider>
-            <NavigationContainer ref={navigationRef}>
-              <RootNavigator />
-            </NavigationContainer>
-          </AuthProvider>
+          <OfflineProvider>
+            <AuthProvider>
+              <NavigationContainer ref={navigationRef}>
+                <RootNavigator />
+              </NavigationContainer>
+            </AuthProvider>
+          </OfflineProvider>
         </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>

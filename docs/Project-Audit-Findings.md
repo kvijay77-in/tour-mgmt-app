@@ -107,6 +107,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed (offline feature). Password saved only with "Remember me" in SecureStore (WHEN_PASSCODE_SET_THIS_DEVICE_ONLY, never AsyncStorage); offline sign-in verifies a salted hash, needs a device screen lock, biometric/PIN unlock via expo-local-authentication, expiry (offlineLoginMaxDays) and lock-out (offlineLoginMaxAttempts). Login screen warns when no screen lock is set.
+
 ### SEC-04 Logout does not clear local data
 - **Severity:** Medium
 - **Where:** `src/context/AuthContext.tsx:314-323` (`logout`). SQLite schema in `src/services/database/database.ts` (for example `riders` with email/phone/emergency contacts at `:49-61`, `event_dashboard_snapshots`, `my_tour_assignment`, `room_allocations`). SecureStore/AsyncStorage keys in `recentCheckInsService.ts`, `pitStopContextService.ts`, `HotelAllocationUploadScreen.tsx`.
@@ -116,6 +118,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ◐ Partially addressed. User-scoped cache cleared and other users' queued data discarded on user switch; retention job limits stored data.
+
 ### SEC-05 POST requests are auto-retried without an idempotency key
 - **Severity:** Medium (data integrity)
 - **Where:** `src/services/api/apiClient.ts:271-422`: every method, including `POST`, is retried up to 3 times on 5xx, 429, network error **and timeout** (`AbortError`).
@@ -124,6 +128,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Default `maxRetries` to 0 for non-idempotent methods (POST), and opt in per call where the server dedupes. Longer term, send an `Idempotency-Key` header (client UUID, reusing `localId` for queued ops) and have the backend honour it.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ◐ Partially addressed. Offline fail-fast and clear offline error messages in apiClient.
 
 ### SEC-06 Backend config values hard-coded in `eas.json` and committed `tools/EAS.env`
 - **Severity:** Medium
@@ -190,6 +196,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. AuthContext rewritten: offline session resume/sign-in from the saved profile, re-authentication when connectivity returns, user-switch guard.
+
 ### DES-02 Ride check-in is online-only; offline sync layer is dead code
 - **Severity:** High (requirement gap)
 - **Where:** `src/screens/checkin/CheckInScreen.tsx:452-522` calls `createInteractiveCheckIn` / `overrideInteractiveCheckIn` directly. `src/services/sync/syncService.ts` (343 lines), `riderStore.ts`, `rideStore.ts`, `checkInStore.insertLocalCheckIn`, `pendingStore.enqueueCheckIn` and `database.purgeClosedRideData` are **not called anywhere** (`project-structure.md:137` also says "not wired yet").
@@ -198,6 +206,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Decide explicitly. **(a)** Wire ride check-ins through the same write-local-first queue the event engine uses (see REF-04), or **(b)** formally scope ride check-in as online-only, update the requirement, and delete `syncService.ts` and the unused stores and tables.
 
 **Decision:** ☐ Accept (a) ☐ Accept (b) ☐ Reject ☐ Defer
+
+**Status:** ✅ Completed. Ride check-ins are captured locally when offline (checkInSync.captureCheckInLocally), validated against cached history (utils/checkInValidation) and sent by the outbound sync engine with capture timestamps. Sync status adds "Verify with server" (sent log `sent_check_ins`, Send again) and a device clock warning.
 
 ### DES-03 "Today" is computed in UTC in the ride module
 - **Severity:** High (functional bug)
@@ -208,6 +218,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Shared utils/dates.ts (device-local date) used for "today".
+
 ### DES-04 No SQLite schema versioning / migrations
 - **Severity:** Medium
 - **Where:** `src/services/database/database.ts:35-279` (a single `CREATE TABLE IF NOT EXISTS` script plus ad-hoc `ALTER TABLE … ADD COLUMN` checks at `:250-264`)
@@ -216,6 +228,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Versioned SQLite migrations (migrations.ts) and readiness caches with sync_meta timestamps; data is cached on every online load so offline is available instantly.
+
 ### DES-05 No local data retention / cleanup
 - **Severity:** Medium
 - **Where:** `database.purgeClosedRideData` (`database.ts:298-310`) is never called. There is no TTL for `event_dashboard_snapshots`, `event_activity_records` (synced), `pending_operations` (FAILED), `room_allocations` or `my_tour_assignment`.
@@ -223,6 +237,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Add a retention job on app start or foreground (for example: delete synced records older than N days and snapshots for occurrences before today−1, clear everything on tour change). Never delete unsynced rows automatically; surface them instead.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ✅ Completed. services/offline/retentionService.ts purges synced data of past rides/events older than retentionDays (checked on start/foreground, at most twice a day). Unsynced rows are never deleted.
 
 ### DES-06 Event sync queue has no backoff, max-retry or head-of-line protection
 - **Severity:** Medium
@@ -233,6 +249,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Unified outbound sync engine (services/sync/outboundSyncService.ts) with exponential backoff + jitter, maxSyncAttempts, per-family head-of-line protection, FAILED items surfaced in Sync status. Event-driven triggers only (no polling loop).
+
 ### DES-07 401 handling retries with the same cached token
 - **Severity:** Medium
 - **Where:** `src/services/api/apiClient.ts:317-329`, token provider `AuthContext.tsx:163-170`
@@ -242,6 +260,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. apiClient forces a token refresh and retries once on 401.
+
 ### DES-08 No automated tests, CI, typecheck script or Prettier
 - **Severity:** Medium
 - **Where:** `package.json` (scripts: only start/lint), no `.github/workflows/`, no Prettier dependency or config (although the Copilot instructions ask for ESLint + Prettier and unit tests for critical functions)
@@ -249,6 +269,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Add `jest-expo` + `@testing-library/react-native`, start with the pure utils above, and add a `typecheck` (`tsc --noEmit`) script. Add a small GitHub Actions workflow (install → lint → typecheck → test) on PRs. Add Prettier with `eslint-config-prettier`.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ◐ Partially addressed. jest-expo with lightweight unit tests (npm test) and a typecheck script added; CI/Prettier not in scope.
 
 ### DES-09 Error boundaries only at the root
 - **Severity:** Low
@@ -265,6 +287,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Refresh `project-structure.md` and `migration-cleanup.md`. Consider generating the tree section from the file system.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ◐ Partially addressed. Offline-related docs refreshed: Requirements (Offline Mode Details), SolutionDesign (Offline Architecture), DataIntegrationDesign §4.2/§4.8, project-structure (offline, sync, auth, settings, tests), Event-Engine-Design and dashboard-call-trigger-baseline. The non-offline drift listed above (hooks, other contexts, migration-cleanup) is outside this work.
 
 ---
 
@@ -295,6 +319,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Bulk writes use withWriteTransaction (serialised single transaction).
+
 ### PERF-04 Worst-case request latency of over a minute
 - **Severity:** Medium
 - **Where:** `apiClient.ts:35-37, 271-422`: 15 s timeout × 4 attempts + 2 s/4 s/8 s backoff ≈ **74 s** before an error is shown. The timeout also stops covering the request once headers arrive (`clearTimeout` at `:307`, before `response.json()`). `combineSignals` (`:438-452`) adds listeners that are never removed.
@@ -319,6 +345,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Timer loop removed; engine is event-driven (enqueue, reconnect, foreground) with a single timer for the next due retry, stopped in background/offline.
+
 ### PERF-07 Unbounded "failed records" query
 - **Severity:** Low
 - **Where:** `EventSessionContext.tsx:111-124` (`getFailedEventRecords()` has no limit and is loaded into context state on every sync notification)
@@ -326,6 +354,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Expose a `failedCount` (a `COUNT(*)` query) for the banner. Load failed records per occurrence, with a limit, only in `EventScanScreen`.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ✅ Completed. Failed records are counted with COUNT(*) and listed per occurrence with a limit (50).
 
 ---
 
@@ -364,6 +394,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Check-in and event sync share one engine with registered handlers; legacy syncService.ts removed.
+
 ### REF-05 Tolerant multi-shape API parsing hides contract drift
 - **Severity:** Low
 - **Where:** `cognitoUserManagementService.ts:39-85` (accepts `users|Users|items`, `cognitoUserId|userId|sub|cognitoSub|id|usernameId`, `email|Email`, …). `apiClient.ts:176-195` camel-cases **every** request-body key recursively, which would also rename user-supplied map keys (for example a key like `room_type` in a free-form object).
@@ -400,6 +432,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ◐ Partially addressed. Unused sync helpers removed with the old sync service.
+
 ---
 
 ## 5. UI / User experience
@@ -424,6 +458,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
+**Status:** ✅ Completed. Shared components/common/OfflineBanner (compact variant in the ride tabs header, full on Home/Events) with manual toggle, unsent/failed counts, stale alert and "data as of" time; tap opens Sync status.
+
 ### UX-03 Accessibility coverage is partial
 - **Severity:** Medium
 - **Where:** 88 `accessibilityLabel`s against about 228 `TouchableOpacity`/`Pressable` elements. Rider tiles in `DashboardScreen` convey status **only by colour** (for example red/green/white backgrounds). Some icon-only buttons (for example the undo icon in `EventScanScreen.tsx:948`) have small hit areas.
@@ -445,6 +481,8 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 - **Recommendation:** Show a countdown ring or seconds remaining on the scanner overlay during the pause. Confirm before dismissing a sync issue. Once DES-06 moves exhausted transient failures to FAILED, add "Retry" or "Retry all" for those. Show the pending/failed count on the Events tile in Home.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ◐ Partially addressed. Retry / Retry all for failed scans and confirmation before discarding; pause countdown not changed.
 
 ### UX-06 App identity and theme
 - **Severity:** Low
