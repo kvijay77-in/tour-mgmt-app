@@ -8,6 +8,7 @@ import { Tour } from '../../types/models';
 import {
   CreateTourRequest,
   ProvisionTourRequest,
+  ReprovisionTourResponse,
   UpdateTourRequest,
 } from '../../types/api';
 import { USE_MOCK_DATA, MOCK_TOUR } from './mockData';
@@ -100,6 +101,18 @@ export async function updateTour(
     throw new Error('Unexpected empty response from updateTour');
   }
   return response.data;
+}
+
+/** Re-run idempotent provisioning; creates only missing tables (PUT /v1/tours/{tourId}/provision). */
+export async function reprovisionTour(tourId: string): Promise<ReprovisionTourResponse> {
+  const response = await apiClient.put<ReprovisionTourResponse>(
+    `${TOURS_PATH}/${encodeURIComponent(tourId)}/provision`,
+    undefined,
+  );
+  if (!response.data?.tour) {
+    throw new Error('Unexpected empty response from reprovisionTour');
+  }
+  return { tour: response.data.tour, provisionedTables: response.data.provisionedTables ?? [] };
 }
 
 /** Create and provision a tour in one operation. */

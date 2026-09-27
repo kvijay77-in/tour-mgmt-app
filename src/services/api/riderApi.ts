@@ -4,8 +4,9 @@
  */
 
 import { apiClient, ApiError } from './apiClient';
-import { GetRidersQuery } from '../../types/api';
-import { Rider, RiderDetailsData } from '../../types/models';
+import { EventApiOutcome, run } from './eventsApi';
+import { BaggageReleaseRequest, GetRidersQuery, RiderExitRequest } from '../../types/api';
+import { DietaryPreference, Rider, RiderDetailsData, TourRider } from '../../types/models';
 import { USE_MOCK_DATA, getMockRiderDetailsResponse } from './mockData';
 
 function ridersPath(tourId: string): string {
@@ -71,6 +72,58 @@ export async function getRiderById(
     }
     throw error;
   }
+}
+
+/**
+ * Get a rider profile's dietaryPreference (GET /v1/riders/profile/{profileId}).
+ * Returns undefined when the profile does not exist.
+ */
+export async function getRiderProfileDietaryPreference(
+  profileId: string,
+): Promise<DietaryPreference | null | undefined> {
+  try {
+    const response = await apiClient.get<{ dietaryPreference?: DietaryPreference | null }>(
+      `/v1/riders/profile/${encodeURIComponent(profileId)}`,
+      { isExpectedError: (error) => error.statusCode === 404 },
+    );
+    return response.data?.dietaryPreference ?? null;
+  } catch (error) {
+    if (error instanceof ApiError && error.statusCode === 404) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rider exit and baggage release (RIDER_EXIT). Expected 400/403/404/409
+// responses are outcomes; each success returns the updated TourRider item.
+// ---------------------------------------------------------------------------
+
+function riderPath(tourId: string, riderId: string): string {
+  return `/v1/tours/${encodeURIComponent(tourId)}/riders/${encodeURIComponent(riderId)}`;
+}
+
+export function exitRider(
+  tourId: string,
+  riderId: string,
+  body: RiderExitRequest,
+): Promise<EventApiOutcome<TourRider>> {
+  return run<TourRider>((options) => apiClient.post(`${riderPath(tourId, riderId)}/exit`, body, options));
+}
+
+export function cancelRiderExit(tourId: string, riderId: string): Promise<EventApiOutcome<TourRider>> {
+  return run<TourRider>((options) => apiClient.post(`${riderPath(tourId, riderId)}/exit/cancel`, undefined, options));
+}
+
+export function releaseRiderBaggage(
+  tourId: string,
+  riderId: string,
+  body: BaggageReleaseRequest = {},
+): Promise<EventApiOutcome<TourRider>> {
+  return run<TourRider>((options) =>
+    apiClient.post(`${riderPath(tourId, riderId)}/baggage/release`, body, options),
+  );
 }
 
 /**

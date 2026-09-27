@@ -5,10 +5,24 @@
  */
 
 import {
+  ActivityOutcome,
+  ActivityOverride,
+  BaggageDisposition,
   CheckInStatus,
   CheckInMethod,
+  EventActivity,
+  EventActivityRecord,
+  EventAssignment,
+  EventDefinition,
+  EventOccurrence,
+  EventRecordMethod,
+  EventType,
   RideStatus,
+  RiderBaggageStatus,
+  RoomAllocation,
+  Tour,
   TourStatus,
+  TourUserAssignment,
 } from './models';
 
 // ============================================================================
@@ -28,6 +42,8 @@ export interface CheckInRequest {
   isFloat?: boolean;
   floatNo?: number;
   notes?: string;
+  /** Capture time (ISO 8601) for check-ins recorded offline and synced later */
+  timestamp?: string;
 }
 
 /**
@@ -106,6 +122,12 @@ export interface UpdateTourRequest extends Partial<CreateTourRequest> {
 export interface ProvisionTourRequest extends CreateTourRequest {
   provisioning: true;
   provisionOnly?: false;
+}
+
+/** PUT /v1/tours/{tourId}/provision — provisionedTables lists only tables created by this call. */
+export interface ReprovisionTourResponse {
+  tour: Tour;
+  provisionedTables: string[];
 }
 
 // ============================================================================
@@ -232,4 +254,204 @@ export interface PresignUploadResponse {
 export interface ArtifactQuery {
   artifactId?: string;
   expiresIn?: number; // 60..3600, default 900
+}
+
+// ============================================================================
+// EVENT ENGINE TYPES (temp/api-guide.md Events, Hotels, Users)
+// ============================================================================
+
+export type EventActivityInput = Pick<EventActivity, 'activityId' | 'name' | 'sequenceNo'> &
+  Partial<Omit<EventActivity, 'activityId' | 'name' | 'sequenceNo'>>;
+
+/** POST /v1/tours/{tourId}/events */
+export interface CreateEventRequest {
+  eventId: string;
+  eventName: string;
+  eventType: EventType;
+  location: string;
+  sequenceEnforced: boolean;
+  defaultAllowedTypeCodes: string[];
+  allowSelfService?: boolean;
+  activities: EventActivityInput[];
+}
+
+/** PUT /v1/tours/{tourId}/events/{eventId} */
+export type UpdateEventRequest = Partial<Omit<CreateEventRequest, 'eventId'>>;
+
+/** POST /v1/tours/{tourId}/events/{eventId}/occurrences */
+export interface CreateOccurrenceRequest {
+  date: string;
+  seq: number;
+  selfServiceEnabled?: boolean;
+  linkedOccurrenceRef?: string;
+}
+
+/** PUT /v1/tours/{tourId}/events/{eventId}/occurrences/{occurrenceId} */
+export interface UpdateOccurrenceRequest {
+  selfServiceEnabled?: boolean;
+  linkedOccurrenceRef?: string | null;
+}
+
+export interface CancelOccurrenceRequest {
+  cancelReason?: string;
+}
+
+/** PUT .../activity-overrides — single-activity upsert; null clears one field */
+export interface UpsertActivityOverrideRequest {
+  activityId: string;
+  enabled?: boolean | null;
+  selfServiceEnabled?: boolean | null;
+  allowedTypeCodes?: string[] | null;
+  note?: string | null;
+}
+
+export interface ActivityOverridesResponse {
+  items: ActivityOverride[];
+}
+
+/** POST .../complete returns the occurrence plus the outstanding count */
+export interface OccurrenceCompleteResponse extends EventOccurrence {
+  outstandingMandatoryCount: number;
+}
+
+/** POST .../records */
+export interface CreateActivityRecordRequest {
+  activityId: string;
+  riderId: string;
+  method: EventRecordMethod;
+  timestamp: string;
+  /** Required unless outcome is OPTED_OUT */
+  typeCode?: string;
+  outcome?: ActivityOutcome.COMPLETED | ActivityOutcome.OPTED_OUT;
+  variantSelected?: string;
+}
+
+export interface CancelActivityRecordRequest {
+  cancelReason?: string;
+}
+
+export type DashboardActivityStatus = 'PENDING' | ActivityOutcome;
+
+export interface OccurrenceDashboardResponse {
+  occurrence: EventOccurrence;
+  riders: Array<{
+    riderId: string;
+    activities: Array<{ activityId: string; status: DashboardActivityStatus }>;
+  }>;
+  cancelled: EventActivityRecord[];
+}
+
+export interface OccurrenceProgressResponse {
+  totalRiders: number;
+  completedCount: number;
+  outstandingMandatoryCount: number;
+  optedOutCount: number;
+  flaggedCount: number;
+}
+
+export interface ReconciliationResponse {
+  loadedCount: number;
+  unloadedCount: number;
+  missingRiderIds: string[];
+}
+
+export interface RiderEventProgressResponse {
+  items: Array<{
+    eventId: string;
+    occurrenceId: string;
+    activityId: string;
+    status: DashboardActivityStatus;
+  }>;
+}
+
+/** GET /v1/tours/{tourId}/events/bootstrap (ETag/304) */
+export interface EventBootstrapResponse {
+  events: EventDefinition[];
+  /** PLANNED/ACTIVE occurrences dated today or later */
+  activeOccurrences: EventOccurrence[];
+  riderBaggageStatus: RiderBaggageStatus[];
+  hotelStaysToday: RoomAllocation[];
+}
+
+export interface CreateHotelRequest {
+  hotelId: string;
+  name: string;
+  city: string;
+  address: string;
+  contact?: string;
+  notes?: string;
+}
+
+export type UpdateHotelRequest = Partial<Omit<CreateHotelRequest, 'hotelId'>>;
+
+/** PUT /v1/tours/{tourId}/hotelstays/{stayDate}/{riderId} */
+export interface UpsertHotelStayRequest {
+  hotelId: string;
+  roomNo: string;
+  roomCapacity?: number;
+  sharingWith?: string[];
+  checkInDate?: string;
+  checkOutDate?: string;
+}
+
+/** POST /v1/tours/{tourId}/hotelstays/uploads/presign */
+export interface HotelUploadPresignResponse {
+  uploadId: string;
+  uploadUrl: string;
+  s3Key: string;
+  expiresIn: number;
+}
+
+export type HotelUploadStatusValue = 'PENDING' | 'VALIDATING' | 'REJECTED' | 'APPLIED';
+
+export interface UploadErrorItem {
+  /** Line number in the source file; 0 = whole file */
+  row: number;
+  code: string;
+  message: string;
+}
+
+export interface HotelUploadStatus {
+  uploadId: string;
+  status: HotelUploadStatusValue;
+  rowCount?: number | null;
+  errorCount?: number | null;
+  /** Capped at backend maxStoredErrors; errorCount is the total */
+  errors?: UploadErrorItem[];
+  appliedCount?: number | null;
+  processedAt?: string | null;
+}
+
+/** POST /v1/tours/{tourId}/riders/{riderId}/exit */
+export interface RiderExitRequest {
+  baggageDisposition: BaggageDisposition;
+  note?: string;
+}
+
+export interface BaggageReleaseRequest {
+  note?: string;
+}
+
+/** POST /v1/tours/{tourId}/users */
+export interface CreateTourUserRequest {
+  userId: string;
+  role: string;
+  status?: string;
+  assignedStage?: number | null;
+  hotelId?: string | null;
+  eventAssignments?: EventAssignment[] | null;
+  assignedActivityIds?: string[] | null;
+}
+
+/** PUT /v1/tours/{tourId}/users/{userId} — only supplied fields change; null removes */
+export type UpdateTourUserRequest = Partial<Omit<CreateTourUserRequest, 'userId'>> & {
+  username?: string;
+  email?: string;
+  name?: string;
+};
+
+export interface TourUsersResponse {
+  users: TourUserAssignment[];
+  count: number;
+  tourId: string;
 }

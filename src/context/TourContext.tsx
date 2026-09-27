@@ -1,15 +1,16 @@
 /**
  * Tour Context — provides the active tour ID to all components.
  *
- * At app startup, resolves the active tour via the API.
- * All tour-scoped API calls use the tourId from this context.
+ * At app startup, resolves the active tour via the API (cached on mobile so
+ * the app can start offline). All tour-scoped API calls use the tourId from
+ * this context.
  *
  * See docs/DataIntegrationDesign.md §2.4.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { Tour } from '../types/models';
-import { getActiveTour } from '../services/api/tourApi';
+import { loadActiveTour, OfflineDataUnavailableError } from '../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../services/api/apiClient';
 import { logger } from '../utils/logger';
 
@@ -65,7 +66,7 @@ export function TourProvider({ children }: TourProviderProps) {
     setIsLoading(true);
     setError(null);
     try {
-      const activeTour = await getActiveTour();
+      const { data: activeTour } = await loadActiveTour();
       setTour(activeTour);
       if (!activeTour) {
         setError('No active tour found. Please contact the tour administrator.');
@@ -75,7 +76,9 @@ export function TourProvider({ children }: TourProviderProps) {
       let message: string;
       // Use duck-typing fallback for ApiError in case instanceof fails across module boundaries
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
-      if (isApiError) {
+      if (err instanceof OfflineDataUnavailableError) {
+        message = 'You are offline and tour data has not been downloaded to this device yet. Connect to the internet and try again.';
+      } else if (isApiError) {
         const apiErr = err as ApiError;
         if (apiErr.errorCode === 'CONFIG_ERROR') {
           message = apiErr.message;
@@ -102,12 +105,12 @@ export function TourProvider({ children }: TourProviderProps) {
     fetchActiveTour();
   }, [fetchActiveTour]);
 
-  const value: TourContextValue = {
+  const value = useMemo<TourContextValue>(() => ({
     tour,
     isLoading,
     error,
     refresh: fetchActiveTour,
-  };
+  }), [tour, isLoading, error, fetchActiveTour]);
 
   return <TourContext.Provider value={value}>{children}</TourContext.Provider>;
 }

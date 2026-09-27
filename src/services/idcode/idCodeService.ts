@@ -3,9 +3,10 @@ import {
   ERR_INVALID_ID_TYPE,
   ERR_INVALID_QR,
   ERR_RIDER_NOT_FOUND,
+  ERR_TYPE_NOT_ALLOWED_FOR_EVENT,
   ID_CODE_TYPE,
 } from '../../constants/idCodes';
-import { IdCodeFormatConfig } from '../../types/config';
+import { IdCodeFormatConfig, IdCodeTypeConfig } from '../../types/config';
 import { logger } from '../../utils/logger';
 import { getEnabledIdCodeFormat, getIdCodeTypeMap } from '../database/appConfigStore';
 import { getRiderIdByPersonalCode } from '../database/riderPersonalCodeStore';
@@ -20,8 +21,12 @@ export interface ParsedIdCode {
 }
 
 export type ScanResolution =
-  | { ok: true; riderId: string; parsed: ParsedIdCode }
-  | { ok: false; reason: 'INVALID_QR' | 'INVALID_TYPE' | 'RIDER_NOT_FOUND'; message: string };
+  | { ok: true; riderId: string; parsed: ParsedIdCode; typeCode: string; bagLabel?: string }
+  | {
+      ok: false;
+      reason: 'INVALID_QR' | 'INVALID_TYPE' | 'RIDER_NOT_FOUND' | 'TYPE_NOT_ALLOWED_FOR_EVENT';
+      message: string;
+    };
 
 interface SubstringPart {
   startPosition: number;
@@ -106,7 +111,27 @@ export function parseIdCode(rawQrText: string, format: IdCodeFormatConfig): Pars
   };
 }
 
-export async function resolveScannedRiderId(rawQrText: string): Promise<ScanResolution> {
+export function formatTypeNotAllowedMessage(
+  scannedTypeCode: string,
+  allowedTypeCodes: readonly string[],
+  typeMap: Record<string, IdCodeTypeConfig>,
+): string {
+  const nameOf = (code: string) => typeMap[code.toUpperCase()]?.name ?? code;
+  const allowedNames = allowedTypeCodes.map(nameOf);
+  return ERR_TYPE_NOT_ALLOWED_FOR_EVENT
+    .replace('{scannedType}', nameOf(scannedTypeCode))
+    .replace('{allowedTypes}', allowedNames.length > 0 ? allowedNames.join(', ') : '-');
+}
+
+/**
+ * Resolve a scanned QR to a riderId.
+ * Without allowedTypeCodes only RIDER codes are accepted (check-in behaviour).
+ * With allowedTypeCodes the scanned type code must be one of them (event scanning).
+ */
+export async function resolveScannedRiderId(
+  rawQrText: string,
+  allowedTypeCodes?: readonly string[],
+): Promise<ScanResolution> {
   const isDevLegacyMode = process.env.EXPO_PUBLIC_QR_DEV_FORMAT === 'true';
 
   if (isDevLegacyMode) {
@@ -115,9 +140,11 @@ export async function resolveScannedRiderId(rawQrText: string): Promise<ScanReso
       return { ok: false, reason: 'INVALID_QR', message: ERR_INVALID_QR };
     }
 
+    // Legacy dev format always yields type '1'; type filtering is not testable in this mode.
     return {
       ok: true,
       riderId,
+      typeCode: '1',
       parsed: {
         idCode: riderId,
         typeCode: '1',
@@ -153,7 +180,16 @@ export async function resolveScannedRiderId(rawQrText: string): Promise<ScanReso
   logger.debug(TAG, 'Parsed QR ID code', { idCode: parsed.idCode });
 
   const resolvedType = typeMap[parsed.typeCode];
-  if (!resolvedType || resolvedType.type !== ID_CODE_TYPE.RIDER) {
+  if (allowedTypeCodes) {
+    const allowed = allowedTypeCodes.map((code) => code.toUpperCase());
+    if (!resolvedType || !allowed.includes(parsed.typeCode)) {
+      return {
+        ok: false,
+        reason: 'TYPE_NOT_ALLOWED_FOR_EVENT',
+        message: formatTypeNotAllowedMessage(parsed.typeCode, allowedTypeCodes, typeMap),
+      };
+    }
+  } else if (!resolvedType || resolvedType.type !== ID_CODE_TYPE.RIDER) {
     return { ok: false, reason: 'INVALID_TYPE', message: ERR_INVALID_ID_TYPE };
   }
 
@@ -162,5 +198,5 @@ export async function resolveScannedRiderId(rawQrText: string): Promise<ScanReso
     return { ok: false, reason: 'RIDER_NOT_FOUND', message: ERR_RIDER_NOT_FOUND };
   }
 
-  return { ok: true, riderId, parsed };
+  return { ok: true, riderId, parsed, typeCode: parsed.typeCode, bagLabel: resolvedType.name };
 }

@@ -16,6 +16,7 @@ Dashboard screen specification covering the grid display, stage views, sorting, 
   - [Floating Action Button](#6-floating-action-button-fab)
   - [UI Layout](#7-ui-layout)
   - [Check-In Log Tab](#8-check-in-log-tab)
+- [Event Dashboards](#event-dashboards)
 - [Technical Notes](#technical-notes)
 
 ---
@@ -136,6 +137,17 @@ The Check-In Log tab (`src/screens/checkin/CheckInLogScreen.tsx`) shows a chrono
 **Display:**
 - Cancelled entries remain visible in the log with a **red strikeout** over the row text, instead of being hidden.
 
+## Event Dashboards
+
+Event occurrences have their own dashboard, separate from the ride dashboard above. It is opened from the Events module (EventsHome "Dashboard" on today's started occurrences, OccurrenceManagement "Dashboard" action) and needs `VIEW_DASHBOARD` (Administrator, Super User, PS_x_USER, Guest; not Hotel Staff).
+
+- **Occurrence dashboard**: tiles for total riders, completed, outstanding mandatory (tap for the rider list → rider progress), opted out and flagged; a reconciliation tile when the occurrence has a linked occurrence; cancelled records (activity, rider, time, by whom, reason). Counts refresh every 15 s while the screen is focused and the occurrence is `ACTIVE`.
+- **Baggage reconciliation**: loaded vs unloaded counts and riders whose bag was loaded but not unloaded.
+- **Rider progress**: activity stepper per occurrence for one rider; also opened from the ride **Rider Card** ("View event progress").
+- Offline, the last saved result is shown with a "stale data" banner.
+
+Detail: [Event Engine Design → Screens](Event-Engine-Design.md#screens).
+
 ## Technical Notes
 - Uses split API orchestration for Dashboard load:
   - Ride list drives today-ride resolution and selector options (no overlapping today-ride lookup call on initial load)
@@ -171,6 +183,7 @@ See [docs/dashboard-backend-api-change-request.md](dashboard-backend-api-change-
 - [Data Integration Design → Dashboard API Split (Implemented in Phase 3)](DataIntegrationDesign.md#325-dashboard-api-split-implemented-in-phase-3)
 - [Data Integration Design → Dashboard Trigger Strategy and Duplicate-Call Controls (Implemented in Phase 4)](DataIntegrationDesign.md#326-dashboard-trigger-strategy-and-duplicate-call-controls-implemented-in-phase-4)
 - [Solution Design → State Management](SolutionDesign.md#state-management) — Context and state architecture
+- [Event Engine Design](Event-Engine-Design.md) — Event occurrence dashboards, reconciliation and rider progress
 
 ---
 

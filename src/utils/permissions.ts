@@ -7,6 +7,7 @@
  * See docs/Requirements.md § Role Based App Access.
  */
 
+import { Platform } from 'react-native';
 import { AppRole, UserRole, Permission } from '../types/models';
 import { PIT_STOP_USER_PERMISSIONS, PIT_STOP_USER_ROLE_REGEX, ROLES_MAP } from '../constants/roles';
 
@@ -112,4 +113,11 @@ export function hasAllPermissions(role: AppRole, permissions: Permission[]): boo
  */
 export function hasAnyPermission(role: AppRole, permissions: Permission[]): boolean {
   return permissions.some((p) => hasPermission(role, p));
+}
+
+/**
+ * Advanced (offline sync) settings: mobile only, every role except GUEST.
+ */
+export function canUseAdvancedSettings(role: AppRole | string | null | undefined, platformOS: string = Platform.OS): boolean {
+  return platformOS !== 'web' && Boolean(role) && role !== UserRole.GUEST;
 }

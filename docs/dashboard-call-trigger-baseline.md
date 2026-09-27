@@ -61,6 +61,13 @@ Retry exclusion source:
   - closePitStopStage(tourId, rideId, stageNumber)
 - Baseline cardinality: 1 functional call per action
 - Note: no forced full dashboard refetch after action; local ride state updates in place.
+- Offline: open/close is disabled (online-only action).
+
+7. Offline mode additions (mobile)
+- Queued check-ins synced: `checkInSync.ts` publishes `dashboardEvents` reason `checkins_synced` after a batch that sent at least one check-in; the Dashboard refreshes progress once (1 functional call).
+- Offline readiness refresh: `SyncStatusContext` refreshes the ride datasets (ride list, riders, the ride's progress) every `readinessRefreshMinutes` only while online, in the foreground and today's ride is OPEN/STARTED; skipped when the cached data is still fresh.
+- Verify with server (Sync status, user action only): one `GET /dashboard/progress` per ride that has sent check-ins in the sent log.
+- Offline: the Dashboard reads cached data from SQLite; no API calls are made.
 
 ## Phase 1 Acceptance Criteria (Call Cardinality)
 

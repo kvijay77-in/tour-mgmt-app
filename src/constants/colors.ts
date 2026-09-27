@@ -2,7 +2,8 @@
  * Color scheme and theme constants
  */
 
-import { CheckInStatus, StageType } from '../types/models';
+import { CheckInStatus, OccurrenceStatus, StageType } from '../types/models';
+import type { ActivityStepStatus } from '../utils/eventActivity';
 
 /**
  * Primary brand colors
@@ -130,3 +131,34 @@ export const QR_SCANNER_COLORS = {
   success: COLORS.success,
   error: COLORS.danger,
 };
+
+/**
+ * Event occurrence status badge colors
+ */
+export const OCCURRENCE_STATUS_COLORS: Record<OccurrenceStatus, string> = {
+  [OccurrenceStatus.PLANNED]: COLORS.gray[500],
+  [OccurrenceStatus.ACTIVE]: COLORS.success,
+  [OccurrenceStatus.COMPLETED]: COLORS.primary,
+  [OccurrenceStatus.CANCELLED]: COLORS.danger,
+};
+
+/**
+ * Event activity stepper / dashboard status colors
+ */
+export const EVENT_ACTIVITY_STEP_COLORS: Record<ActivityStepStatus, string> = {
+  PENDING: COLORS.gray[400],
+  COMPLETED: COLORS.success,
+  OPTED_OUT: COLORS.gray[600],
+  FLAGGED: COLORS.warning,
+  BLOCKED: COLORS.gray[500],
+  QUEUED: COLORS.info,
+};
+
+/**
+ * Event StatusBanner colors (background / border / text)
+ */
+export const STATUS_BANNER_COLORS = {
+  error: { background: '#FEE2E2', border: '#FCA5A5', text: '#991B1B' },
+  warning: { background: '#FEF3C7', border: '#FCD34D', text: '#92400E' },
+  info: { background: '#DBEAFE', border: '#93C5FD', text: '#1E40AF' },
+} as const;

@@ -2,10 +2,12 @@
  * SQLite database initialisation and schema management.
  * 
  * Uses expo-sqlite for local data storage.
- * Schema matches the design in docs/DataIntegrationDesign.md §4.2.
+ * Schema matches the design in docs/DataIntegrationDesign.md §4.2 and is
+ * versioned through ordered migrations (see migrations.ts).
  */
 
 import * as SQLite from 'expo-sqlite';
+import { runMigrations } from './migrations';
 
 // ---------------------------------------------------------------------------
 // Database instance
@@ -13,171 +15,46 @@ import * as SQLite from 'expo-sqlite';
 
 const DB_NAME = 'poc_app.db';
 
-let _db: SQLite.SQLiteDatabase | null = null;
+let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+
+async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
+  const db = await SQLite.openDatabaseAsync(DB_NAME);
+  await db.execAsync('PRAGMA journal_mode = WAL;');
+  await db.execAsync('PRAGMA foreign_keys = ON;');
+  await runMigrations(db);
+  return db;
+}
 
 /**
- * Get the database instance (lazy initialised).
+ * Get the database instance (lazy initialised, migrated once).
+ * Concurrent first callers share one open/migrate promise.
  */
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
-  if (!_db) {
-    _db = await SQLite.openDatabaseAsync(DB_NAME);
-    await _db.execAsync('PRAGMA journal_mode = WAL;');
-    await _db.execAsync('PRAGMA foreign_keys = ON;');
-    await initialiseSchema(_db);
-  }
-  return _db;
-}
-
-// ---------------------------------------------------------------------------
-// Schema initialisation
-// ---------------------------------------------------------------------------
-
-async function initialiseSchema(db: SQLite.SQLiteDatabase): Promise<void> {
-  await db.execAsync(`
-    -- Tour context (single active tour cached)
-    CREATE TABLE IF NOT EXISTS tour (
-      tourId TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      status TEXT NOT NULL,
-      startDate TEXT,
-      endDate TEXT,
-      description TEXT,
-      lastSyncedAt TEXT
-    );
-
-    -- Riders (cached from API - read only locally)
-    CREATE TABLE IF NOT EXISTS riders (
-      riderId TEXT PRIMARY KEY,
-      profileId TEXT,
-      name TEXT,
-      email TEXT,
-      phone TEXT,
-      emergencyContactName TEXT,
-      emergencyContactPhone TEXT,
-      photoS3Key TEXT,
-      qrCodeData TEXT,
-      status TEXT,
-      lastSyncedAt TEXT
-    );
-
-    -- Rides (cached from API)
-    CREATE TABLE IF NOT EXISTS rides (
-      rideId TEXT PRIMARY KEY,
-      date TEXT NOT NULL,
-      rideNo INTEGER,
-      name TEXT,
-      startLocation TEXT,
-      finishLocation TEXT,
-      totalDistance REAL,
-      flagOffTime TEXT,
-      status TEXT,
-      stagesJson TEXT,
-      description TEXT,
-      startedAt TEXT,
-      completedAt TEXT,
-      closedAt TEXT,
-      lastSyncedAt TEXT
-    );
-
-    -- Check-ins (cached from API + locally created)
-    CREATE TABLE IF NOT EXISTS check_ins (
-      checkInId TEXT PRIMARY KEY,
-      riderId TEXT NOT NULL,
-      rideId TEXT NOT NULL,
-      stageNumber INTEGER NOT NULL,
-      stageId TEXT,
-      timestamp TEXT NOT NULL,
-      checkedInBy TEXT,
-      method TEXT,
-      isNotRiding INTEGER DEFAULT 0,
-      isQuitRiding INTEGER DEFAULT 0,
-      isManualEntry INTEGER DEFAULT 0,
-      notes TEXT,
-      locationLat REAL,
-      locationLng REAL,
-      isLocal INTEGER DEFAULT 0,
-      syncStatus TEXT DEFAULT 'SYNCED',
-      syncError TEXT,
-      syncRetryCount INTEGER DEFAULT 0,
-      createdAt TEXT,
-      lastSyncedAt TEXT
-    );
-
-    -- Pending operations queue (unified for online and offline)
-    CREATE TABLE IF NOT EXISTS pending_operations (
-      localId TEXT PRIMARY KEY,
-      operationType TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      createdAt TEXT NOT NULL,
-      syncStatus TEXT DEFAULT 'PENDING',
-      syncError TEXT,
-      retryCount INTEGER DEFAULT 0,
-      lastAttemptAt TEXT
-    );
-
-    -- Dashboard summary cache
-    CREATE TABLE IF NOT EXISTS dashboard_summary (
-      rideId TEXT PRIMARY KEY,
-      totalRiders INTEGER DEFAULT 0,
-      checkedIn INTEGER DEFAULT 0,
-      notRiding INTEGER DEFAULT 0,
-      quitRiding INTEGER DEFAULT 0,
-      notCheckedIn INTEGER DEFAULT 0,
-      lastSyncedAt TEXT
-    );
-
-    -- App configuration cache (shared config bootstrap)
-    CREATE TABLE IF NOT EXISTS app_config (
-      configType TEXT NOT NULL,
-      configId TEXT NOT NULL,
-      enabled INTEGER NOT NULL DEFAULT 0,
-      configJson TEXT NOT NULL,
-      version INTEGER,
-      updatedAt TEXT,
-      lastSyncedAt TEXT,
-      PRIMARY KEY (configType, configId)
-    );
-
-    -- Rider personal-code to riderId lookup cache (tour-scoped preload)
-    CREATE TABLE IF NOT EXISTS rider_personal_codes (
-      personalCode TEXT PRIMARY KEY,
-      riderId TEXT NOT NULL,
-      tourId TEXT NOT NULL,
-      lastSyncedAt TEXT
-    );
-
-    -- Indexes for common queries
-    CREATE INDEX IF NOT EXISTS idx_check_ins_rider ON check_ins(riderId);
-    CREATE INDEX IF NOT EXISTS idx_check_ins_ride ON check_ins(rideId);
-    CREATE INDEX IF NOT EXISTS idx_check_ins_sync ON check_ins(syncStatus);
-    CREATE INDEX IF NOT EXISTS idx_pending_ops_status ON pending_operations(syncStatus);
-    CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
-  `);
-
-  const checkInColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(check_ins)');
-  const checkInColumnNames = new Set(checkInColumns.map((column) => column.name));
-
-  if (!checkInColumnNames.has('isFloat')) {
-    await addCheckInColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN isFloat INTEGER DEFAULT 0;');
-  }
-
-  if (!checkInColumnNames.has('floatNo')) {
-    await addCheckInColumnIfMissing(db, 'ALTER TABLE check_ins ADD COLUMN floatNo INTEGER;');
-  }
-}
-
-async function addCheckInColumnIfMissing(
-  db: SQLite.SQLiteDatabase,
-  sql: string,
-): Promise<void> {
-  try {
-    await db.execAsync(sql);
-  } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : '';
-    if (!message.includes('duplicate column name')) {
+  if (!_dbPromise) {
+    _dbPromise = openAndMigrate().catch((error: unknown) => {
+      _dbPromise = null;
       throw error;
-    }
+    });
   }
+  return _dbPromise;
+}
+
+let _transactionChain: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run bulk writes in one transaction (PERF-03). Transactions are serialised
+ * because expo-sqlite shares a single connection and cannot nest BEGIN.
+ */
+export function withWriteTransaction(
+  work: (db: SQLite.SQLiteDatabase) => Promise<void>,
+): Promise<void> {
+  const run = async () => {
+    const db = await getDatabase();
+    await db.withTransactionAsync(() => work(db));
+  };
+  const next = _transactionChain.then(run, run);
+  _transactionChain = next.catch(() => undefined);
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,22 +70,64 @@ export async function vacuumDatabase(): Promise<void> {
   await db.execAsync('VACUUM;');
 }
 
+export interface PurgeResult {
+  checkIns: number;
+  eventRecords: number;
+  occurrences: number;
+  snapshots: number;
+  roomAllocations: number;
+  sentCheckIns: number;
+}
+
 /**
- * Purge data for completed/closed rides to save space.
- * Keeps only the current active ride's check-ins.
+ * Retention (DES-05): delete synced data of past rides/events that is no
+ * longer needed offline. Never touches unsynced rows or anything referenced
+ * by a queued operation.
+ *
+ * @param cutoffDate  YYYY-MM-DD — rides/occurrences/stays before this date
+ * @param cutoffIso   ISO time — records/snapshots older than this
  */
-export async function purgeClosedRideData(
-  activeRideId: string,
-): Promise<void> {
-  const db = await getDatabase();
-  await db.runAsync(
-    `DELETE FROM check_ins WHERE rideId != ? AND syncStatus = 'SYNCED'`,
-    [activeRideId],
-  );
-  await db.runAsync(
-    `DELETE FROM dashboard_summary WHERE rideId != ?`,
-    [activeRideId],
-  );
+export async function purgeExpiredLocalData(cutoffDate: string, cutoffIso: string): Promise<PurgeResult> {
+  const result: PurgeResult = { checkIns: 0, eventRecords: 0, occurrences: 0, snapshots: 0, roomAllocations: 0, sentCheckIns: 0 };
+  await withWriteTransaction(async (db) => {
+    result.checkIns = (await db.runAsync(
+      `DELETE FROM check_ins
+       WHERE isLocal = 0 AND syncStatus = 'SYNCED'
+         AND rideId IN (SELECT rideId FROM rides WHERE date < ?)`,
+      [cutoffDate],
+    )).changes;
+    result.eventRecords = (await db.runAsync(
+      `DELETE FROM event_activity_records
+       WHERE syncStatus = 'SYNCED' AND isLocal = 0 AND timestamp < ?
+         AND NOT EXISTS (
+           SELECT 1 FROM pending_operations p
+           WHERE p.localId = event_activity_records.localId
+              OR instr(p.payload, event_activity_records.localId) > 0
+         )`,
+      [cutoffIso],
+    )).changes;
+    result.occurrences = (await db.runAsync(
+      `DELETE FROM event_occurrences
+       WHERE date < ?
+         AND NOT EXISTS (
+           SELECT 1 FROM event_activity_records r WHERE r.occurrenceId = event_occurrences.occurrenceId
+         )`,
+      [cutoffDate],
+    )).changes;
+    result.snapshots = (await db.runAsync(
+      'DELETE FROM event_dashboard_snapshots WHERE fetchedAt < ?',
+      [cutoffIso],
+    )).changes;
+    result.roomAllocations = (await db.runAsync(
+      'DELETE FROM room_allocations WHERE stayDate < ?',
+      [cutoffDate],
+    )).changes;
+    result.sentCheckIns = (await db.runAsync(
+      'DELETE FROM sent_check_ins WHERE sentAt < ?',
+      [cutoffIso],
+    )).changes;
+  });
+  return result;
 }
 
 /**
@@ -223,4 +142,53 @@ export async function resetStuckOperations(): Promise<void> {
   await db.runAsync(
     `UPDATE check_ins SET syncStatus = 'PENDING' WHERE syncStatus = 'SYNCING'`,
   );
+}
+
+/**
+ * Delete queued operations (and their unsynced local records) captured by
+ * anyone other than `userId`. Only called after the signed-in user explicitly
+ * confirms discarding another user's unsynced data.
+ */
+export async function discardQueuedDataOwnedByOthers(userId: string): Promise<number> {
+  let discarded = 0;
+  await withWriteTransaction(async (db) => {
+    const row = await db.getFirstAsync<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?',
+      [userId],
+    );
+    discarded = row?.n ?? 0;
+    await db.runAsync(
+      `DELETE FROM event_activity_records WHERE isLocal = 1 AND localId IN
+         (SELECT localId FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?)`,
+      [userId],
+    );
+    await db.runAsync(
+      'DELETE FROM check_ins WHERE isLocal = 1 AND ownerUserId IS NOT NULL AND ownerUserId != ?',
+      [userId],
+    );
+    await db.runAsync(
+      'DELETE FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?',
+      [userId],
+    );
+  });
+  return discarded;
+}
+
+/**
+ * Clear cached server data when a different user signs in on this device, so
+ * the new user never sees the previous user's cached data. Unsynced local
+ * records are kept (they are protected by the user-switch check).
+ */
+export async function clearUserScopedCache(): Promise<void> {
+  await withWriteTransaction(async (db) => {
+    await db.execAsync(`
+      DELETE FROM check_ins WHERE isLocal = 0;
+      DELETE FROM event_activity_records WHERE isLocal = 0 AND localId NOT IN (SELECT localId FROM pending_operations);
+      DELETE FROM sync_meta;
+      DELETE FROM rider_names;
+      DELETE FROM app_user_names;
+      DELETE FROM my_tour_assignment;
+      DELETE FROM event_dashboard_snapshots;
+    `);
+  });
 }

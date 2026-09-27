@@ -7,12 +7,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { getRideRiderDetails } from '../../services/api/riderApi';
+import { loadRideRiderDetails, OfflineDataUnavailableError } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn } from '../../utils/riderStatus';
 import { logger } from '../../utils/logger';
 import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage, TourRiderStatus } from '../../types/models';
 import { COLORS, getStageColor } from '../../constants/colors';
+import { navigationRef } from '../../navigation/navigationRef';
 
 interface RiderCardModalProps {
   visible: boolean;
@@ -101,7 +102,7 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
     setError(null);
     setDetails(null);
     try {
-      const data = await getRideRiderDetails(tourId, ride.rideId, riderId);
+      const { data } = await loadRideRiderDetails(tourId, ride.rideId, riderId);
       if (!data) {
         setError('Rider details are not available for this rider.');
         return;
@@ -120,7 +121,9 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
     } catch (err) {
       logger.error('RiderCardModal', 'Failed to load rider details', err);
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
-      if (isApiError) {
+      if (err instanceof OfflineDataUnavailableError) {
+        setError(err.message);
+      } else if (isApiError) {
         const apiErr = err as ApiError;
         setError(apiErr.statusCode >= 500
           ? 'The server encountered an error. Please try again later.'
@@ -294,6 +297,18 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                   </>
                 )}
               </View>
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                style={styles.secondaryButton}
+                onPress={() => {
+                  const targetRiderId = selectedRider.rider.riderId;
+                  onClose();
+                  if (navigationRef.isReady()) navigationRef.navigate('RiderProgress', { riderId: targetRiderId });
+                }}
+              >
+                <Text style={styles.secondaryButtonText}>View event progress</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity style={styles.closeButton} onPress={onClose}>
                 <Text style={styles.closeButtonText}>Close</Text>
@@ -476,6 +491,20 @@ const styles = StyleSheet.create({
   riderSpecialStatusTime: {
     fontSize: 13,
     color: COLORS.textSecondary,
+  },
+  secondaryButton: {
+    borderColor: COLORS.primary,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  secondaryButtonText: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   closeButton: {
     backgroundColor: COLORS.primary,

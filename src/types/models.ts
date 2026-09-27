@@ -200,6 +200,16 @@ export interface TourRider {
   /** Registration timestamp */
   registeredAt?: string;
 
+  prevStatus?: TourRiderStatus;
+  exitedAt?: string;
+  exitedBy?: string;
+  baggageStatus?: BaggageStatus;
+  baggageExitNote?: string;
+  baggageExitedAt?: string;
+  baggageExitedBy?: string;
+  baggageReleasedAt?: string;
+  baggageReleasedBy?: string;
+
   /** Created timestamp */
   createdAt?: string;
 
@@ -241,6 +251,15 @@ export interface Rider {
 
   /** Tour rider registration status */
   status?: string;
+
+  /** Baggage custody state (event engine) */
+  baggageStatus?: BaggageStatus;
+
+  /** When retained baggage was released to the rider */
+  baggageReleasedAt?: string | null;
+
+  /** Rider profile dietary preference, drives variant defaults */
+  dietaryPreference?: DietaryPreference | null;
 }
 
 // ============================================================================
@@ -434,6 +453,197 @@ export interface CheckIn {
 
   /** Created timestamp */
   createdAt?: string;
+
+  /**
+   * Device-only sync state for check-ins captured on this device and not yet
+   * accepted by the backend (undefined once synced / for server records).
+   */
+  localSyncStatus?: 'PENDING' | 'FAILED';
+}
+
+// ============================================================================
+// EVENT ENGINE (events, occurrences, activity records, hotels)
+// See docs/Event-Engine-Design.md and temp/api-guide.md (Events, Hotels, Users).
+// ============================================================================
+
+export enum EventType {
+  SINGLE = 'SINGLE',
+  REPEATING = 'REPEATING',
+}
+
+export enum OccurrenceStatus {
+  PLANNED = 'PLANNED',
+  ACTIVE = 'ACTIVE',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum ActivityOutcome {
+  COMPLETED = 'COMPLETED',
+  OPTED_OUT = 'OPTED_OUT',
+  FLAGGED = 'FLAGGED',
+}
+
+export type EventRecordMethod = 'QR_SCAN' | 'MANUAL';
+
+export enum BaggageStatus {
+  ACTIVE = 'ACTIVE',
+  RETAINED = 'RETAINED',
+  WITH_RIDER = 'WITH_RIDER',
+}
+
+export type BaggageDisposition = BaggageStatus.RETAINED | BaggageStatus.WITH_RIDER;
+
+export type DietaryPreference = 'VEG' | 'NON_VEG';
+
+export interface EventActivity {
+  /** ACT-### identifier, unique within its event only */
+  activityId: string;
+  name: string;
+  sequenceNo: number;
+  enabled: boolean;
+  mandatory: boolean;
+  /** Empty means inherit the event's defaultAllowedTypeCodes */
+  allowedTypeCodes: string[];
+  allowOptOut: boolean;
+  prerequisiteActivityIds: string[];
+  restrictToAssignedUsers: boolean;
+  variantOptions: string[];
+  notes: string;
+}
+
+export interface EventDefinition {
+  /** EVT-... identifier */
+  eventId: string;
+  eventName: string;
+  eventType: EventType;
+  location: string;
+  sequenceEnforced: boolean;
+  defaultAllowedTypeCodes: string[];
+  /** Informational only; never changes scan logic */
+  allowSelfService: boolean;
+  activities: EventActivity[];
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+/** Absent/null fields inherit the activity or occurrence default. */
+export interface ActivityOverride {
+  activityId: string;
+  enabled?: boolean | null;
+  selfServiceEnabled?: boolean | null;
+  /** Narrows the activity's effective allowed type codes for this occurrence only */
+  allowedTypeCodes?: string[] | null;
+  note?: string | null;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface EventOccurrence {
+  eventId: string;
+  /** YYYY-MM-DD#seq */
+  dateSeq: string;
+  /** EVT-...#YYYY-MM-DD#seq — contains '#', always URL-encode in paths */
+  occurrenceId: string;
+  date: string;
+  seq: number;
+  status: OccurrenceStatus;
+  activityOverrides: ActivityOverride[];
+  selfServiceEnabled: boolean;
+  linkedOccurrenceRef?: string | null;
+  restrictToAssignedUsers?: boolean;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
+  cancelReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface EventActivityRecord {
+  occurrenceId: string;
+  /** <riderId>#<activityId>#<timestamp> — URL-encode in paths */
+  recordId: string;
+  eventId: string;
+  activityId: string;
+  activityName: string;
+  riderId: string;
+  scannedBy?: string;
+  timestamp: string;
+  method: EventRecordMethod;
+  outcome: ActivityOutcome;
+  typeCode?: string | null;
+  bagLabel?: string | null;
+  variantSelected?: string | null;
+  hotelId?: string | null;
+  syncedAt?: string;
+  isFlagged: boolean;
+  createdAt?: string;
+  cancelledAt?: string | null;
+  cancelledBy?: string | null;
+  cancelReason?: string | null;
+}
+
+export interface Hotel {
+  /** HTL-AAA-99 */
+  hotelId: string;
+  name: string;
+  city: string;
+  address: string;
+  contact?: string | null;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type RoomAllocationSource = 'MANUAL' | 'UPLOAD';
+
+export interface RoomAllocation {
+  stayDate: string;
+  riderId: string;
+  hotelId: string;
+  roomNo: string;
+  roomCapacity: number;
+  sharingWith: string[];
+  source?: RoomAllocationSource;
+  uploadId?: string | null;
+  checkInDate?: string | null;
+  checkOutDate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface RiderBaggageStatus {
+  riderId: string;
+  baggageStatus: BaggageStatus;
+  baggageReleasedAt: string | null;
+}
+
+export interface EventAssignment {
+  eventId: string;
+  dates: string[] | 'ALL';
+}
+
+/** User-{tourId} record. assignedActivityIds is flat and applies to every assigned event (D-P). */
+export interface TourUserAssignment {
+  userId: string;
+  username?: string;
+  email?: string;
+  name?: string;
+  role: string;
+  status?: string;
+  assignedStage?: number | null;
+  hotelId?: string | null;
+  eventAssignments?: EventAssignment[] | null;
+  assignedActivityIds?: string[] | null;
+  createdAt?: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 // ============================================================================
@@ -460,6 +670,14 @@ export enum Permission {
   MANAGE_USERS = 'MANAGE_USERS',
   MANAGE_ROLES = 'MANAGE_ROLES',
   MANAGE_ARTIFACTS = 'MANAGE_ARTIFACTS',
+
+  // Event engine (backend EVENT_MANAGE, EVENT_OCCURRENCE_MANAGE, EVENT_SCAN, HOTEL_ALLOC_MANAGE, USER_MANAGE, RIDER_EXIT)
+  MANAGE_EVENTS = 'MANAGE_EVENTS',
+  MANAGE_EVENT_OCCURRENCES = 'MANAGE_EVENT_OCCURRENCES',
+  EVENT_SCAN = 'EVENT_SCAN',
+  MANAGE_HOTEL_ALLOCATIONS = 'MANAGE_HOTEL_ALLOCATIONS',
+  MANAGE_TOUR_USERS = 'MANAGE_TOUR_USERS',
+  RIDER_EXIT = 'RIDER_EXIT',
 }
 
 /**

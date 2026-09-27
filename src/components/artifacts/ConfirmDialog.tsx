@@ -16,6 +16,9 @@ export interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   isSubmitting?: boolean;
+  confirmTone?: 'danger' | 'primary';
+  /** Extra content (e.g. an optional reason input) shown below the message. */
+  children?: React.ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -27,6 +30,8 @@ export default function ConfirmDialog({
   confirmLabel = 'Delete',
   cancelLabel = 'Cancel',
   isSubmitting = false,
+  confirmTone = 'danger',
+  children,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -42,6 +47,7 @@ export default function ConfirmDialog({
         <View accessibilityRole="alert" style={styles.dialog}>
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
+          {children}
           <View style={styles.actions}>
             <TouchableOpacity
               accessibilityLabel={cancelLabel}
@@ -57,7 +63,11 @@ export default function ConfirmDialog({
               accessibilityRole="button"
               disabled={isSubmitting}
               onPress={onConfirm}
-              style={[styles.confirmButton, isSubmitting && styles.disabledButton]}
+              style={[
+                styles.confirmButton,
+                confirmTone === 'primary' && styles.confirmButtonPrimary,
+                isSubmitting && styles.disabledButton,
+              ]}
             >
               {isSubmitting ? <ActivityIndicator color={COLORS.white} size="small" /> : <Text style={styles.confirmText}>{confirmLabel}</Text>}
             </TouchableOpacity>
@@ -89,6 +99,7 @@ const styles = StyleSheet.create({
   cancelButton: { paddingHorizontal: 14, paddingVertical: 10 },
   cancelText: { color: COLORS.textSecondary, fontSize: 14, fontWeight: '600' },
   confirmButton: { alignItems: 'center', backgroundColor: COLORS.danger, borderRadius: 6, justifyContent: 'center', minWidth: 82, paddingHorizontal: 16, paddingVertical: 10 },
+  confirmButtonPrimary: { backgroundColor: COLORS.primary },
   disabledButton: { opacity: 0.7 },
   confirmText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
 });

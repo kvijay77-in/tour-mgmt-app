@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, Switch, Platform, TouchableOpacity, M
 import { useRideSession } from '../../context/RideSessionContext';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
+import { useOffline } from '../../context/OfflineContext';
 import { getCheckInsByRide } from '../../services/database/checkInStore';
 import { subscribeDashboardCheckInEvent, subscribeDashboardCancelEvent, publishDashboardCancelEvent } from '../../services/dashboard/dashboardEvents';
 import { cancelCheckIn } from '../../services/api/checkInApi';
@@ -10,6 +11,7 @@ import { CheckIn, CheckInMethod, deriveCheckInStatus, isCancelledCheckIn } from 
 import { COLORS } from '../../constants/colors';
 import { useNameDirectory } from '../../context/NameDirectoryContext';
 import RiderCardModal from '../../components/dashboard/RiderCardModal';
+import { getLocalToday } from '../../utils/dates';
 
 const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'Courier' }) ?? 'monospace';
 
@@ -30,7 +32,10 @@ export default function CheckInLogScreen() {
   } = useRideSession();
   const { tour } = useTour();
   const { user } = useAuth();
+  const { isOffline } = useOffline();
   const { getRiderDisplayName, getAppUserDisplayName } = useNameDirectory();
+  /** Cancel Entry changes server data directly, so it needs a live connection */
+  const isCancelOnline = !isOffline && !user?.isOfflineSession;
 
   const [localCheckIns, setLocalCheckIns] = useState<CheckIn[]>([]);
   const [showName, setShowName] = useState(true);
@@ -43,7 +48,7 @@ export default function CheckInLogScreen() {
 
   const canCancelEntries = useMemo(() => {
     if (!currentRide || isHistorical) return false;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalToday();
     return currentRide.date === today;
   }, [currentRide, isHistorical]);
 
@@ -203,10 +208,24 @@ export default function CheckInLogScreen() {
             </Text>
           ) : null}
           <Text>{` | ${stageLabel} | ${time} | ${checkedBy}`}</Text>
+          {item.localSyncStatus ? (
+            <Text style={item.localSyncStatus === 'FAILED' ? styles.logFailedText : styles.logPendingText}>
+              {item.localSyncStatus === 'FAILED' ? ' | sync issue' : ' | not sent'}
+            </Text>
+          ) : null}
         </Text>
       </TouchableOpacity>
     );
   }, [canCancelEntries, currentRide, getAppUserDisplayName, getRiderDisplayName, showName]);
+
+  const cancelUnavailableReason = !actionSheetEntry || isCancelledCheckIn(actionSheetEntry)
+    ? null
+    : actionSheetEntry.localSyncStatus
+      ? 'This check-in has not been sent yet. Manage it in Sync status.'
+      : !isCancelOnline
+        ? 'Cancel Entry needs a connection.'
+        : null;
+  const canCancelActionEntry = Boolean(actionSheetEntry) && !isCancelledCheckIn(actionSheetEntry!) && !cancelUnavailableReason;
 
   if (!currentRide) {
     return (
@@ -262,9 +281,10 @@ export default function CheckInLogScreen() {
               <TouchableOpacity
                 style={[
                   styles.actionSheetButton,
-                  actionSheetEntry && isCancelledCheckIn(actionSheetEntry) ? styles.actionSheetButtonDisabled : undefined,
+                  !canCancelActionEntry ? styles.actionSheetButtonDisabled : undefined,
                 ]}
-                disabled={!actionSheetEntry || isCancelledCheckIn(actionSheetEntry)}
+                accessibilityState={{ disabled: !canCancelActionEntry }}
+                disabled={!canCancelActionEntry}
                 onPress={() => {
                   setConfirmCancelEntry(actionSheetEntry);
                   setActionSheetEntry(null);
@@ -274,12 +294,15 @@ export default function CheckInLogScreen() {
                   style={[
                     styles.actionSheetButtonText,
                     styles.actionSheetDangerText,
-                    actionSheetEntry && isCancelledCheckIn(actionSheetEntry) ? styles.actionSheetButtonTextDisabled : undefined,
+                    !canCancelActionEntry ? styles.actionSheetButtonTextDisabled : undefined,
                   ]}
                 >
                   Cancel Entry
                 </Text>
               </TouchableOpacity>
+              {cancelUnavailableReason ? (
+                <Text style={styles.actionSheetHint}>{cancelUnavailableReason}</Text>
+              ) : null}
               <TouchableOpacity style={styles.actionSheetCancel} onPress={() => setActionSheetEntry(null)}>
                 <Text style={styles.actionSheetCancelText}>Dismiss</Text>
               </TouchableOpacity>
@@ -370,6 +393,19 @@ const styles = StyleSheet.create({
   },
   logAnomalyText: {
     color: COLORS.danger,
+  },
+  logPendingText: {
+    color: COLORS.warning,
+  },
+  logFailedText: {
+    color: COLORS.danger,
+  },
+  actionSheetHint: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    textAlign: 'center',
   },
   logCancelledText: {
     color: COLORS.danger,

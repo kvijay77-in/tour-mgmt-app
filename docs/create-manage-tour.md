@@ -32,6 +32,11 @@ Tour section should be on top to allow 'Tour' definition  to be created/updated 
 
 Provisioning is a one-time initial operation and is authoritative from the returned `provisionedAt` value. Once `provisionedAt` exists, the initial Provision action is disabled. The dedicated backend re-provision endpoint remains a separate capability for repairing missing tables and is not the initial provisioning action in this screen.
 
+**Re-provision tables**
+  - Administrator only, shown once `provisionedAt` is set.
+  - After a confirmation dialog, calls `PUT /v1/tours/{tourId}/provision`, which creates only missing or newly defined tour tables (for example the event and hotel tables added by the event engine). Existing tables, data and `provisionedAt` are not changed.
+  - The result lists `provisionedTables` (tables created by this call) or states that nothing was missing.
+
 **Save All**
   - Go through Tour and and each Ride and use POST or PUT API as per the state of the respective item. State of the item must be determined after getting all Tour and Rides as part of the initial loading of the existing data.
   - If POST is used for Tour, the 'provisioning=true' must be included.

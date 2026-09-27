@@ -14,6 +14,7 @@
 
 import { ApiResponse } from '../../types/api';
 import { logger } from '../../utils/logger';
+import { recordServerTime } from '../sync/clockSkew';
 
 const TAG = 'ApiClient';
 
@@ -65,6 +66,8 @@ interface RequestOptions {
    * Expected errors are still thrown, but are not logged as warnings.
    */
   isExpectedError?: (error: ApiError) => boolean;
+  /** Receives the final response headers (e.g. to read an ETag). */
+  onResponseHeaders?: (headers: Headers) => void;
 }
 
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -90,17 +93,52 @@ export class ApiError extends Error {
  * Returns the current JWT access token for API authentication.
  * Wired by AuthContext via setAuthTokenProvider() with Amplify Auth session token.
  */
-let _getAuthToken: (() => Promise<string | null>) = async () => null;
+export interface AuthTokenRequest {
+  /** Bypass the cached token and refresh the session (used after a 401). */
+  forceRefresh?: boolean;
+}
+
+/**
+ * Token provider contract (DES-07):
+ * - resolves the token, or null when the session is definitely invalid;
+ * - rejects for transient failures (e.g. network) so callers don't sign out.
+ */
+export type AuthTokenProvider = (request?: AuthTokenRequest) => Promise<string | null>;
+
+let _getAuthToken: AuthTokenProvider = async () => null;
 
 /**
  * Register the auth token provider. Called by AuthContext on mount
  * to supply the Amplify Auth session token for all API requests.
  */
 export const setAuthTokenProvider = (
-  provider: () => Promise<string | null>,
+  provider: AuthTokenProvider,
 ): void => {
   _getAuthToken = provider;
 };
+
+// ---------------------------------------------------------------------------
+// Offline fail-fast — wired by OfflineContext
+// ---------------------------------------------------------------------------
+
+/** Error code thrown without a network call while the app is offline. */
+export const OFFLINE_ERROR_CODE = 'OFFLINE';
+
+let _isOfflineMode = false;
+
+/**
+ * Set by OfflineContext when the app is effectively offline (manual toggle or
+ * no connectivity). Requests then fail immediately instead of retrying with
+ * backoff — this saves battery and keeps offline screens responsive.
+ */
+export function setApiOfflineMode(offline: boolean): void {
+  _isOfflineMode = offline;
+}
+
+/** True while requests fail fast because the app is offline. */
+export function isApiOfflineMode(): boolean {
+  return _isOfflineMode;
+}
 
 /**
  * Callback invoked when the API receives a 401 that cannot be recovered
@@ -149,7 +187,13 @@ async function buildHeaders(
     ...extra,
   };
 
-  const token = await _getAuthToken();
+  let token: string | null;
+  try {
+    token = await _getAuthToken();
+  } catch (error) {
+    logger.warn(TAG, 'Auth token unavailable (transient)', error);
+    throw new ApiError('Unable to reach the server.', 0, 'NETWORK_ERROR');
+  }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -215,6 +259,13 @@ const NETWORK_ERROR_PATTERNS = [
 ];
 
 export function isNetworkError(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.statusCode === 0
+      && (error.errorCode === 'NETWORK_ERROR' || error.errorCode === OFFLINE_ERROR_CODE);
+  }
+  if (error instanceof Error && error.name === 'AbortError') {
+    return true;
+  }
   if (error instanceof TypeError) {
     const msg = error.message.toLowerCase();
     return NETWORK_ERROR_PATTERNS.some((p) => msg.includes(p));
@@ -243,7 +294,12 @@ async function request<T>(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRetries = MAX_RETRIES,
     isExpectedError,
+    onResponseHeaders,
   } = options;
+
+  if (_isOfflineMode) {
+    throw new ApiError('You are offline. This action needs a connection.', 0, OFFLINE_ERROR_CODE);
+  }
 
   const url = buildUrl(path, params);
   const headers = await buildHeaders(extraHeaders);
@@ -300,8 +356,10 @@ async function request<T>(
         });
       }
 
+      const requestStartedAt = Date.now();
       const response = await fetch(url, fetchOptions);
       clearTimeout(timeoutId);
+      recordServerTime(response.headers?.get?.('date'), requestStartedAt);
 
       if (debugMethod) {
         logger.debug(TAG, `Response ${response.status} (attempt ${attempt + 1})`, {
@@ -314,15 +372,28 @@ async function request<T>(
       // Handle 401 — attempt token refresh once
       if (response.status === 401 && attempt === 0) {
         // Token may have expired. Refresh and retry once.
-        const newToken = await _getAuthToken();
+        let newToken: string | null | undefined;
+        try {
+          newToken = await _getAuthToken({ forceRefresh: true });
+        } catch (refreshError) {
+          // Transient refresh failure (e.g. network) — keep the session.
+          logger.warn(TAG, 'Token refresh after 401 failed transiently', refreshError);
+          newToken = undefined;
+        }
         if (newToken) {
           headers['Authorization'] = `Bearer ${newToken}`;
           continue;
         }
-        // Token refresh failed — session is invalid, notify AuthContext
-        if (_onAuthInvalidated) {
+        // Forced refresh confirmed the session is invalid — notify AuthContext
+        if (newToken === null && _onAuthInvalidated) {
           _onAuthInvalidated();
         }
+      }
+
+      // Conditional GET matched (If-None-Match): empty body, no data.
+      if (response.status === 304) {
+        onResponseHeaders?.(response.headers);
+        return { success: true, timestamp: new Date().toISOString() };
       }
 
       // Parse response body
@@ -333,6 +404,7 @@ async function request<T>(
 
       // Success
       if (response.ok) {
+        onResponseHeaders?.(response.headers);
         return responseBody as ApiResponse<T>;
       }
 

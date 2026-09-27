@@ -1,19 +1,39 @@
 /**
  * Pending operations store — manages the queue for async backend sync.
  * 
- * Per design (§4.3): All check-ins flow through this queue, whether
- * online or offline. The sync service processes the queue independently.
+ * Per design (§4.3): offline writes flow through this queue and the
+ * outbound sync service drains it in FIFO order. Every operation records
+ * the user who captured it (ownerUserId) so it is only sent under that
+ * user's session, and a nextAttemptAt for exponential backoff.
  */
 
 import { getDatabase } from './database';
-import { CheckInRequest } from '../../types/api';
+import { CheckInRequest, CreateActivityRecordRequest } from '../../types/api';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type OperationType = 'CHECK_IN';
+export type OperationType =
+  | 'CHECK_IN'
+  | 'CREATE_EVENT_ACTIVITY_RECORD'
+  | 'CANCEL_EVENT_ACTIVITY_RECORD';
 export type PendingStatus = 'PENDING' | 'SYNCING' | 'FAILED';
+
+export interface CreateEventRecordPayload {
+  eventId: string;
+  occurrenceId: string;
+  request: CreateActivityRecordRequest;
+}
+
+export interface CancelEventRecordPayload {
+  eventId: string;
+  occurrenceId: string;
+  recordId: string;
+  /** localId of the event_activity_records row being cancelled */
+  recordLocalId: string;
+  cancelReason?: string;
+}
 
 export interface PendingOperation {
   localId: string;
@@ -24,6 +44,15 @@ export interface PendingOperation {
   syncError: string | null;
   retryCount: number;
   lastAttemptAt: string | null;
+  /** Earliest time the next retry may run (null = immediately) */
+  nextAttemptAt: string | null;
+  /** Cognito sub of the user who captured the operation (null = legacy row) */
+  ownerUserId: string | null;
+}
+
+export interface OperationCounts {
+  pending: number;
+  failed: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,27 +65,88 @@ export interface PendingOperation {
 export async function enqueueCheckIn(
   localId: string,
   checkInRequest: CheckInRequest,
+  ownerUserId: string | null,
+): Promise<void> {
+  await enqueueOperation(localId, 'CHECK_IN', checkInRequest, ownerUserId);
+}
+
+/**
+ * Queue an event activity record create; localId matches the event_activity_records row.
+ */
+export async function enqueueEventRecordCreate(
+  localId: string,
+  payload: CreateEventRecordPayload,
+  ownerUserId: string | null,
+): Promise<void> {
+  await enqueueOperation(localId, 'CREATE_EVENT_ACTIVITY_RECORD', payload, ownerUserId);
+}
+
+export async function enqueueEventRecordCancel(
+  localId: string,
+  payload: CancelEventRecordPayload,
+  ownerUserId: string | null,
+): Promise<void> {
+  await enqueueOperation(localId, 'CANCEL_EVENT_ACTIVITY_RECORD', payload, ownerUserId);
+}
+
+async function enqueueOperation(
+  localId: string,
+  operationType: OperationType,
+  payload: unknown,
+  ownerUserId: string | null,
 ): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
     `INSERT INTO pending_operations
-      (localId, operationType, payload, createdAt, syncStatus)
-     VALUES (?, 'CHECK_IN', ?, ?, 'PENDING')`,
-    [localId, JSON.stringify(checkInRequest), new Date().toISOString()],
+      (localId, operationType, payload, createdAt, syncStatus, ownerUserId)
+     VALUES (?, ?, ?, ?, 'PENDING', ?)`,
+    [localId, operationType, JSON.stringify(payload), new Date().toISOString(), ownerUserId],
   );
 }
 
 /**
- * Get all pending operations in FIFO order (oldest first).
+ * Get pending operations in FIFO order (oldest first), optionally limited to
+ * some types and to operations the given user may send (own + legacy rows).
  */
-export async function getPendingOperations(): Promise<PendingOperation[]> {
+export async function getPendingOperations(
+  operationTypes?: readonly OperationType[],
+  ownerUserId?: string | null,
+): Promise<PendingOperation[]> {
   const db = await getDatabase();
+  const params: string[] = [];
+  let filter = '';
+  if (operationTypes && operationTypes.length > 0) {
+    filter += ` AND operationType IN (${operationTypes.map(() => '?').join(', ')})`;
+    params.push(...operationTypes);
+  }
+  if (ownerUserId) {
+    filter += ' AND (ownerUserId IS NULL OR ownerUserId = ?)';
+    params.push(ownerUserId);
+  }
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT * FROM pending_operations
-     WHERE syncStatus = 'PENDING'
-     ORDER BY createdAt ASC`,
+     WHERE syncStatus = 'PENDING'${filter}
+     ORDER BY createdAt ASC, rowid ASC`,
+    params,
   );
   return rows.map(mapRowToOperation);
+}
+
+export async function getPendingOperation(localId: string): Promise<PendingOperation | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<Record<string, unknown>>(
+    'SELECT * FROM pending_operations WHERE localId = ?',
+    [localId],
+  );
+  return row ? mapRowToOperation(row) : null;
+}
+
+/**
+ * Remove an operation without syncing it (e.g. an unsynced event record cancelled locally).
+ */
+export async function dropOperation(localId: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM pending_operations WHERE localId = ?', [localId]);
 }
 
 /**
@@ -68,6 +158,51 @@ export async function getPendingCount(): Promise<number> {
     `SELECT COUNT(*) as count FROM pending_operations WHERE syncStatus IN ('PENDING', 'SYNCING')`,
   );
   return (row?.count as number) ?? 0;
+}
+
+/**
+ * Pending and failed counts via COUNT(*) (PERF-07), optionally per type.
+ */
+export async function getOperationCounts(operationTypes?: readonly OperationType[]): Promise<OperationCounts> {
+  const db = await getDatabase();
+  const typeFilter = operationTypes && operationTypes.length > 0
+    ? `WHERE operationType IN (${operationTypes.map(() => '?').join(', ')})`
+    : '';
+  const rows = await db.getAllAsync<{ syncStatus: PendingStatus; n: number }>(
+    `SELECT syncStatus, COUNT(*) AS n FROM pending_operations ${typeFilter} GROUP BY syncStatus`,
+    operationTypes ? [...operationTypes] : [],
+  );
+  const counts: OperationCounts = { pending: 0, failed: 0 };
+  for (const row of rows) {
+    if (row.syncStatus === 'FAILED') counts.failed += row.n;
+    else counts.pending += row.n;
+  }
+  return counts;
+}
+
+/**
+ * Creation time of the oldest unsent (PENDING/SYNCING) operation, or null.
+ * Used for the stale-queue alert.
+ */
+export async function getOldestPendingCreatedAt(): Promise<string | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ createdAt: string | null }>(
+    `SELECT MIN(createdAt) AS createdAt FROM pending_operations WHERE syncStatus IN ('PENDING', 'SYNCING')`,
+  );
+  return row?.createdAt ?? null;
+}
+
+/**
+ * Count queued (pending or failed) operations captured by someone other than
+ * the given user. Used to block a user switch that would strand their data.
+ */
+export async function countOperationsOwnedByOthers(userId: string): Promise<number> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?',
+    [userId],
+  );
+  return row?.n ?? 0;
 }
 
 /**
@@ -93,7 +228,8 @@ export async function markSynced(localId: string): Promise<void> {
 }
 
 /**
- * Mark an operation as failed with error details.
+ * Mark an operation as permanently failed (business rejection or retries
+ * exhausted). It stops blocking later operations and is shown in Sync status.
  */
 export async function markFailed(
   localId: string,
@@ -109,23 +245,70 @@ export async function markFailed(
 }
 
 /**
+ * Record a transient failure (network/5xx) and keep the operation queued
+ * until nextAttemptAt (exponential backoff).
+ */
+export async function markAttemptFailed(
+  localId: string,
+  error: string,
+  nextAttemptAt: string | null = null,
+): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE pending_operations
+     SET syncStatus = 'PENDING', syncError = ?, retryCount = retryCount + 1, lastAttemptAt = ?, nextAttemptAt = ?
+     WHERE localId = ?`,
+    [error, new Date().toISOString(), nextAttemptAt, localId],
+  );
+}
+
+/**
+ * Clear the backoff wait of every pending operation (connectivity restored,
+ * app foregrounded or the user asked to sync now).
+ */
+export async function clearPendingBackoff(): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `UPDATE pending_operations SET nextAttemptAt = NULL WHERE syncStatus = 'PENDING' AND nextAttemptAt IS NOT NULL`,
+  );
+}
+
+/**
  * Re-queue a failed operation for retry.
  */
 export async function requeueFailed(localId: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
-    `UPDATE pending_operations SET syncStatus = 'PENDING', syncError = NULL WHERE localId = ?`,
+    `UPDATE pending_operations SET syncStatus = 'PENDING', syncError = NULL, nextAttemptAt = NULL WHERE localId = ?`,
     [localId],
   );
 }
 
 /**
- * Get all failed operations.
+ * Get failed operations (oldest first), optionally limited to some types.
  */
-export async function getFailedOperations(): Promise<PendingOperation[]> {
+export async function getFailedOperations(
+  operationTypes?: readonly OperationType[],
+): Promise<PendingOperation[]> {
+  const db = await getDatabase();
+  const typeFilter = operationTypes && operationTypes.length > 0
+    ? `AND operationType IN (${operationTypes.map(() => '?').join(', ')})`
+    : '';
+  const rows = await db.getAllAsync<Record<string, unknown>>(
+    `SELECT * FROM pending_operations WHERE syncStatus = 'FAILED' ${typeFilter} ORDER BY createdAt ASC`,
+    operationTypes ? [...operationTypes] : [],
+  );
+  return rows.map(mapRowToOperation);
+}
+
+/**
+ * All queued operations (pending + failed), oldest first, for the Sync status screen.
+ */
+export async function getAllQueuedOperations(limit = 200): Promise<PendingOperation[]> {
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
-    `SELECT * FROM pending_operations WHERE syncStatus = 'FAILED' ORDER BY createdAt ASC`,
+    'SELECT * FROM pending_operations ORDER BY createdAt ASC, rowid ASC LIMIT ?',
+    [limit],
   );
   return rows.map(mapRowToOperation);
 }
@@ -144,5 +327,7 @@ function mapRowToOperation(row: Record<string, unknown>): PendingOperation {
     syncError: row.syncError as string | null,
     retryCount: row.retryCount as number,
     lastAttemptAt: row.lastAttemptAt as string | null,
+    nextAttemptAt: (row.nextAttemptAt as string | null) ?? null,
+    ownerUserId: (row.ownerUserId as string | null) ?? null,
   };
 }

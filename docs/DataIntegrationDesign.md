@@ -100,13 +100,22 @@ src/services/
 │   ├── userApi.ts          # User endpoints
 │   └── mockData.ts         # Mock data for dev/demo mode (EXPO_PUBLIC_USE_MOCK_DATA)
 ├── database/               # SQLite for offline support
-│   ├── database.ts         # Database initialisation, schema management
-│   ├── riderStore.ts       # Rider data local storage
-│   ├── rideStore.ts        # Ride data local storage
-│   ├── checkInStore.ts     # Check-in data local storage
-│   └── pendingStore.ts     # Pending sync queue storage
-└── sync/                   # Data synchronisation
-    └── syncService.ts      # Background sync logic
+│   ├── database.ts         # Database initialisation, local stores, retention purge
+│   ├── migrations.ts       # Versioned schema migrations (PRAGMA user_version)
+│   ├── riderStore.ts / rideStore.ts / tourStore.ts / checkInStore.ts # Cached data
+│   ├── pendingStore.ts     # Outbound queue storage
+│   ├── syncMetaStore.ts / nameDirectoryStore.ts # Readiness timestamps, name directories
+│   └── sentCheckInStore.ts # Log of check-ins sent from the queue (Verify with server)
+├── offline/                # Offline readiness
+│   ├── offlineDataService.ts # Cache-through loaders (online → SQLite, offline → SQLite)
+│   └── retentionService.ts   # Purge of old synced data
+├── auth/                   # Offline sign-in
+│   ├── offlineAuthPolicy.ts
+│   └── offlineCredentialService.ts
+└── sync/                   # Outbound sync (see §4.8)
+    ├── outboundSyncService.ts # Single engine for check-ins and event operations
+    ├── checkInSync.ts / eventSyncService.ts # Per-family handlers
+    ├── backoff.ts / syncSettings.ts / clockSkew.ts / checkInCrossCheck.ts
 ```
 
 ### 2.3 API Client (`apiClient.ts`)
@@ -159,6 +168,15 @@ App behavior:
 Fallback behavior:
 - If config API is unavailable, app uses built-in default SUBSTRING config and default type map.
 - If rider names payload lacks `personalCode`, production scan cannot resolve Rider ID and must fail fast.
+
+Config API contract notes:
+- `configType` accepts `ALL` (default), any single type (e.g. `ID_CODE_FORMAT`, `ID_CODE_TYPE`, `ARTIFACTS`, `HOTEL_UPLOAD`) or a comma-separated list; only enabled items are returned.
+- When no enabled rows exist for the requested type(s) the API returns `404 INVALID_CONFIG_TYPE`; `listAppConfigs()` maps this to an empty list so callers apply their own missing-config handling.
+- `HOTEL_UPLOAD` / `PROCESSING` carries the hotel CSV processing limits; the app reads only `maxFileSizeBytes` (see [Event-Engine-Design.md](Event-Engine-Design.md#app-configuration)). The upload screen fetches it on open (`listAppConfigs(['HOTEL_UPLOAD'])`, enabled `PROCESSING` item); a missing, disabled or non-positive value, or a failed fetch, skips the client size pre-check (warning logged) and the server's `FILE_TOO_LARGE` applies. It is not cached in SQLite.
+
+Hotel allocation upload state:
+- AsyncStorage key `hotelUpload:lastUploadId:{tourId}` holds the last `uploadId` whose file reached S3. Reopening the upload screen (online) resumes polling it; it is removed on `APPLIED`, `REJECTED` or `404 UPLOAD_NOT_FOUND` and kept when the 3-minute polling cap is reached.
+- On `APPLIED` the `room_allocations` cache is cleared and today's stays are re-fetched (`GET /v1/tours/{tourId}/hotelstays?date=<today>`). A manual single-night save upserts the returned allocation into `room_allocations`.
 
 ---
 
@@ -265,7 +283,7 @@ Current implemented frontend flow (`src/screens/dashboard/DashboardScreen.tsx`):
 Implemented privacy behavior:
 - Rider popup details are memory-only in the Dashboard screen state.
 - No rider-detail persistence to SQLite or SecureStore in default path.
-- Optional offline rider-profile cache remains a future enhancement behind a disabled feature-flag placeholder.
+- Offline (mobile), the rider popup is rebuilt from the cached rider and the ride's cached check-ins (`loadRideRiderDetails`); nothing extra is persisted.
 
 Implemented payload contracts used by frontend:
 
@@ -383,6 +401,16 @@ Offline support is critical for pit-stop stage users (`PS_x_USER`) at remote loc
 
 ### 4.2 SQLite Schema
 
+The schema is versioned with `PRAGMA user_version` (`src/services/database/migrations.ts`). Migrations run in order at database open, each in its own transaction, and are idempotent:
+
+| Version | Changes |
+|---|---|
+| v1 | Base schema below (plus `check_ins.isFloat`, `check_ins.floatNo`, `riders.dietaryPreference`) |
+| v2 | `pending_operations.nextAttemptAt`, `ownerUserId`; `check_ins.tourId`, `ownerUserId`, `cancelledAt`, `cancelledBy`, `status`, `prevStatus`; `riders.tourId`; `rides.tourId`, `payloadJson`; `tour.payloadJson`; tables `sync_meta`, `rider_names`, `app_user_names`; indexes `idx_pending_ops_due`, `idx_check_ins_ride_sync` |
+| v3 | Table `sent_check_ins` and index `idx_sent_check_ins_ride` |
+
+Bulk writes (cache replacement, purge) run inside `withWriteTransaction`, which serialises writers on the single expo-sqlite connection.
+
 ```sql
 -- Tour context (single active tour cached)
 CREATE TABLE IF NOT EXISTS tour (
@@ -406,6 +434,7 @@ CREATE TABLE IF NOT EXISTS riders (
   photoS3Key TEXT,
   qrCodeData TEXT,
   status TEXT,
+  dietaryPreference TEXT,  -- rider profile VEG | NON_VEG, cached lazily for event variants; preserved on rider upsert
   lastSyncedAt TEXT
 );
 
@@ -455,7 +484,7 @@ CREATE TABLE IF NOT EXISTS check_ins (
 -- Pending operations queue (for offline writes)
 CREATE TABLE IF NOT EXISTS pending_operations (
   localId TEXT PRIMARY KEY,
-  operationType TEXT NOT NULL,  -- CHECK_IN
+  operationType TEXT NOT NULL,  -- CHECK_IN | CREATE_EVENT_ACTIVITY_RECORD | CANCEL_EVENT_ACTIVITY_RECORD
   payload TEXT NOT NULL,  -- JSON serialized request body
   createdAt TEXT NOT NULL,
   syncStatus TEXT DEFAULT 'PENDING',  -- PENDING | SYNCING | FAILED
@@ -484,7 +513,133 @@ CREATE TABLE IF NOT EXISTS rider_personal_codes (
   lastSyncedAt TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rider_personal_codes_rider ON rider_personal_codes(riderId);
+
+-- Event engine (see Event-Engine-Design.md)
+CREATE TABLE IF NOT EXISTS events (
+  eventId TEXT PRIMARY KEY,
+  eventName TEXT NOT NULL,
+  eventType TEXT NOT NULL,          -- SINGLE | REPEATING
+  location TEXT,
+  sequenceEnforced INTEGER NOT NULL DEFAULT 0,
+  defaultAllowedTypeCodesJson TEXT NOT NULL DEFAULT '[]',
+  allowSelfService INTEGER NOT NULL DEFAULT 0,
+  activitiesJson TEXT NOT NULL DEFAULT '[]',
+  updatedAt TEXT,
+  lastSyncedAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS event_occurrences (
+  occurrenceId TEXT PRIMARY KEY,    -- EVT-...#YYYY-MM-DD#seq
+  eventId TEXT NOT NULL,
+  date TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  status TEXT NOT NULL,             -- PLANNED | ACTIVE | COMPLETED | CANCELLED
+  selfServiceEnabled INTEGER NOT NULL DEFAULT 0,
+  activityOverridesJson TEXT NOT NULL DEFAULT '[]',
+  linkedOccurrenceRef TEXT,
+  updatedAt TEXT,
+  lastSyncedAt TEXT
+);
+
+-- Scans captured on this device; localId matches the pending_operations row
+CREATE TABLE IF NOT EXISTS event_activity_records (
+  localId TEXT PRIMARY KEY,
+  recordId TEXT,                    -- server id once synced
+  occurrenceId TEXT NOT NULL,
+  eventId TEXT NOT NULL,
+  activityId TEXT NOT NULL,
+  activityName TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  typeCode TEXT,
+  bagLabel TEXT,
+  outcome TEXT NOT NULL,            -- COMPLETED | OPTED_OUT | FLAGGED
+  variantSelected TEXT,
+  method TEXT NOT NULL,             -- QR_SCAN | MANUAL
+  timestamp TEXT NOT NULL,
+  isFlagged INTEGER NOT NULL DEFAULT 0,
+  isCancelled INTEGER NOT NULL DEFAULT 0,
+  isLocal INTEGER NOT NULL DEFAULT 1,
+  syncStatus TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING | SYNCED | FAILED
+  syncError TEXT,
+  retryCount INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL,
+  lastSyncedAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS room_allocations (
+  stayDate TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  hotelId TEXT NOT NULL,
+  roomNo TEXT,
+  roomCapacity INTEGER NOT NULL DEFAULT 2,
+  sharingWithJson TEXT NOT NULL DEFAULT '[]',
+  source TEXT,                      -- MANUAL | UPLOAD
+  updatedAt TEXT,
+  lastSyncedAt TEXT,
+  PRIMARY KEY (stayDate, riderId)
+);
+
+CREATE TABLE IF NOT EXISTS rider_baggage_status (
+  riderId TEXT PRIMARY KEY,
+  baggageStatus TEXT NOT NULL,      -- ACTIVE | RETAINED | WITH_RIDER
+  baggageReleasedAt TEXT,
+  lastSyncedAt TEXT
+);
+
+CREATE TABLE IF NOT EXISTS event_dashboard_snapshots (
+  occurrenceId TEXT PRIMARY KEY,
+  payloadJson TEXT NOT NULL,
+  fetchedAt TEXT NOT NULL
+);
+
+-- Caller's own User-{tourId} record from GET /v1/tours/{tourId}/users/me; NULL payload = no record
+CREATE TABLE IF NOT EXISTS my_tour_assignment (
+  tourId TEXT PRIMARY KEY,
+  payloadJson TEXT,
+  fetchedAt TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_occurrences_event ON event_occurrences(eventId, date);
+CREATE INDEX IF NOT EXISTS idx_event_records_occurrence ON event_activity_records(occurrenceId, timestamp);
+CREATE INDEX IF NOT EXISTS idx_event_records_sync ON event_activity_records(syncStatus);
+CREATE INDEX IF NOT EXISTS idx_room_allocations_hotel ON room_allocations(hotelId, stayDate);
 ```
+
+Offline-mode tables added by migrations v2–v3:
+
+```sql
+-- Last refresh time per cached dataset (e.g. rides:{tourId}, checkins:{rideId}); drives "Offline ready · data as of"
+CREATE TABLE IF NOT EXISTS sync_meta (
+  dataset TEXT PRIMARY KEY,
+  lastSyncedAt TEXT NOT NULL
+);
+
+-- Name directories used offline
+CREATE TABLE IF NOT EXISTS rider_names (
+  tourId TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  name TEXT,
+  PRIMARY KEY (tourId, riderId)
+);
+CREATE TABLE IF NOT EXISTS app_user_names (
+  sub TEXT PRIMARY KEY,
+  name TEXT
+);
+
+-- Check-ins delivered by the outbound queue; used by "Verify with server"
+CREATE TABLE IF NOT EXISTS sent_check_ins (
+  localId TEXT PRIMARY KEY,
+  tourId TEXT NOT NULL,
+  rideId TEXT NOT NULL,
+  riderId TEXT NOT NULL,
+  requestJson TEXT NOT NULL,        -- the request as sent (original capture timestamp)
+  serverCheckInId TEXT,             -- NULL when the server reported a duplicate
+  ownerUserId TEXT,
+  sentAt TEXT NOT NULL
+);
+```
+
+Both check-in operations (`CHECK_IN`) and event operation types are processed by the single outbound engine (§4.8).
 
 ### 4.2.1 Storage Estimation and Optimisation
 
@@ -511,6 +666,8 @@ SQLite overhead (indexes, metadata) adds ~20%, bringing the total to approximate
 4. **Index only necessary columns:** Primary keys and foreign keys (`riderId`, `rideId`, `stageNumber`) are indexed. No additional indexes unless query performance requires it.
 
 ### 4.3 Data Flow
+
+> **Implementation note (offline mode completion).** The sections below describe the original target design. The implemented behaviour is: online screens read from the API and write the data through to SQLite (cache-through); offline they read from SQLite. Online check-ins are sent directly after any queued ones; offline (or unreachable-server) check-ins go to SQLite and the queue. See §4.8.
 
 #### Design Principle: SQLite as Single Source of Truth
 
@@ -764,6 +921,97 @@ Offline behavior:
 3. No live network lookup is attempted for personalCode mapping misses during scan flow.
 
 This keeps scan latency predictable and ensures scan-path continuity in low-connectivity conditions.
+
+### 4.7 Event Engine Offline
+
+Event scanning works offline alongside ride check-ins (§4.8).
+
+#### Event Bootstrap
+
+`src/services/events/eventBootstrapService.ts` runs two requests together:
+
+| Request | Writes | Notes |
+|---|---|---|
+| `GET /v1/tours/{tourId}/events/bootstrap` (`If-None-Match` when an ETag is held) | `events` (full replace), `event_occurrences` (full replace with `activeOccurrences` = PLANNED/ACTIVE from today), `rider_baggage_status` (full replace), `room_allocations` (replaced per `stayDate` in `hotelStaysToday`; today cleared when empty) | `304` keeps the cache; ETag held in memory per tour |
+| `GET /v1/tours/{tourId}/users/me` | `my_tour_assignment` | `404 USER_NOT_FOUND` stored as NULL = no assignment (not an error) |
+
+Triggers (owned by `EventSessionContext`): tour ready and online (repeated on reconnect until a bootstrap succeeds), app foreground after more than 5 minutes in the background, pull-to-refresh on EventsHome, and after an outbound event batch that synced at least one operation. Concurrent calls share one request. EventScan also fetches its event and occurrence online and upserts them.
+
+#### Event Outbound Sync
+
+Scans are written local-first: `event_activity_records` row (`syncStatus = PENDING`) plus a `pending_operations` row with the same `localId` (`CREATE_EVENT_ACTIVITY_RECORD`). Cancelling a synced record sets `isCancelled` locally and queues `CANCEL_EVENT_ACTIVITY_RECORD` (own `localId`, payload carries `recordId` and `recordLocalId`). Cancelling an unsynced record deletes it and drops its queued create.
+
+`src/services/sync/eventSyncService.ts` registers the handlers for these two types with the shared outbound engine (§4.8); they are sent FIFO in one serial queue shared with interactive sends. There is no fixed-interval loop. An interactive send first flushes older queued event ops. Requests use `maxRetries: 0`.
+
+| Result | Create | Cancel |
+|---|---|---|
+| Success (incl. `isFlagged`) | Record SYNCED with server `recordId`/`isFlagged`; op removed | Record cancelled; op removed |
+| Network, timeout, 401, 5xx, malformed | Op stays PENDING (`retryCount`+1); batch stops | Same |
+| `409 DUPLICATE_ACTIVITY_RECORD` | Retried op (`retryCount > 0`): treated as synced (`recordId = <riderId>#<activityId>#<timestamp>`). First attempt: info message, op dropped, local record removed | — |
+| `409 RECORD_ALREADY_CANCELLED` | — | Treated as done |
+| Other expected 400/403/404/409 (`OCCURRENCE_NOT_ACTIVE`, `BAGGAGE_NOT_IN_TOUR`, `RIDER_NOT_ASSIGNED`, `HOTEL_MISMATCH`, `PREREQUISITE_NOT_MET`, `SCAN_TYPE_NOT_ALLOWED`, `ACTIVITY_NOT_FOUND`, …) | Background: record and op FAILED with the message ("Sync issues", dismissible). Interactive: message shown, op dropped, record removed | Logged; `isCancelled` restored; op dropped |
+
+Ops left `SYNCING` by a crash are reset to PENDING once per app session before the first batch. Record timestamps are ISO UTC without milliseconds.
+
+#### Offline Scan Checks
+
+- Activities and allowed types come from cached `events`/`event_occurrences` (overrides included); assignment filtering uses `my_tour_assignment`.
+- `BAGGAGE` ID types are blocked when `rider_baggage_status.baggageStatus = WITH_RIDER` (message includes rider and `baggageReleasedAt`). Online the server decides.
+- Local duplicate check: this device's non-cancelled, non-failed record for the same occurrence, rider and activity.
+- Variant default: `riders.dietaryPreference` (refreshed online from `GET /v1/riders/profile/{profileId}` on each variant scan).
+
+### 4.8 Offline Mode (Implemented)
+
+Mobile only; web is always online.
+
+#### Offline readiness (cache-through)
+
+`src/services/offline/offlineDataService.ts` loaders are used by the screens: online they call the API and write the result to SQLite (`sync_meta` records the time); offline they read SQLite. Datasets: active tour, rides, tour riders and rider names, app-user names, the ride's check-ins (including Not Riding) and the events bootstrap. While online and today's ride is OPEN/STARTED, `SyncStatusContext` refreshes the ride datasets every `readinessRefreshMinutes` (skipped when fresh). No explicit download is needed before going offline.
+
+#### Outbound engine
+
+`src/services/sync/outboundSyncService.ts` sends `pending_operations` through handlers registered per operation type (`checkInSync.ts`: `CHECK_IN`; `eventSyncService.ts`: event create/cancel).
+
+| Aspect | Behaviour |
+|---|---|
+| Triggers | New capture, reconnect, app foreground, online sign-in, "Sync now"/"Retry". No polling loop. |
+| Conditions | Mobile, foreground, online, signed in online. An offline sign-in session never sends. |
+| Order | FIFO per family; a failing item blocks only its own family. |
+| Retry | Exponential backoff with jitter (`nextAttemptAt`), capped at `maxBackoffMinutes`. |
+| Connectivity failure | Item stays PENDING; attempts are not used up. |
+| Server failure | After `maxSyncAttempts`, item becomes FAILED ("Needs attention"). |
+| Duplicate on server | `DUPLICATE_CHECKIN` / `DUPLICATE_ACTIVITY_RECORD` on a retried item is treated as sent. |
+| Crash recovery | Items left SYNCING are reset to PENDING once per session. |
+| Owner | Items carry `ownerUserId`; only the owner's items are sent. |
+
+The backend stores the client capture timestamp, so offline check-ins keep their real time.
+
+#### Monitoring and recovery
+
+- **Sync status** screen: unsent items with error, Retry / Retry all / Discard (confirmation), Sync now, readiness time.
+- **Stale queue alert** when an item is unsent for more than `staleQueueAlertMinutes` while online.
+- **Sign-out guard**: signing out with unsent data lists the items and asks for confirmation.
+- **Verify with server** (on demand): for each ride in `sent_check_ins`, `GET /dashboard/progress` is called once and the sent check-ins are matched against the server check-ins and cancelled records (by server id, otherwise rider + timestamp + kind + stage). Missing ones are listed with **Send again**, which re-queues the original request (original timestamp). Only check-ins sent from the queue are logged; check-ins sent directly online already had the server's confirmation.
+- **Device clock check**: `apiClient` reads the `Date` header of normal responses (`clockSkew.ts`, midpoint of the request, last 3 samples, smallest wins). A difference over `clockSkewWarnMinutes` shows a warning in the offline strip and Sync status. No extra requests.
+
+#### Retention
+
+`retentionService.ts` runs at most every 12 hours on start/foreground and calls `purgeExpiredLocalData`: synced check-ins of rides older than `retentionDays`, synced/cancelled event records of past occurrences, and `sent_check_ins` older than `retentionDays`. Unsent or failed data is never purged.
+
+#### Settings (`OFFLINE_SYNC/DEFAULT` AppConfig)
+
+| Key | Default | Limits | Device override |
+|---|---:|---|---|
+| `readinessRefreshMinutes` | 5 | 1–60 | Yes |
+| `maxSyncAttempts` | 8 | 3–20 | Yes |
+| `staleQueueAlertMinutes` | 30 | 5–240 | Yes |
+| `retentionDays` | 2 | 1–14 | Yes |
+| `maxBackoffMinutes` | 15 | 1–60 | Yes |
+| `offlineLoginMaxDays` | 7 | 1–30 | No |
+| `offlineLoginMaxAttempts` | 5 | 3–10 | No |
+| `clockSkewWarnMinutes` | 5 | 1–60 | No |
+
+Values are clamped to the limits. Device overrides (Advanced settings, all roles except GUEST) are stored in AsyncStorage and can be reset to the AppConfig values.
 
 ---
 

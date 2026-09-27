@@ -18,7 +18,10 @@ import { COLORS } from '../../constants/colors';
 import { useRideSession } from '../../context/RideSessionContext';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
-import { closePitStopStage, listRides, openPitStopStage } from '../../services/api/rideApi';
+import { useSyncStatus } from '../../context/SyncStatusContext';
+import { useOffline } from '../../context/OfflineContext';
+import { closePitStopStage, openPitStopStage } from '../../services/api/rideApi';
+import { loadRides as loadRidesCacheThrough } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import {
   clearPitStopContextStageNumber,
@@ -29,14 +32,17 @@ import {
   MIN_SCAN_PAUSE_SECONDS,
   normalizeScanPauseSeconds,
 } from '../../services/config/scanPauseConfigService';
-import { getPitStopStageNumbersFromRoles, isPitStopUserRole } from '../../utils/permissions';
+import { canUseAdvancedSettings, getPitStopStageNumbersFromRoles, isPitStopUserRole } from '../../utils/permissions';
 import { AppStackParamList } from '../../types/navigation';
 import { CheckIn, CheckInStatus, Ride, RideStatus, Stage, StageType, UserRole } from '../../types/models';
 import StageFilterBar from './StageFilterBar';
 import { AppMenu } from '../common/AppMenu';
+import OfflineBanner from '../common/OfflineBanner';
+import { useVisibleModules } from '../../navigation/modules';
+import { getLocalToday } from '../../utils/dates';
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalToday();
   const todayRides = rides.filter((ride) => ride.date === today);
 
   if (todayRides.length === 0) {
@@ -100,7 +106,12 @@ export default function DashboardTabsHeader() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const insets = useSafeAreaInsets();
   const { tour } = useTour();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { requestLogout, pendingCount, failedCount } = useSyncStatus();
+  const { isOffline, isOfflineSupported } = useOffline();
+  // Pit-stop open/close is an online-only action.
+  const isPitStopActionBlocked = isOffline || Boolean(user?.isOfflineSession);
+  const { hasHome } = useVisibleModules();
   const {
     currentRide,
     isHistorical,
@@ -139,7 +150,7 @@ export default function DashboardTabsHeader() {
     }
 
     try {
-      const rides = await listRides(tour.tourId);
+      const { data: rides } = await loadRidesCacheThrough(tour.tourId);
       const sortedRides = [...rides].sort((a, b) => b.date.localeCompare(a.date));
       setAllRides(sortedRides);
     } catch {
@@ -153,7 +164,7 @@ export default function DashboardTabsHeader() {
   }, [loadRides]);
 
   const handleSelectRide = useCallback((ride: Ride) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalToday();
     setCurrentRide(ride, ride.date !== today);
   }, [setCurrentRide]);
 
@@ -352,8 +363,8 @@ export default function DashboardTabsHeader() {
     && availablePitStopStagesForManagement.length > 0;
 
   const selectedPitStopStatus = selectedPitStopStageForManagement?.pitStopStatus ?? null;
-  const canOpenSelectedPitStop = selectedPitStopStatus === null;
-  const canCloseSelectedPitStop = selectedPitStopStatus === 'OPEN';
+  const canOpenSelectedPitStop = selectedPitStopStatus === null && !isPitStopActionBlocked;
+  const canCloseSelectedPitStop = selectedPitStopStatus === 'OPEN' && !isPitStopActionBlocked;
 
   const formatDateTimeForDisplay = (value?: string): string => {
     if (!value) return 'N/A';
@@ -367,21 +378,33 @@ export default function DashboardTabsHeader() {
   return (
     <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
       <View style={styles.headerRow}>
-        {currentRide ? (
-          <TouchableOpacity
-            style={styles.rideTitleButton}
-            onPress={() => navigation.navigate('RideInfo', { ride: currentRide, source: 'dashboard' })}
-            accessibilityRole="button"
-            accessibilityLabel="Open ride details"
-            accessibilityHint="Shows details for the selected ride"
-          >
-            <Text style={styles.rideTitle}>{currentRide.name}</Text>
-            {/* <MaterialIcons name="info-outline" size={18} color={COLORS.white} /> */}
-            <FontAwesome5 name="info-circle" size={18} color={COLORS.white} />
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.rideTitle}>No active ride</Text>
-        )}
+        <View style={styles.headerLeft}>
+          {hasHome && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Home', undefined, { pop: true })}
+              style={styles.homeButton}
+              accessibilityRole="button"
+              accessibilityLabel="Go to Home"
+            >
+              <MaterialIcons name="home" size={22} color={COLORS.white} />
+            </TouchableOpacity>
+          )}
+          {currentRide ? (
+            <TouchableOpacity
+              style={styles.rideTitleButton}
+              onPress={() => navigation.navigate('RideInfo', { ride: currentRide, source: 'dashboard' })}
+              accessibilityRole="button"
+              accessibilityLabel="Open ride details"
+              accessibilityHint="Shows details for the selected ride"
+            >
+              <Text style={styles.rideTitle}>{currentRide.name}</Text>
+              {/* <MaterialIcons name="info-outline" size={18} color={COLORS.white} /> */}
+              <FontAwesome5 name="info-circle" size={18} color={COLORS.white} />
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.rideTitle}>No active ride</Text>
+          )}
+        </View>
 
         <View style={styles.headerActions}>
           {isHistorical && (
@@ -401,6 +424,8 @@ export default function DashboardTabsHeader() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {isOfflineSupported && <OfflineBanner variant="compact" captureLabel="Check-ins" />}
 
       {isHistorical && (
         <View style={styles.historicalWrap}>
@@ -433,8 +458,7 @@ export default function DashboardTabsHeader() {
       <AppMenu
         visible={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}
-        isAdministrator={isAdministrator}
-        showTourManagementOption={isAdministrator || isSuperUser}
+        showAccountOptions={!hasHome}
         rides={allRides}
         currentRideId={currentRide?.rideId ?? null}
         onSelectRide={handleSelectRide}
@@ -457,7 +481,9 @@ export default function DashboardTabsHeader() {
         showScanPauseConfigOption={true}
         scanPauseSeconds={scanPauseSeconds}
         onOpenScanPauseConfig={handleOpenScanPauseConfig}
-        onLogout={logout}
+        onLogout={requestLogout}
+        showAdvancedSettingsOption={canUseAdvancedSettings(user?.userRole)}
+        unsentCount={pendingCount + failedCount}
       />
 
       <Modal
@@ -627,6 +653,12 @@ export default function DashboardTabsHeader() {
                 </TouchableOpacity>
               </View>
 
+              {isPitStopActionBlocked && (
+                <Text style={styles.pitStopManagementOfflineText}>
+                  Opening or closing a pit stop needs a connection.
+                </Text>
+              )}
+
               {isPitStopActionSubmitting && (
                 <View style={styles.pitStopManagementSubmittingRow}>
                   <ActivityIndicator size="small" color={COLORS.primary} />
@@ -702,6 +734,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     flexShrink: 1,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
+  },
+  homeButton: {
+    paddingRight: 8,
+    paddingVertical: 4,
   },
   rideTitle: {
     fontSize: 20,
@@ -887,6 +928,12 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 13,
     fontWeight: '700',
+  },
+  pitStopManagementOfflineText: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
   pitStopManagementSubmittingRow: {
     marginTop: 2,

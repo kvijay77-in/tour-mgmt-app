@@ -17,6 +17,9 @@ This page provides a guide to all project documentation.
 | [Data Integration Design](DataIntegrationDesign.md) | Backend API integration architecture, offline sync design, conflict resolution |
 | [ID Format Requirements](Requirements-ID-format.md) | Production QR ID Code parsing, type validation, and rider personal code mapping requirements |
 | [Tour Artifact Handling](tour-artifacts-handling-design.md) | Artifact configuration, upload, manifest, and maintenance flow |
+| [Tour Creation & Ride Definitions](create-manage-tour.md) | Define/Update Tour screen: tour save, provisioning, re-provisioning, ride definition tabs |
+| [Event Engine Requirements](Event-Engine-Requirements.md) | Events engine scope for the mgmt app — events, occurrences, event scanning, hotels, rider exit, tour assignments |
+| [Event Engine Design](Event-Engine-Design.md) | Events engine frontend design, phases, decisions and deviations, permissions, SQLite, scan resolution |
 | [Dashboard API Optimization Proposal](Dashboard-API-Optimization-Proposal.md) | Approved dashboard API split contract (progress payload + rider-details on demand + ETag behavior) |
 | [Dashboard Call Trigger Baseline](dashboard-call-trigger-baseline.md) | Baseline trigger-to-call matrix used for API efficiency refactor verification |
 | [Dashboard Call Audit Checklist](dashboard-call-audit-checklist.md) | Duplicate-call classification checklist (true duplicate vs retry behavior) |
@@ -25,6 +28,7 @@ This page provides a guide to all project documentation.
 | [ID Code Backend API Change Request](idcode-backend-api-change-request.md) | Change request for shared AppConfig API and rider `personalCode` payload support |
 | [Project Structure](project-structure.md) | Project folder organization and code structure |
 | [Migration Cleanup](migration-cleanup.md) | Obsolete/superseded code from the SPA→multi-screen navigation migration, pending user sign-off before removal |
+| [Project Audit Findings](Project-Audit-Findings.md) | Audit of `feature-event-engine`: security, design, performance, refactoring and UX findings with decision checkboxes |
 
 ## Quick Navigation
 
@@ -48,6 +52,8 @@ This page provides a guide to all project documentation.
 - **Role-based access**: [Requirements → Role Based App Access](Requirements.md#role-based-app-access)
 - **Ride status transitions (Admin)**: [Requirements → Ride Status Management](Requirements.md#ride-status-management)
 - **Offline capability**: [Requirements → Offline Capability](Requirements.md#offline-capability)
+- **Event engine**: [Event Engine Requirements](Event-Engine-Requirements.md) · [Event Engine Design](Event-Engine-Design.md)
+- **Tour assignments and rider exit**: [Requirements → Tour Assignments](Requirements.md#tour-assignments) · [Requirements → Rider Exit](Requirements.md#rider-exit)
 
 ### For Backend Integration
 - **API integration overview**: [Data Integration Design → API Approach Analysis](DataIntegrationDesign.md#1-api-approach-analysis)

@@ -17,12 +17,9 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
-
-const REMEMBERED_CREDENTIALS_KEY = 'auth.rememberedCredentials';
 
 interface NewPasswordScreenProps {
   username: string;
@@ -70,19 +67,7 @@ export default function NewPasswordScreen({
     }
 
     try {
-      const result = await completeNewPassword(newPassword);
-
-      if (rememberMe) {
-        await SecureStore.setItemAsync(
-          REMEMBERED_CREDENTIALS_KEY,
-          JSON.stringify({
-            username,
-            password: newPassword,
-          }),
-        );
-      } else {
-        await SecureStore.deleteItemAsync(REMEMBERED_CREDENTIALS_KEY);
-      }
+      const result = await completeNewPassword(newPassword, { username, rememberMe });
 
       if (result === 'NO_ROLE') {
         setSuccessToastMessage('Password changed successfully. Redirecting to sign in...');
