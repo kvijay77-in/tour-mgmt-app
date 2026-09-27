@@ -1,15 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { CONFIG_TYPE, OFFLINE_SYNC_CONFIG_ID } from '../constants/idCodes';
+import { CONFIG_TYPE } from '../constants/idCodes';
 import { useAuth } from './AuthContext';
 import { listAppConfigs } from '../services/api/configApi';
 import {
-  getAppConfigsByType,
   getEnabledIdCodeFormat,
   getIdCodeTypeMap,
   upsertAppConfigs,
 } from '../services/database/appConfigStore';
-import { loadSyncSettingOverrides, setOrgSyncConfig } from '../services/sync/syncSettingsService';
-import type { OfflineSyncConfig } from '../types/config';
+import { hydrateSyncSettingsFromCache } from '../services/sync/syncSettingsService';
 import { logger } from '../utils/logger';
 
 const TAG = 'AppConfigContext';
@@ -37,7 +35,6 @@ export function useAppConfig(): AppConfigContextValue {
  * missing item never blocks mandatory config) and apply it to sync settings.
  */
 async function refreshOfflineSyncConfig(): Promise<void> {
-  await loadSyncSettingOverrides();
   try {
     const items = await listAppConfigs([CONFIG_TYPE.OFFLINE_SYNC]);
     if (items.length > 0) {
@@ -46,13 +43,7 @@ async function refreshOfflineSyncConfig(): Promise<void> {
   } catch (error) {
     logger.info(TAG, 'OFFLINE_SYNC config not fetched; using cached/default values.', error);
   }
-  try {
-    const cached = await getAppConfigsByType(CONFIG_TYPE.OFFLINE_SYNC);
-    const item = cached.find((entry) => entry.configId === OFFLINE_SYNC_CONFIG_ID && entry.enabled);
-    setOrgSyncConfig(item ? (item.config as OfflineSyncConfig) : null);
-  } catch (error) {
-    logger.warn(TAG, 'Failed to read cached OFFLINE_SYNC config', error);
-  }
+  await hydrateSyncSettingsFromCache();
 }
 
 export function AppConfigProvider({ children }: { children: React.ReactNode }) {

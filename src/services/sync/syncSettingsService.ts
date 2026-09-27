@@ -9,6 +9,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { OfflineSyncConfig } from '../../types/config';
+import { CONFIG_TYPE, OFFLINE_SYNC_CONFIG_ID } from '../../constants/idCodes';
+import { getAppConfigsByType } from '../database/appConfigStore';
 import { logger } from '../../utils/logger';
 import {
   resolveOrgSyncSettings,
@@ -45,6 +47,21 @@ export function loadSyncSettingOverrides(): Promise<void> {
       });
   }
   return _overridesLoaded;
+}
+
+/**
+ * Apply the cached OFFLINE_SYNC AppConfig (from the last online start) and the
+ * device overrides. Used before AppConfig is refreshed, e.g. offline sign-in.
+ */
+export async function hydrateSyncSettingsFromCache(): Promise<void> {
+  await loadSyncSettingOverrides();
+  try {
+    const cached = await getAppConfigsByType(CONFIG_TYPE.OFFLINE_SYNC);
+    const item = cached.find((entry) => entry.configId === OFFLINE_SYNC_CONFIG_ID && entry.enabled);
+    setOrgSyncConfig(item ? (item.config as OfflineSyncConfig) : null);
+  } catch (error) {
+    logger.warn(TAG, 'Failed to read cached OFFLINE_SYNC config', error);
+  }
 }
 
 /** Apply the organisation's OFFLINE_SYNC AppConfig (null = not configured). */

@@ -4,13 +4,13 @@
  * Loads and stores lightweight name lookup maps used by Check-In and Log tabs.
  * - Rider names: GET /v1/tours/{tourId}/riders/names
  * - App user names: GET /v1/users/cognito
+ * Both are cached on mobile so names resolve offline.
  */
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useTour } from './TourContext';
-import { listTourRiderNames, listCognitoUserNames } from '../services/api/nameDirectoryApi';
-import { replaceRiderPersonalCodes } from '../services/database/riderPersonalCodeStore';
+import { loadAppUserNames, loadRiderNames } from '../services/offline/offlineDataService';
 import { logger } from '../utils/logger';
 
 const TAG = 'NameDirectoryContext';
@@ -60,13 +60,8 @@ export function NameDirectoryProvider({ children }: { children: React.ReactNode 
 
     (async () => {
       try {
-        const entries = await listCognitoUserNames();
+        const { data: map } = await loadAppUserNames();
         if (!mounted) return;
-
-        const map: Record<string, string | null> = {};
-        for (const entry of entries) {
-          map[entry.sub] = entry.name;
-        }
         setAppUserNamesBySub(map);
       } catch (err) {
         logger.warn(TAG, 'Failed to load /v1/users/cognito name directory', err);
@@ -91,23 +86,8 @@ export function NameDirectoryProvider({ children }: { children: React.ReactNode 
 
     (async () => {
       try {
-        const entries = await listTourRiderNames(tourId);
-
-        const personalCodeEntries = entries
-          .filter((entry): entry is typeof entry & { personalCode: string } => Boolean(entry.personalCode))
-          .map((entry) => ({
-            personalCode: entry.personalCode,
-            riderId: entry.riderId,
-          }));
-
-        await replaceRiderPersonalCodes(tourId, personalCodeEntries);
-
+        const { data: map } = await loadRiderNames(tourId);
         if (!mounted) return;
-
-        const map: Record<string, string | null> = {};
-        for (const entry of entries) {
-          map[entry.riderId] = entry.name;
-        }
         setRiderNamesById(map);
       } catch (err) {
         logger.warn(TAG, `Failed to load rider names for tour ${tourId}`, err);

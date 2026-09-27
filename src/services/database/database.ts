@@ -83,3 +83,52 @@ export async function resetStuckOperations(): Promise<void> {
     `UPDATE check_ins SET syncStatus = 'PENDING' WHERE syncStatus = 'SYNCING'`,
   );
 }
+
+/**
+ * Delete queued operations (and their unsynced local records) captured by
+ * anyone other than `userId`. Only called after the signed-in user explicitly
+ * confirms discarding another user's unsynced data.
+ */
+export async function discardQueuedDataOwnedByOthers(userId: string): Promise<number> {
+  let discarded = 0;
+  await withWriteTransaction(async (db) => {
+    const row = await db.getFirstAsync<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?',
+      [userId],
+    );
+    discarded = row?.n ?? 0;
+    await db.runAsync(
+      `DELETE FROM event_activity_records WHERE isLocal = 1 AND localId IN
+         (SELECT localId FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?)`,
+      [userId],
+    );
+    await db.runAsync(
+      'DELETE FROM check_ins WHERE isLocal = 1 AND ownerUserId IS NOT NULL AND ownerUserId != ?',
+      [userId],
+    );
+    await db.runAsync(
+      'DELETE FROM pending_operations WHERE ownerUserId IS NOT NULL AND ownerUserId != ?',
+      [userId],
+    );
+  });
+  return discarded;
+}
+
+/**
+ * Clear cached server data when a different user signs in on this device, so
+ * the new user never sees the previous user's cached data. Unsynced local
+ * records are kept (they are protected by the user-switch check).
+ */
+export async function clearUserScopedCache(): Promise<void> {
+  await withWriteTransaction(async (db) => {
+    await db.execAsync(`
+      DELETE FROM check_ins WHERE isLocal = 0;
+      DELETE FROM event_activity_records WHERE isLocal = 0 AND localId NOT IN (SELECT localId FROM pending_operations);
+      DELETE FROM sync_meta;
+      DELETE FROM rider_names;
+      DELETE FROM app_user_names;
+      DELETE FROM my_tour_assignment;
+      DELETE FROM event_dashboard_snapshots;
+    `);
+  });
+}

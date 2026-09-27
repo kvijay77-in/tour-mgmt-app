@@ -17,9 +17,12 @@ import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTour } from '../../context/TourContext';
-import { listRides } from '../../services/api/rideApi';
-import { getDashboardProgress } from '../../services/api/dashboardApi';
-import { listRiders } from '../../services/api/riderApi';
+import {
+  loadDashboardProgress,
+  loadRiders,
+  loadRides,
+  OfflineDataUnavailableError,
+} from '../../services/offline/offlineDataService';
 import { subscribeDashboardCheckInEvent, subscribeDashboardCancelEvent, subscribeDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
@@ -121,8 +124,8 @@ export default function DashboardScreen() {
       return ridersLoadPromiseRef.current;
     }
 
-    ridersLoadPromiseRef.current = listRiders(tour.tourId)
-      .then((roster) => {
+    ridersLoadPromiseRef.current = loadRiders(tour.tourId)
+      .then(({ data: roster }) => {
         setRiders(roster);
         return roster;
       })
@@ -176,7 +179,7 @@ export default function DashboardScreen() {
     setIsHistorical(historical);
     try {
       const roster = await ensureRidersLoaded();
-      const { data } = await getDashboardProgress(tour!.tourId, targetRide.rideId);
+      const { data } = await loadDashboardProgress(tour!.tourId, targetRide.rideId);
       if (!data) {
         if (!isBackgroundRefresh) {
           setError('No dashboard progress data available.');
@@ -203,7 +206,9 @@ export default function DashboardScreen() {
       logger.error('Dashboard', 'loadRideDashboard failed', err);
       let message: string;
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
-      if (isApiError) {
+      if (err instanceof OfflineDataUnavailableError) {
+        message = err.message;
+      } else if (isApiError) {
         const apiErr = err as ApiError;
         if (apiErr.errorCode === 'CONFIG_ERROR') {
           message = apiErr.message;
@@ -246,7 +251,7 @@ export default function DashboardScreen() {
     setError(null);
     try {
       // Fetch ride list for the selector
-      const rides = await listRides(tour.tourId);
+      const { data: rides } = await loadRides(tour.tourId);
       // Sort by date descending (most recent first)
       const sortedRides = [...rides].sort((a, b) => b.date.localeCompare(a.date));
 
@@ -258,7 +263,7 @@ export default function DashboardScreen() {
         setIsHistorical(false);
         setRide(todayRide);
 
-        const { data } = await getDashboardProgress(tour.tourId, todayRide.rideId);
+        const { data } = await loadDashboardProgress(tour.tourId, todayRide.rideId);
         if (!data) {
           setError('No dashboard progress data available.');
           setIsLoading(false);
@@ -292,7 +297,9 @@ export default function DashboardScreen() {
       logger.error('Dashboard', 'fetchDashboard failed', err);
       let message: string;
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
-      if (isApiError) {
+      if (err instanceof OfflineDataUnavailableError) {
+        message = err.message;
+      } else if (isApiError) {
         const apiErr = err as ApiError;
         if (apiErr.errorCode === 'CONFIG_ERROR') {
           message = apiErr.message;

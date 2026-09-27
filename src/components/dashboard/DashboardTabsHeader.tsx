@@ -18,7 +18,8 @@ import { COLORS } from '../../constants/colors';
 import { useRideSession } from '../../context/RideSessionContext';
 import { useTour } from '../../context/TourContext';
 import { useAuth } from '../../context/AuthContext';
-import { closePitStopStage, listRides, openPitStopStage } from '../../services/api/rideApi';
+import { closePitStopStage, openPitStopStage } from '../../services/api/rideApi';
+import { loadRides as loadRidesCacheThrough } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import {
   clearPitStopContextStageNumber,
@@ -142,7 +143,7 @@ export default function DashboardTabsHeader() {
     }
 
     try {
-      const rides = await listRides(tour.tourId);
+      const { data: rides } = await loadRidesCacheThrough(tour.tourId);
       const sortedRides = [...rides].sort((a, b) => b.date.localeCompare(a.date));
       setAllRides(sortedRides);
     } catch {

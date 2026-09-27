@@ -18,17 +18,26 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
+import { useOffline } from '../../context/OfflineContext';
+import StatusBanner from '../../components/events/StatusBanner';
+import ConfirmDialog from '../../components/artifacts/ConfirmDialog';
+import {
+  getOfflineProfile,
+  getRememberedUsername,
+  getUnlockMethodLabel,
+  hasDeviceScreenLock,
+} from '../../services/auth/offlineCredentialService';
+import { discardQueuedDataOwnedByOthers } from '../../services/database/database';
+import { logger } from '../../utils/logger';
 
-const REMEMBERED_CREDENTIALS_KEY = 'auth.rememberedCredentials';
+const TAG = 'LoginScreen';
 
-interface RememberedCredentials {
-  username: string;
-  password: string;
-}
+const NO_SCREEN_LOCK_WARNING =
+  'This device has no screen lock, so your password cannot be saved securely and offline sign-in will not be available. ' +
+  'Set a PIN, pattern, password, fingerprint or Face ID in your device settings to use offline mode.';
 
 interface LoginScreenProps {
   initialUsername?: string;
@@ -40,40 +49,60 @@ interface LoginScreenProps {
   externalErrorMessage?: string | null;
 }
 
+interface OtherUserDataPrompt {
+  userId: string;
+  count: number;
+  previousUsername: string | null;
+}
+
 export default function LoginScreen({
   initialUsername,
   onNewPasswordRequired,
   onForgotPassword,
   externalErrorMessage = null,
 }: LoginScreenProps) {
-  const { login, isAuthenticating, error } = useAuth();
+  const { login, unlockWithDevice, isAuthenticating, error } = useAuth();
+  const { isOffline, isManualOffline, isOfflineSupported, setManualOffline } = useOffline();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [hasScreenLock, setHasScreenLock] = useState(true);
+  const [savedSignInUser, setSavedSignInUser] = useState<string | null>(null);
+  const [unlockLabel, setUnlockLabel] = useState('device PIN');
+  const [otherUserData, setOtherUserData] = useState<OtherUserDataPrompt | null>(null);
+  const [isDiscarding, setIsDiscarding] = useState(false);
 
   useEffect(() => {
-    const loadRememberedCredentials = async () => {
+    let cancelled = false;
+    const loadSavedSignIn = async () => {
       try {
-        const raw = await SecureStore.getItemAsync(REMEMBERED_CREDENTIALS_KEY);
-        if (!raw) {
-          return;
-        }
-
-        const parsed = JSON.parse(raw) as Partial<RememberedCredentials>;
-        if (typeof parsed.username === 'string' && typeof parsed.password === 'string') {
-          setUsername(parsed.username);
-          setPassword(parsed.password);
+        const [rememberedUsername, profile, screenLock, label] = await Promise.all([
+          getRememberedUsername(),
+          getOfflineProfile(),
+          isOfflineSupported ? hasDeviceScreenLock() : Promise.resolve(true),
+          isOfflineSupported ? getUnlockMethodLabel() : Promise.resolve('device PIN'),
+        ]);
+        if (cancelled) return;
+        if (rememberedUsername) {
+          setUsername((current) => current || rememberedUsername);
           setRememberMe(true);
         }
-      } catch {
-        // Corrupted or inaccessible saved credentials should not block sign-in.
+        setHasScreenLock(screenLock);
+        setSavedSignInUser(profile?.hasSavedPassword ? profile.username : null);
+        setUnlockLabel(label);
+      } catch (err) {
+        // Saved sign-in data is optional; never block sign-in.
+        logger.warn(TAG, 'Failed to read saved sign-in', err);
       }
     };
 
-    void loadRememberedCredentials();
-  }, []);
+    void loadSavedSignIn();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOfflineSupported]);
 
   useEffect(() => {
     if (!initialUsername) {
@@ -96,31 +125,47 @@ export default function LoginScreen({
     }
 
     try {
-      const result = await login(username.trim(), password);
+      const result = await login(username.trim(), password, rememberMe);
 
-      if (result === 'DONE') {
-        if (rememberMe) {
-          const credentials: RememberedCredentials = {
-            username: username.trim(),
-            password,
-          };
-          await SecureStore.setItemAsync(
-            REMEMBERED_CREDENTIALS_KEY,
-            JSON.stringify(credentials),
-          );
-        } else {
-          await SecureStore.deleteItemAsync(REMEMBERED_CREDENTIALS_KEY);
-        }
-      }
-
-      if (result === 'NEW_PASSWORD_REQUIRED') {
+      if (result.status === 'NEW_PASSWORD_REQUIRED') {
         onNewPasswordRequired({
           username: username.trim(),
           rememberMe,
         });
+      } else if (result.status === 'OTHER_USER_DATA') {
+        setOtherUserData({
+          userId: result.userId,
+          count: result.count,
+          previousUsername: result.previousUsername,
+        });
       }
     } catch {
       // Error is already set in AuthContext
+    }
+  };
+
+  const handleUnlock = async () => {
+    setLocalError(null);
+    try {
+      await unlockWithDevice();
+    } catch {
+      // Error is already set in AuthContext
+    }
+  };
+
+  const handleDiscardOtherUserData = async () => {
+    if (!otherUserData) return;
+    setIsDiscarding(true);
+    try {
+      await discardQueuedDataOwnedByOthers(otherUserData.userId);
+      setOtherUserData(null);
+      await handleLogin();
+    } catch (err) {
+      logger.error(TAG, 'Failed to discard previous user data', err);
+      setLocalError('Could not remove the other user\'s data. Please try again.');
+      setOtherUserData(null);
+    } finally {
+      setIsDiscarding(false);
     }
   };
 
@@ -146,6 +191,35 @@ export default function LoginScreen({
         </View>
 
         <View style={styles.formContainer}>
+          {isOfflineSupported && !hasScreenLock && (
+            <View style={styles.bannerSpacing}>
+              <StatusBanner kind="warning" title="No screen lock" message={NO_SCREEN_LOCK_WARNING} />
+            </View>
+          )}
+
+          {isManualOffline ? (
+            <View style={styles.bannerSpacing}>
+              <StatusBanner
+                kind="info"
+                title="Offline mode is on"
+                message={savedSignInUser
+                  ? 'You can sign in offline with your saved sign-in. Turn offline mode off to sign in online.'
+                  : 'Turn offline mode off to sign in online.'}
+                primaryAction={{ label: 'Turn off', onPress: () => setManualOffline(false) }}
+              />
+            </View>
+          ) : isOffline ? (
+            <View style={styles.bannerSpacing}>
+              <StatusBanner
+                kind="info"
+                title="No connection"
+                message={savedSignInUser
+                  ? 'You can sign in offline with your saved sign-in.'
+                  : 'Connect to the internet to sign in.'}
+              />
+            </View>
+          ) : null}
+
           {displayError && (
             <View style={styles.errorBanner}>
               <MaterialIcons name="error-outline" size={20} color={COLORS.danger} />
@@ -227,6 +301,19 @@ export default function LoginScreen({
             )}
           </TouchableOpacity>
 
+          {isOfflineSupported && savedSignInUser && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={`Sign in as ${savedSignInUser} with ${unlockLabel}`}
+              style={styles.unlockButton}
+              onPress={handleUnlock}
+              disabled={isAuthenticating}
+            >
+              <MaterialIcons name="fingerprint" size={20} color={COLORS.primary} />
+              <Text style={styles.unlockButtonText}>Sign in with {unlockLabel}</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={styles.rememberMeContainer}
             onPress={() => setRememberMe((prev) => !prev)}
@@ -239,8 +326,27 @@ export default function LoginScreen({
             />
             <Text style={styles.rememberMeText}>Remember me</Text>
           </TouchableOpacity>
+          {isOfflineSupported && (
+            <Text style={styles.rememberMeHint}>
+              {hasScreenLock
+                ? 'Saves your sign-in securely on this device so you can sign in offline.'
+                : 'Remembers your username only (no screen lock on this device).'}
+            </Text>
+          )}
         </View>
       </ScrollView>
+
+      <ConfirmDialog
+        visible={otherUserData !== null}
+        title="Unsynced data from another user"
+        message={`${otherUserData?.previousUsername ?? 'Another user'} has ${otherUserData?.count ?? 0} item(s) on this device that have not been sent to the server. Ask them to sign in and sync first. Discarding deletes this data permanently.`}
+        confirmLabel="Discard and continue"
+        cancelLabel="Cancel"
+        confirmTone="danger"
+        isSubmitting={isDiscarding}
+        onConfirm={() => void handleDiscardOtherUserData()}
+        onCancel={() => setOtherUserData(null)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -353,6 +459,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'center',
+  },
+  rememberMeHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  bannerSpacing: {
+    marginBottom: 16,
+  },
+  unlockButton: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: 12,
+  },
+  unlockButtonText: {
+    marginLeft: 8,
+    color: COLORS.primary,
+    fontSize: 15,
+    fontWeight: '600',
   },
   rememberMeText: {
     marginLeft: 8,
