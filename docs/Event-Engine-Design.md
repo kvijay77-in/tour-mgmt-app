@@ -137,7 +137,8 @@ All event admin screens are online-only (offline banner, actions disabled). Even
 
 ### EventDefinitionListScreen / EventDefinitionEditorScreen (`MANAGE_EVENTS`, web-first)
 
-- List: cards with name, type, ID, location, activity count; "New Event"; empty state with CTA.
+- List: cards with name, type, ID, location, activity count and View / Edit / Occurrences buttons (Edit only when editable: online and `MANAGE_EVENTS`; Occurrences for `MANAGE_EVENT_OCCURRENCES`); "New Event"; empty state with CTA.
+- `EventDefinitionEditor { eventId?, mode? }`: `mode: 'view'` opens read-only (no activity add/move/remove, footer Close + Edit when editable); Edit switches to edit mode in place.
 - Editor ≥ 768 px: event fields in a left rail, activity rows (table) on the right. < 768 px: event fields then expandable activity cards (collapsed: sequence, name, Enabled/Mandatory badges).
 - Activity fields: name, enabled, mandatory, allow opt-out, assigned users only (default on), allowed ID types (empty = inherit event default, shown as "Inherits: …"), prerequisites (earlier activities only), variant options (comma-separated), notes. New activities get the next `ACT-###`; Move up/down recomputes `sequenceNo` 1..n. Only unsaved activities can be removed; saved ones are disabled instead.
 - Client validation: `EVT-[A-Z0-9]{2,20}` event ID (create only), event name, location, at least one activity, activity name, prerequisites earlier in sequence, ≥ 2 variant values when any, and each activity resolves to at least one allowed ID type (own or event default). Server `400` messages are shown verbatim in the banner; `EVENT_ALREADY_EXISTS` is shown on the Event ID field.

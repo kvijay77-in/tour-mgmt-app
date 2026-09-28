@@ -124,7 +124,7 @@ function EventDefinitionListRoute({ navigation }: NativeStackScreenProps<AppStac
 }
 
 function EventDefinitionEditorRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'EventDefinitionEditor'>) {
-  return <EventDefinitionEditorScreen eventId={route.params?.eventId} navigation={navigation} />;
+  return <EventDefinitionEditorScreen eventId={route.params?.eventId} mode={route.params?.mode} navigation={navigation} />;
 }
 
 function OccurrenceManagementRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'OccurrenceManagement'>) {

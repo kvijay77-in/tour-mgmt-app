@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/colors';
 import { EVENT_VALIDATION_MESSAGES, EventMessageKind } from '../../constants/eventMessages';
 import { DESKTOP_MIN_WIDTH } from '../../constants/layout';
+import { useAuth } from '../../context/AuthContext';
 import { useOffline } from '../../context/OfflineContext';
 import { useTour } from '../../context/TourContext';
 import {
@@ -34,10 +35,11 @@ import {
 } from '../../services/api/eventsApi';
 import { CreateEventRequest, EventActivityInput, UpdateEventRequest } from '../../types/api';
 import { IdCodeTypeConfig } from '../../types/config';
-import { EventActivity, EventDefinition, EventType } from '../../types/models';
+import { EventActivity, EventDefinition, EventType, Permission } from '../../types/models';
 import { AppStackParamList } from '../../types/navigation';
 import { nextActivityId, recomputeSequence } from '../../utils/eventActivity';
 import { logger } from '../../utils/logger';
+import { hasPermission } from '../../utils/permissions';
 import EventScreenHeader from '../../components/events/EventScreenHeader';
 import StatusBanner from '../../components/events/StatusBanner';
 import TypeCodeMultiSelect, { useIdCodeTypeOptions } from '../../components/events/TypeCodeMultiSelect';
@@ -47,6 +49,7 @@ const EVENT_ID_PATTERN = /^EVT-[A-Z0-9]{2,20}$/;
 
 interface EventDefinitionEditorScreenProps {
   eventId?: string;
+  mode?: 'view' | 'edit';
   navigation: NativeStackNavigationProp<AppStackParamList, 'EventDefinitionEditor'>;
 }
 
@@ -226,10 +229,11 @@ interface ActivityFieldsProps {
   typeOptions: IdCodeTypeConfig[];
   inheritedCodes: string[];
   wide: boolean;
+  disabled: boolean;
   onChange: (patch: Partial<ActivityDraft>) => void;
 }
 
-function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, wide, onChange }: ActivityFieldsProps) {
+function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, wide, disabled, onChange }: ActivityFieldsProps) {
   const key = draft.activityId;
   const togglePrerequisite = (id: string) => {
     const selected = draft.prerequisiteActivityIds.includes(id);
@@ -244,13 +248,14 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
   return (
     <View>
       <View style={styles.toggleRow}>
-        <ToggleField label="Enabled" value={draft.enabled} onChange={(enabled) => onChange({ enabled })} />
-        <ToggleField label="Mandatory" value={draft.mandatory} onChange={(mandatory) => onChange({ mandatory })} />
-        <ToggleField label="Allow opt-out" value={draft.allowOptOut} onChange={(allowOptOut) => onChange({ allowOptOut })} />
+        <ToggleField label="Enabled" value={draft.enabled} onChange={(enabled) => onChange({ enabled })} disabled={disabled} />
+        <ToggleField label="Mandatory" value={draft.mandatory} onChange={(mandatory) => onChange({ mandatory })} disabled={disabled} />
+        <ToggleField label="Allow opt-out" value={draft.allowOptOut} onChange={(allowOptOut) => onChange({ allowOptOut })} disabled={disabled} />
         <ToggleField
           label="Assigned users only"
           value={draft.restrictToAssignedUsers}
           onChange={(restrictToAssignedUsers) => onChange({ restrictToAssignedUsers })}
+          disabled={disabled}
         />
       </View>
       <View style={wide ? styles.columns : undefined}>
@@ -262,6 +267,7 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
             inheritedCodes={inheritedCodes}
             onChange={(allowedTypeCodes) => onChange({ allowedTypeCodes })}
             error={errors[`${key}.types`]}
+            disabled={disabled}
           />
         </View>
         <View style={wide ? styles.column : undefined}>
@@ -278,7 +284,8 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
                   <TouchableOpacity
                     key={item.id}
                     accessibilityRole="checkbox"
-                    accessibilityState={{ checked: selected }}
+                    accessibilityState={{ checked: selected, disabled }}
+                    disabled={disabled}
                     onPress={() => togglePrerequisite(item.id)}
                     style={[styles.chip, selected && styles.chipSelected]}
                   >
@@ -300,6 +307,7 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
             placeholder="e.g. VEG, NON_VEG"
             autoCapitalize="characters"
             error={errors[`${key}.variants`]}
+            editable={!disabled}
           />
         </View>
         <View style={wide ? styles.column : undefined}>
@@ -308,6 +316,7 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
             value={draft.notes}
             onChangeText={(notes) => onChange({ notes })}
             placeholder="Staff instructions"
+            editable={!disabled}
           />
         </View>
       </View>
@@ -342,15 +351,18 @@ function IconButton({ icon, label, onPress, disabled, danger }: IconButtonProps)
 // Screen
 // ---------------------------------------------------------------------------
 
-export default function EventDefinitionEditorScreen({ eventId, navigation }: EventDefinitionEditorScreenProps) {
+export default function EventDefinitionEditorScreen({ eventId, mode, navigation }: EventDefinitionEditorScreenProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isDesktop = width >= DESKTOP_MIN_WIDTH;
+  const { user } = useAuth();
   const { tour } = useTour();
   const { isOffline } = useOffline();
   const typeOptions = useIdCodeTypeOptions();
   const isCreate = !eventId;
   const tourId = tour?.tourId;
+  const [isViewMode, setIsViewMode] = useState(!isCreate && mode === 'view');
+  const canEdit = !isOffline && (user ? hasPermission(user.userRole, Permission.MANAGE_EVENTS) : false);
 
   const [original, setOriginal] = useState<EventDefinition | null>(null);
   const [form, setForm] = useState<EventForm>(EMPTY_FORM);
@@ -502,8 +514,8 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
     }
   };
 
-  const title = isCreate ? 'New Event' : original?.eventName ?? 'Edit Event';
-  const inputsDisabled = isOffline || isSaving;
+  const title = isCreate ? 'New Event' : original?.eventName ?? (isViewMode ? 'View Event' : 'Edit Event');
+  const inputsDisabled = isViewMode || isOffline || isSaving;
 
   const eventFields = (
     <View>
@@ -573,7 +585,7 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
   const renderActivity = (draft: ActivityDraft, index: number) => {
     const earlier = drafts.slice(0, index);
     const nameError = errors[`${draft.activityId}.name`];
-    const actions = (
+    const actions = isViewMode ? null : (
       <View style={styles.rowActions}>
         <IconButton icon="arrow-upward" label={`Move ${draft.name || draft.activityId} up`} disabled={index === 0} onPress={() => moveActivity(index, -1)} />
         <IconButton icon="arrow-downward" label={`Move ${draft.name || draft.activityId} down`} disabled={index === drafts.length - 1} onPress={() => moveActivity(index, 1)} />
@@ -590,6 +602,7 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
         typeOptions={typeOptions}
         inheritedCodes={form.defaultAllowedTypeCodes}
         wide={isDesktop}
+        disabled={inputsDisabled}
         onChange={(patch) => updateDraft(draft.activityId, patch)}
       />
     );
@@ -603,10 +616,11 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
             <View style={styles.nameCell}>
               <TextInput
                 accessibilityLabel={`Name of ${draft.activityId}`}
+                editable={!inputsDisabled}
                 onChangeText={(name) => updateDraft(draft.activityId, { name })}
                 placeholder="Activity name"
                 placeholderTextColor={COLORS.textDisabled}
-                style={[styles.input, nameError ? styles.inputError : null]}
+                style={[styles.input, inputsDisabled && styles.inputReadOnly, nameError ? styles.inputError : null]}
                 value={draft.name}
               />
               {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
@@ -646,6 +660,7 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
               value={draft.name}
               onChangeText={(name) => updateDraft(draft.activityId, { name })}
               error={nameError}
+              editable={!inputsDisabled}
             />
             {fields}
             {actions}
@@ -659,10 +674,12 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
     <View>
       <View style={styles.activitiesHeader}>
         <Text style={styles.sectionTitle}>Activities</Text>
-        <TouchableOpacity accessibilityRole="button" disabled={inputsDisabled} onPress={addActivity} style={[styles.addButton, inputsDisabled && styles.disabled]}>
-          <MaterialIcons name="add" size={18} color={COLORS.primary} />
-          <Text style={styles.addButtonText}>Add Activity</Text>
-        </TouchableOpacity>
+        {isViewMode ? null : (
+          <TouchableOpacity accessibilityRole="button" disabled={inputsDisabled} onPress={addActivity} style={[styles.addButton, inputsDisabled && styles.disabled]}>
+            <MaterialIcons name="add" size={18} color={COLORS.primary} />
+            <Text style={styles.addButtonText}>Add Activity</Text>
+          </TouchableOpacity>
+        )}
       </View>
       {errors.activities ? <Text style={styles.errorText}>{errors.activities}</Text> : null}
       {drafts.length === 0 ? <Text style={styles.hint}>No activities yet.</Text> : null}
@@ -719,16 +736,29 @@ export default function EventDefinitionEditorScreen({ eventId, navigation }: Eve
 
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
             <TouchableOpacity accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.cancelButton}>
-              <Text style={styles.cancelText}>Cancel</Text>
+              <Text style={styles.cancelText}>{isViewMode ? 'Close' : 'Cancel'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              accessibilityRole="button"
-              disabled={inputsDisabled || (!isCreate && !original)}
-              onPress={() => void handleSave()}
-              style={[styles.primaryButton, (inputsDisabled || (!isCreate && !original)) && styles.disabled]}
-            >
-              {isSaving ? <ActivityIndicator color={COLORS.white} size="small" /> : <Text style={styles.primaryButtonText}>{isCreate ? 'Create event' : 'Save changes'}</Text>}
-            </TouchableOpacity>
+            {isViewMode ? (
+              canEdit && original ? (
+                <TouchableOpacity
+                  accessibilityLabel={`Edit ${original.eventName}`}
+                  accessibilityRole="button"
+                  onPress={() => setIsViewMode(false)}
+                  style={styles.primaryButton}
+                >
+                  <Text style={styles.primaryButtonText}>Edit</Text>
+                </TouchableOpacity>
+              ) : null
+            ) : (
+              <TouchableOpacity
+                accessibilityRole="button"
+                disabled={inputsDisabled || (!isCreate && !original)}
+                onPress={() => void handleSave()}
+                style={[styles.primaryButton, (inputsDisabled || (!isCreate && !original)) && styles.disabled]}
+              >
+                {isSaving ? <ActivityIndicator color={COLORS.white} size="small" /> : <Text style={styles.primaryButtonText}>{isCreate ? 'Create event' : 'Save changes'}</Text>}
+              </TouchableOpacity>
+            )}
           </View>
         </>
       )}
