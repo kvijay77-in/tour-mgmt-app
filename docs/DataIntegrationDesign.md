@@ -1030,6 +1030,27 @@ The backend stores the client capture timestamp, so offline check-ins keep their
 | `offlineLoginMaxAttempts` | 5 | 3–10 | No |
 | `clockSkewWarnMinutes` | 5 | 1–60 | No |
 
+Equivalent AppConfig item:
+
+```json
+{
+  "configType": "OFFLINE_SYNC",
+  "configId": "DEFAULT",
+  "enabled": true,
+  "version": 1,
+  "config": {
+    "readinessRefreshMinutes": 5,
+    "maxSyncAttempts": 8,
+    "staleQueueAlertMinutes": 30,
+    "retentionDays": 2,
+    "maxBackoffMinutes": 15,
+    "offlineLoginMaxDays": 7,
+    "offlineLoginMaxAttempts": 5,
+    "clockSkewWarnMinutes": 5
+  }
+}
+```
+
 Values are clamped to the limits. Device overrides (Advanced settings, all roles except GUEST) are stored in AsyncStorage and can be reset to the AppConfig values.
 
 ---
