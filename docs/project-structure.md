@@ -94,6 +94,9 @@ tour-mgmt-app/
 │   │   ├── dashboard/              # Dashboard specific components
 │   │   │   ├── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
 │   │   │   └── RiderCardModal.tsx  # Shared rider card popup (Dashboard tab + Check-In Log tab; "View event progress")
+│   │   ├── riderProfile/           # Rider profile definition preview, rendering and admin edit components
+│   │   │   ├── RiderProfileRenderer.tsx       # Shared dynamic rider-profile renderer for view/edit/preview
+│   │   │   └── RiderProfileAdminEditModal.tsx # Administrator-only edit flow for enabled adminOnly rider attributes
 │   │   └── checkin/                # Check-in specific components
 │   │
 │   ├── navigation/                 # Navigation configuration (native stack + ride tabs; no drawer)
@@ -153,6 +156,8 @@ tour-mgmt-app/
 │   │   ├── offline/                # Offline readiness
 │   │   │   ├── offlineDataService.ts # Cache-through loaders (online → SQLite; offline → SQLite)
 │   │   │   └── retentionService.ts   # Purge of old synced data
+│   │   ├── riderProfile/           # Rider profile definition cache/bootstrap helpers
+│   │   │   └── riderProfileConfigService.ts # Enabled rider-profile config load/refresh via AppConfig store
 │   │   ├── sync/                   # Outbound sync
 │   │   │   ├── outboundSyncService.ts # Single engine: handlers, backoff, triggers, status
 │   │   │   ├── checkInSync.ts      # CHECK_IN handler, offline capture, sent log

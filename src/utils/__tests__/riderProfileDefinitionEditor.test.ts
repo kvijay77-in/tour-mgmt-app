@@ -1,5 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
-import { validateAttributeDefinitionMutation } from '../riderProfileDefinitionEditor';
+import {
+  buildAdminProfileUpdatePayload,
+  buildRiderProfileConfigSaveRequest,
+  parseLovCsv,
+  validateAttributeDefinitionMutation,
+} from '../riderProfileDefinitionEditor';
 import { RiderProfileAttributeDefinition } from '../../types/riderProfile';
 
 function makeDefinition(overrides: Partial<RiderProfileAttributeDefinition> = {}): RiderProfileAttributeDefinition {
@@ -70,5 +75,134 @@ describe('validateAttributeDefinitionMutation', () => {
     };
 
     expect(validateAttributeDefinitionMutation(previous, next)).toBeNull();
+  });
+});
+
+describe('parseLovCsv', () => {
+  it('parses simple value,label,order,parent rows', () => {
+    const parsed = parseLovCsv([
+      'value,label,order,parent',
+      'A,Alpha,2,',
+      '"B","Bravo",3,A',
+    ].join('\n'));
+
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.items).toEqual([
+      { value: 'A', label: 'Alpha', order: 2, enabled: true, parent: undefined },
+      { value: 'B', label: 'Bravo', order: 3, enabled: true, parent: 'A' },
+    ]);
+  });
+
+  it('handles quoted commas and reports validation errors', () => {
+    const parsed = parseLovCsv([
+      'value,label,order,parent',
+      '"A","Alpha, One",1,',
+      'B,Bravo,not-a-number,',
+      ',Missing value,2,',
+      '"C","Quote ""Inside""",3,',
+    ].join('\n'));
+
+    expect(parsed.items).toEqual([
+      { value: 'A', label: 'Alpha, One', order: 1, enabled: true, parent: undefined },
+      { value: 'C', label: 'Quote "Inside"', order: 3, enabled: true, parent: undefined },
+    ]);
+    expect(parsed.errors).toEqual([
+      'Row 3: order must be a non-negative number.',
+      'Row 4: value and label are required.',
+    ]);
+  });
+});
+
+describe('buildAdminProfileUpdatePayload', () => {
+  it('sends only changed core fields and changed attributes plus definitionsVersion', () => {
+    const definitions: RiderProfileAttributeDefinition[] = [
+      {
+        configId: 'personalCode',
+        enabled: true,
+        config: {
+          label: 'Personal code',
+          sectionId: 'identity',
+          order: 1,
+          type: 'TEXT',
+          storage: { scope: 'CORE', path: 'personalCode' },
+          adminOnly: true,
+        },
+      },
+      {
+        configId: 'bloodGroup',
+        enabled: true,
+        config: {
+          label: 'Blood group',
+          sectionId: 'medical',
+          order: 2,
+          type: 'TEXT',
+          storage: { scope: 'ATTRIBUTES' },
+          adminOnly: true,
+        },
+      },
+    ];
+
+    const payload = buildAdminProfileUpdatePayload({
+      definitionsVersion: 77,
+      currentCore: { personalCode: 'D220' },
+      currentAttributes: { bloodGroup: 'A+' },
+      nextValues: { personalCode: 'D221', bloodGroup: 'A+' },
+      definitions,
+    });
+
+    expect(payload).toEqual({
+      definitionsVersion: 77,
+      personalCode: 'D221',
+    });
+  });
+
+  it('supports nested CORE storage paths', () => {
+    const payload = buildAdminProfileUpdatePayload({
+      definitionsVersion: 5,
+      currentCore: {
+        emergencyContact: {
+          phone: '+911234',
+        },
+      },
+      nextValues: {
+        emergencyPhone: '+919999',
+      },
+      definitions: [{
+        configId: 'emergencyPhone',
+        enabled: true,
+        config: {
+          label: 'Emergency phone',
+          sectionId: 'contact',
+          order: 1,
+          type: 'PHONE',
+          storage: { scope: 'CORE', path: 'emergencyContact.phone' },
+          adminOnly: true,
+        },
+      }],
+    });
+
+    expect(payload).toEqual({
+      definitionsVersion: 5,
+      emergencyContact: {
+        phone: '+919999',
+      },
+    });
+  });
+});
+
+describe('buildRiderProfileConfigSaveRequest', () => {
+  it('sends version 0 for create and current version for update', () => {
+    const createPayload = buildRiderProfileConfigSaveRequest({
+      enabled: true,
+      config: { label: 'Section', order: 1 },
+    });
+    const updatePayload = buildRiderProfileConfigSaveRequest({
+      enabled: false,
+      version: 5,
+      config: { label: 'Section', order: 1 },
+    });
+
+    expect(createPayload.version).toBe(0);
+    expect(updatePayload.version).toBe(5);
   });
 });

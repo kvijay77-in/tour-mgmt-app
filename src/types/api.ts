@@ -185,6 +185,12 @@ export interface GetToursQuery {
   status?: TourStatus;
 }
 
+export interface UpdateRiderProfileRequest {
+  definitionsVersion: number;
+  attributes?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 // ============================================================================
 // SYNC TYPES (for offline support)
 // ============================================================================

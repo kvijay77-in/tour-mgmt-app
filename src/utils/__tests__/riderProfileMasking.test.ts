@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { getMaskedAttributeDisplay } from '../riderProfileMasking';
+import { getMaskedAttributeDisplay, stripSensitiveProfileValues } from '../riderProfileMasking';
 
 describe('getMaskedAttributeDisplay', () => {
   it('masks only sensitive keys unless revealed', () => {
@@ -21,5 +21,14 @@ describe('getMaskedAttributeDisplay', () => {
 
     const empty = getMaskedAttributeDisplay('notes', null, []);
     expect(empty).toEqual({ masked: false, displayValue: '' });
+  });
+
+  it('strips sensitive values before persistence', () => {
+    const stripped = stripSensitiveProfileValues(
+      { personalCode: 'D220', bloodGroup: 'A+', allergies: 'Nuts' },
+      ['personalCode', 'allergies'],
+    );
+
+    expect(stripped).toEqual({ bloodGroup: 'A+' });
   });
 });

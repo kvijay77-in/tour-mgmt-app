@@ -106,6 +106,8 @@ Located in the header, displays cumulative counts:
 - Rider card shows loading and retry/error states when details fetch is in progress or fails
 - Rider card includes configuration-driven profile attributes grouped by section and ordered by definition
 - Sensitive profile attributes are masked by default using backend `sensitiveKeys`, with in-session reveal
+- File/Image profile attributes expose a View action through the rider-profile download endpoint
+- Administrators can launch an online-only "Edit admin fields" flow for enabled `adminOnly` rider profile attributes
 
 **Ride Details (shared route from header and All Rides info action):**
 - Compact layout optimized to fit within visible screen area

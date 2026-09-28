@@ -373,7 +373,10 @@ Implemented Dashboard Phase 4 behavior:
   - `RIDER_PROFILE_SECTION`
   - `RIDER_PROFILE_ATTRIBUTE`
   - `LOV`
+- Enabled rider-profile definitions are fetched through `GET /v1/config` at sign-in and cached in the existing AppConfig store for later rider-card rendering and admin edit flows.
+- Shared renderer components under `src/components/riderProfile/` power the admin preview, rider card/details display and administrator-only edit form.
 - Rider card/details rendering uses backend-filtered values (`attributes`) and `sensitiveKeys`; sensitive fields are masked by default and reveal is in-session only.
+- File/Image attributes resolve to a View action through the rider-profile attribute download endpoint.
 - Offline persistence rule: sensitive profile-attribute values are never written to SQLite.
 
 ### Backend Change Request: `checkedInByName`
