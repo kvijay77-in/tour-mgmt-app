@@ -56,7 +56,6 @@ Apart from these following Admin features should also be available.
 1. Close Ride
 
 Future additions:  
-- Push Notifications
 - Room allocation at Finish stage check in
 
 App must implement RBAC for all the features using clearly defined labels at feature level and Roles that can defined by group multiple features. Roles will be assigned to registered users of this application by an Administrator.
@@ -394,6 +393,28 @@ Access control:
 
 1. Only users with `ADMINISTRATOR` role should see the "User Management" menu option.
 2. Only `ADMINISTRATOR` role should be able to use User Management screens and actions.
+
+## Notifications
+
+Notification delivery is push-first with inbox as source of truth.
+
+1. Bell icon with unread count must be available in Home header, Ride header and web sidebar.
+2. Inbox screen opens as full-screen modal and supports mark-read.
+3. Web uses bell/inbox only; web does not register push devices.
+4. Mobile should register push device token after sign-in (online sessions only), refresh registration on launch, and delete device token on logout.
+5. Push payload routing is allow-listed to known app targets; unknown targets open inbox.
+6. Mobile should cache recent notification inbox items for offline reading.
+7. Do not add a new `EXPO_PUBLIC` variable for Expo push authorization; app uses `app.json` `extra.eas.projectId` and backend manages Expo access token.
+
+### Notification Administration
+
+Administrator-only (feature label `NOTIFICATION_MANAGE`), web-first with mobile fallback.
+
+1. Home hub Administration and web sidebar must expose **Announce** and **Notification Rules** entries for `ADMINISTRATOR` only.
+2. **Announce** supports title, message, push toggle and audience presets:
+   - All users, All riders, All staff, Tour riders, Tour staff, Staff group, Riders by tour status, single rider/user.
+3. **Notification Rules** supports list/create/edit/enable-disable/delete.
+4. Rule editor validates audience expression syntax and title/body templates before save.
 
 ### New User Onboarding
 

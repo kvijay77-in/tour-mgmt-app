@@ -193,6 +193,20 @@ export const MODULE_SECTIONS: ModuleSection[] = [
         isVisible: can(Permission.RIDER_PROFILE_DEFINITION_MANAGE),
         getTarget: () => ({ route: 'RiderProfileDefinitions', params: undefined }),
       },
+      {
+        id: 'notifications-announce',
+        title: 'Announce',
+        icon: 'campaign',
+        isVisible: can(Permission.NOTIFICATION_MANAGE),
+        getTarget: () => ({ route: 'NotificationAnnounce', params: undefined }),
+      },
+      {
+        id: 'notification-rules',
+        title: 'Notification Rules',
+        icon: 'notifications-active',
+        isVisible: can(Permission.NOTIFICATION_MANAGE),
+        getTarget: () => ({ route: 'NotificationRules', params: undefined }),
+      },
     ],
   },
 ];

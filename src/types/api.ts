@@ -461,3 +461,84 @@ export interface TourUsersResponse {
   count: number;
   tourId: string;
 }
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+export type NotificationPriority = 'URGENT' | 'NORMAL';
+
+export type NotificationCategory = 'ANNOUNCEMENT' | 'ALERT' | 'PERSONAL' | 'SYSTEM';
+
+export interface NotificationTarget {
+  screen: string;
+  paramKeys?: string[];
+}
+
+export interface NotificationItem {
+  notificationId: string;
+  ruleId: string;
+  title: string;
+  body: string;
+  priority: NotificationPriority;
+  target?: NotificationTarget;
+  tourId?: string;
+  createdAt: string;
+  isRead: boolean;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  unreadCount: number;
+}
+
+export interface NotificationUnreadCountResponse {
+  unreadCount: number;
+}
+
+export interface RegisterNotificationDeviceRequest {
+  token: string;
+  platform: 'ios' | 'android';
+}
+
+export interface MarkNotificationsReadRequest {
+  readAt?: string;
+}
+
+export interface CreateNotificationRequest {
+  ruleId: string;
+  tourId?: string;
+  context: Record<string, unknown>;
+  audiences?: string[];
+}
+
+export interface CreateNotificationResponse {
+  notificationId: string;
+}
+
+export interface NotificationQuietHours {
+  from: string;
+  to: string;
+  tz: string;
+}
+
+export interface NotificationRule {
+  ruleId: string;
+  enabled: boolean;
+  category: NotificationCategory;
+  audiences: string[];
+  titleTemplate: string;
+  bodyTemplate: string;
+  push: boolean;
+  priority: NotificationPriority;
+  androidChannel: 'urgent' | 'general';
+  target?: NotificationTarget;
+  ttlHours: number;
+  quietHours?: NotificationQuietHours;
+  allowOverride: boolean;
+  version: number;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export type UpsertNotificationRuleRequest = Omit<NotificationRule, 'updatedAt' | 'updatedBy'>;

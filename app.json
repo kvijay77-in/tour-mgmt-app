@@ -74,6 +74,7 @@
         }
       ],
       "expo-secure-store",
+      "expo-notifications",
       "expo-sqlite",
       "expo-status-bar",
       "expo-audio",

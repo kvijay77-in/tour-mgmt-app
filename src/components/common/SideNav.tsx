@@ -13,6 +13,7 @@ import { CommonActions } from '@react-navigation/native';
 import { COLORS } from '../../constants/colors';
 import { useSyncStatus } from '../../context/SyncStatusContext';
 import { useTour } from '../../context/TourContext';
+import { useNotifications } from '../../context/NotificationContext';
 import { navigationRef } from '../../navigation/navigationRef';
 import {
   ModuleIconName,
@@ -59,6 +60,7 @@ export interface SideNavProps {
 export default function SideNav({ sections }: SideNavProps) {
   const { requestLogout } = useSyncStatus();
   const { tour } = useTour();
+  const { unreadCount } = useNotifications();
   const [focusedRoute, setFocusedRoute] = useState<string | undefined>(getFocusedStackRouteName);
 
   useEffect(() => {
@@ -114,6 +116,16 @@ export default function SideNav({ sections }: SideNavProps) {
       </ScrollView>
 
       <View style={styles.footer}>
+        <SideNavItem
+          title={unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications'}
+          icon="notifications-none"
+          active={focusedRoute === 'Notifications'}
+          onPress={() => {
+            if (navigationRef.isReady()) {
+              navigationRef.dispatch(CommonActions.navigate('Notifications'));
+            }
+          }}
+        />
         <SideNavItem
           title="Change password"
           icon="lock-reset"

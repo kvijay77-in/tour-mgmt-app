@@ -58,6 +58,7 @@ import {
 import { getSyncSettings, hydrateSyncSettingsFromCache } from '../services/sync/syncSettingsService';
 import { countOperationsOwnedByOthers } from '../services/database/pendingStore';
 import { clearUserScopedCache } from '../services/database/database';
+import { unregisterPushDeviceOnLogout } from '../services/push/pushService';
 import { useOffline } from './OfflineContext';
 import { logger } from '../utils/logger';
 
@@ -643,6 +644,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!profile?.hasSavedPassword) {
         await clearOfflineSignIn();
       }
+      await unregisterPushDeviceOnLogout();
       await signOut();
     } catch {
       // Sign out locally even if the API call fails
