@@ -1,0 +1,40 @@
+export interface MaskDecision {
+  masked: boolean;
+  displayValue: string;
+}
+
+const MASK = '••••••';
+
+function stringify(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
+}
+
+export function getMaskedAttributeDisplay(
+  key: string,
+  value: unknown,
+  sensitiveKeys: readonly string[] | undefined,
+  revealedKeys: ReadonlySet<string> = new Set(),
+): MaskDecision {
+  const isSensitive = Boolean(sensitiveKeys?.includes(key));
+  const revealed = revealedKeys.has(key);
+
+  if (!isSensitive || revealed) {
+    return { masked: false, displayValue: stringify(value) };
+  }
+
+  return { masked: true, displayValue: MASK };
+}
+
+export function stripSensitiveProfileValues<T extends Record<string, unknown> | undefined>(
+  values: T,
+  sensitiveKeys: readonly string[] | undefined,
+): T {
+  if (!values || !sensitiveKeys || sensitiveKeys.length === 0) {
+    return values;
+  }
+
+  const nextEntries = Object.entries(values).filter(([key]) => !sensitiveKeys.includes(key));
+  return Object.fromEntries(nextEntries) as T;
+}

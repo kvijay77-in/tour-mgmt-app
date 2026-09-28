@@ -260,6 +260,12 @@ export interface Rider {
 
   /** Rider profile dietary preference, drives variant defaults */
   dietaryPreference?: DietaryPreference | null;
+
+  /** Configuration-driven rider profile attributes (backend-filtered by role) */
+  attributes?: Record<string, unknown>;
+
+  /** Keys whose values should be masked by default in UI */
+  sensitiveKeys?: string[];
 }
 
 // ============================================================================
@@ -678,6 +684,8 @@ export enum Permission {
   MANAGE_HOTEL_ALLOCATIONS = 'MANAGE_HOTEL_ALLOCATIONS',
   MANAGE_TOUR_USERS = 'MANAGE_TOUR_USERS',
   RIDER_EXIT = 'RIDER_EXIT',
+  RIDER_PROFILE_DEFINITION_MANAGE = 'RIDER_PROFILE_DEFINITION_MANAGE',
+  RIDER_PROFILE_ADMIN_EDIT = 'RIDER_PROFILE_ADMIN_EDIT',
 }
 
 /**
@@ -843,5 +851,7 @@ export interface RiderDetailsData {
   rider: Rider;
   checkInTimeline: CheckIn[];
   latestStatus?: CheckInStatus;
+  profileAttributes?: Record<string, unknown>;
+  sensitiveKeys?: string[];
+  definitionsVersion?: number;
 }
-

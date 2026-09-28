@@ -112,7 +112,8 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const staleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const sendingEnabled = Boolean(user) && !user?.isOfflineSession && !isOffline && appActive && Boolean(tourId);
+  // Web never queues data, so the outbound engine stays off there.
+  const sendingEnabled = OFFLINE_CACHE_ENABLED && Boolean(user) && !user?.isOfflineSession && !isOffline && appActive && Boolean(tourId);
 
   // App foreground/background
   useEffect(() => {
@@ -148,6 +149,7 @@ export function SyncStatusProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const refreshCounts = useCallback(async () => {
+    if (!OFFLINE_CACHE_ENABLED) return;
     try {
       const [counts, oldest] = await Promise.all([getOperationCounts(), getOldestPendingCreatedAt()]);
       setPendingCount(counts.pending);

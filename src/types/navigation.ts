@@ -43,7 +43,7 @@ export type AppStackParamList = {
   // Event engine Phase 3
   EventsHome: undefined;
   EventDefinitionList: undefined;
-  EventDefinitionEditor: { eventId?: string } | undefined;
+  EventDefinitionEditor: { eventId?: string; mode?: 'view' | 'edit' } | undefined;
   OccurrenceManagement: { eventId: string };
   // Event engine Phase 4
   EventScan: { eventId: string; occurrenceId: string };
@@ -59,6 +59,7 @@ export type AppStackParamList = {
   // Event engine Phase 7
   RiderExit: undefined;
   TourUserAssignment: { userId?: string } | undefined;
+  RiderProfileDefinitions: undefined;
 };
 
 // Phase 2: Main tab navigator (Dashboard, CheckIn, Log)

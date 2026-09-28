@@ -1,10 +1,21 @@
 /**
  * Rider data store — SQLite operations for rider caching.
  * Riders are read-only from the app's perspective (synced from API).
+ * On web riders are held in memory for the browser session only (see database.web.ts).
  */
 
-import { getDatabase, withWriteTransaction } from './database';
+import { getDatabase, registerSessionMemoryReset, USE_SESSION_MEMORY, withWriteTransaction } from './database';
 import { DietaryPreference, Rider } from '../../types/models';
+
+const memoryRiders = new Map<string, { rider: Rider; tourId: string | null }>();
+registerSessionMemoryReset(() => memoryRiders.clear());
+
+function memoryRidersWhere(match: (tourId: string | null) => boolean): Rider[] {
+  return [...memoryRiders.values()]
+    .filter((entry) => match(entry.tourId))
+    .map((entry) => entry.rider)
+    .sort((a, b) => a.riderId.localeCompare(b.riderId));
+}
 
 /**
  * Replace the cached roster for a tour (from API response) in one
@@ -14,6 +25,23 @@ import { DietaryPreference, Rider } from '../../types/models';
  * are removed.
  */
 export async function upsertRiders(riders: Rider[], tourId?: string): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    const incoming = new Set(riders.map((rider) => rider.riderId));
+    if (tourId) {
+      for (const [riderId, entry] of memoryRiders) {
+        if (!incoming.has(riderId) || entry.tourId !== tourId) memoryRiders.delete(riderId);
+      }
+    }
+    for (const rider of riders) {
+      const existing = memoryRiders.get(rider.riderId);
+      memoryRiders.set(rider.riderId, {
+        rider: { ...rider, dietaryPreference: existing?.rider.dietaryPreference ?? null },
+        tourId: tourId ?? existing?.tourId ?? null,
+      });
+    }
+    return;
+  }
+
   const now = new Date().toISOString();
 
   await withWriteTransaction(async (db) => {
@@ -68,6 +96,8 @@ export async function upsertRiders(riders: Rider[], tourId?: string): Promise<vo
  * Get the cached roster for a tour.
  */
 export async function getRidersByTour(tourId: string): Promise<Rider[]> {
+  if (USE_SESSION_MEMORY) return memoryRidersWhere((riderTourId) => riderTourId === tourId);
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     'SELECT * FROM riders WHERE tourId = ? ORDER BY riderId',
@@ -80,6 +110,8 @@ export async function getRidersByTour(tourId: string): Promise<Rider[]> {
  * Get all cached riders.
  */
 export async function getAllRiders(): Promise<Rider[]> {
+  if (USE_SESSION_MEMORY) return memoryRidersWhere(() => true);
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     'SELECT * FROM riders ORDER BY riderId',
@@ -91,6 +123,8 @@ export async function getAllRiders(): Promise<Rider[]> {
  * Get a single rider by ID.
  */
 export async function getRiderById(riderId: string): Promise<Rider | null> {
+  if (USE_SESSION_MEMORY) return memoryRiders.get(riderId)?.rider ?? null;
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT * FROM riders WHERE riderId = ?',
@@ -106,6 +140,12 @@ export async function setRiderDietaryPreference(
   riderId: string,
   dietaryPreference: DietaryPreference | null,
 ): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    const entry = memoryRiders.get(riderId);
+    if (entry) memoryRiders.set(riderId, { ...entry, rider: { ...entry.rider, dietaryPreference } });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     'UPDATE riders SET dietaryPreference = ? WHERE riderId = ?',

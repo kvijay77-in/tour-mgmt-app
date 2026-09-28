@@ -44,6 +44,7 @@ export default function EventDefinitionListScreen({ navigation }: EventDefinitio
   const requestId = useRef(0);
   const tourId = tour?.tourId;
   const canManageOccurrences = user ? hasPermission(user.userRole, Permission.MANAGE_EVENT_OCCURRENCES) : false;
+  const canEdit = !isOffline && (user ? hasPermission(user.userRole, Permission.MANAGE_EVENTS) : false);
 
   const load = useCallback(async () => {
     if (!tourId || isOffline) {
@@ -118,13 +119,7 @@ export default function EventDefinitionListScreen({ navigation }: EventDefinitio
 
         <View style={styles.grid}>
           {events.map((event) => (
-            <TouchableOpacity
-              key={event.eventId}
-              accessibilityLabel={`Edit ${event.eventName}`}
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('EventDefinitionEditor', { eventId: event.eventId })}
-              style={styles.card}
-            >
+            <View key={event.eventId} style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardTitle} numberOfLines={2}>{event.eventName}</Text>
                 <Text style={styles.typeBadge}>{event.eventType}</Text>
@@ -132,17 +127,37 @@ export default function EventDefinitionListScreen({ navigation }: EventDefinitio
               <Text style={styles.cardMeta}>{event.eventId}</Text>
               <Text style={styles.cardMeta}>{event.location}</Text>
               <Text style={styles.cardMeta}>{event.activities.length} activities</Text>
-              {canManageOccurrences ? (
+              <View style={styles.cardActions}>
                 <TouchableOpacity
-                  accessibilityLabel={`Manage occurrences for ${event.eventName}`}
+                  accessibilityLabel={`View ${event.eventName}`}
                   accessibilityRole="button"
-                  onPress={() => navigation.navigate('OccurrenceManagement', { eventId: event.eventId })}
+                  onPress={() => navigation.navigate('EventDefinitionEditor', { eventId: event.eventId, mode: 'view' })}
                   style={styles.cardAction}
                 >
-                  <Text style={styles.cardActionText}>Occurrences</Text>
+                  <Text style={styles.cardActionText}>View</Text>
                 </TouchableOpacity>
-              ) : null}
-            </TouchableOpacity>
+                {canEdit ? (
+                  <TouchableOpacity
+                    accessibilityLabel={`Edit ${event.eventName}`}
+                    accessibilityRole="button"
+                    onPress={() => navigation.navigate('EventDefinitionEditor', { eventId: event.eventId, mode: 'edit' })}
+                    style={styles.cardAction}
+                  >
+                    <Text style={styles.cardActionText}>Edit</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {canManageOccurrences ? (
+                  <TouchableOpacity
+                    accessibilityLabel={`Manage occurrences for ${event.eventName}`}
+                    accessibilityRole="button"
+                    onPress={() => navigation.navigate('OccurrenceManagement', { eventId: event.eventId })}
+                    style={styles.cardAction}
+                  >
+                    <Text style={styles.cardActionText}>Occurrences</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
           ))}
         </View>
       </ScrollView>
@@ -194,12 +209,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   cardMeta: { color: COLORS.textSecondary, fontSize: 13 },
+  cardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   cardAction: {
-    alignSelf: 'flex-start',
     borderColor: COLORS.primary,
     borderRadius: 6,
     borderWidth: 1,
-    marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },

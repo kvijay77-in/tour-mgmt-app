@@ -9,6 +9,7 @@
  * See docs/SolutionDesign.md § App Distribution — Runtime Configuration.
  */
 
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { Sha256 } from '@aws-crypto/sha256-js';
 import { OrgConfig } from '../../types/config';
@@ -18,6 +19,37 @@ const TAG = 'OrgConfigService';
 
 /** Key used in expo-secure-store */
 const STORE_KEY = 'org_config';
+
+// ---------------------------------------------------------------------------
+// Storage adapter
+// ---------------------------------------------------------------------------
+
+// expo-secure-store has no web implementation; fall back to localStorage there.
+// The org config holds only non-secret identifiers (pool ids, API base URL).
+const isWeb = Platform.OS === 'web';
+
+async function storageGet(key: string): Promise<string | null> {
+  if (isWeb) {
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+async function storageSet(key: string, value: string): Promise<void> {
+  if (isWeb) {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+}
+
+async function storageDelete(key: string): Promise<void> {
+  if (isWeb) {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+    return;
+  }
+  await SecureStore.deleteItemAsync(key);
+}
 
 /**
  * HMAC signing key — baked into the app at build time via EXPO_PUBLIC_SETUP_HMAC_KEY.
@@ -42,7 +74,7 @@ function getHmacKey(): string {
  */
 export async function loadOrgConfig(): Promise<OrgConfig | null> {
   try {
-    const raw = await SecureStore.getItemAsync(STORE_KEY);
+    const raw = await storageGet(STORE_KEY);
     if (!raw) {
       logger.debug(TAG, 'No stored org config found');
       return null;
@@ -50,7 +82,7 @@ export async function loadOrgConfig(): Promise<OrgConfig | null> {
     const config: OrgConfig = JSON.parse(raw);
     if (!isValidOrgConfig(config)) {
       logger.warn(TAG, 'Stored org config is invalid — discarding');
-      await SecureStore.deleteItemAsync(STORE_KEY);
+      await storageDelete(STORE_KEY);
       return null;
     }
     logger.info(TAG, `Loaded org config for ${config.orgCode}`);
@@ -65,7 +97,7 @@ export async function loadOrgConfig(): Promise<OrgConfig | null> {
  * Persist an OrgConfig to secure storage.
  */
 export async function saveOrgConfig(config: OrgConfig): Promise<void> {
-  await SecureStore.setItemAsync(STORE_KEY, JSON.stringify(config));
+  await storageSet(STORE_KEY, JSON.stringify(config));
   logger.info(TAG, `Saved org config for ${config.orgCode}`);
 }
 
@@ -73,7 +105,7 @@ export async function saveOrgConfig(config: OrgConfig): Promise<void> {
  * Remove the stored OrgConfig (e.g. to allow reconfiguration).
  */
 export async function deleteOrgConfig(): Promise<void> {
-  await SecureStore.deleteItemAsync(STORE_KEY);
+  await storageDelete(STORE_KEY);
   logger.info(TAG, 'Deleted stored org config');
 }
 

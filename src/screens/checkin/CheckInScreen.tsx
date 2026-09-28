@@ -9,7 +9,8 @@
  * Offline (or when the server cannot be reached) check-ins are validated
  * against the device cache, saved on the device and sent later by the
  * outbound sync engine (services/sync/checkInSync.ts). Start-stage overrides
- * need a connection.
+ * need a connection. Web is always online: check-ins go straight to the API
+ * and nothing is saved on the device.
  *
  * See docs/Requirements.md § Check-In and docs/SolutionDesign.md § Check-In Flow.
  */
@@ -41,6 +42,7 @@ import { getRiderById } from '../../services/api/riderApi';
 import { getRiderById as getCachedRiderById } from '../../services/database/riderStore';
 import { getCheckInsByRider } from '../../services/database/checkInStore';
 import { captureCheckInLocally, flushQueuedCheckIns } from '../../services/sync/checkInSync';
+import { OFFLINE_CACHE_ENABLED } from '../../services/offline/offlineDataService';
 import { evaluateCheckInAgainstHistory } from '../../utils/checkInValidation';
 import { publishDashboardCheckInEvent } from '../../services/dashboard/dashboardEvents';
 import { COLORS, QR_SCANNER_COLORS } from '../../constants/colors';
@@ -59,6 +61,7 @@ const monospaceFont = Platform.select({ ios: 'Courier', android: 'monospace', de
 const TAG = 'CheckInScreen';
 const RECENT_CHECKINS_LIMIT = 5;
 const ALLOWED_TOUR_RIDER_STATUSES = new Set<string>([TourRiderStatus.REGISTERED, TourRiderStatus.ACTIVE]);
+const CONNECTION_REQUIRED_MESSAGE = 'Check-in needs a connection to the server. Check your connection and try again.';
 
 type CheckInType = 'regular' | 'not_riding' | 'quit_riding' | 'float';
 type StatusKind = 'error' | 'info' | 'warning';
@@ -434,7 +437,7 @@ export default function CheckInScreen() {
         try {
           rider = await getRiderById(tour.tourId, riderId);
         } catch (error) {
-          if (!isNetworkError(error)) throw error;
+          if (!isNetworkError(error) || !OFFLINE_CACHE_ENABLED) throw error;
           rider = await getCachedRiderById(riderId);
         }
       } else {
@@ -474,7 +477,9 @@ export default function CheckInScreen() {
       logger.error(TAG, `Failed to validate rider status for ${riderId}`, error);
       showStatusMessage({
         kind: 'error',
-        text: 'Unable to validate rider status. Please try again.',
+        text: isNetworkError(error) && !OFFLINE_CACHE_ENABLED
+          ? CONNECTION_REQUIRED_MESSAGE
+          : 'Unable to validate rider status. Please try again.',
         primaryAction: {
           label: 'OK',
           onPress: dismissStatusMessage,
@@ -586,7 +591,7 @@ export default function CheckInScreen() {
 
       const stageId = checkInType === 'quit_riding' ? '' : (effectiveStage?.stageId ?? '');
       let saveLocally = captureOffline;
-      if (!saveLocally && !overrideRequested) {
+      if (!saveLocally && !overrideRequested && OFFLINE_CACHE_ENABLED) {
         // Earlier offline check-ins go first; if they cannot be sent, queue this one behind them.
         saveLocally = !(await flushQueuedCheckIns().catch(() => false));
       }
@@ -598,6 +603,19 @@ export default function CheckInScreen() {
             ? await overrideInteractiveCheckIn(tour.tourId, request)
             : await createInteractiveCheckIn(tour.tourId, request);
         } catch (error) {
+          if (isNetworkError(error) && !OFFLINE_CACHE_ENABLED) {
+            logger.info(TAG, 'Server unreachable; web check-in not recorded', { riderId });
+            showStatusMessage({
+              kind: 'warning',
+              text: CONNECTION_REQUIRED_MESSAGE,
+              primaryAction: {
+                label: 'OK',
+                onPress: acknowledgeStatusAndReadyForNextScan,
+              },
+            });
+            void playFailure('warning');
+            return;
+          }
           if (isNetworkError(error) && !overrideRequested) {
             logger.info(TAG, 'Server unreachable; saving check-in on device', { riderId });
             saveLocally = true;

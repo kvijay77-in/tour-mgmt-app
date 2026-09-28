@@ -280,12 +280,7 @@ export function toRecordTimestamp(date: Date = new Date()): string {
 
 export type NewEventScan = Omit<NewLocalEventActivityRecord, 'localId'>;
 
-/**
- * Write-local-first: stores the record and queues its create. Returns the localId.
- * @param ownerUserId Cognito sub of the scanning user (only they can send it)
- */
-export async function queueEventRecord(scan: NewEventScan, ownerUserId: string | null): Promise<string> {
-  const localId = createLocalId();
+function toCreateRequest(scan: NewEventScan): CreateActivityRecordRequest {
   const request: CreateActivityRecordRequest = {
     activityId: scan.activityId,
     riderId: scan.riderId,
@@ -295,15 +290,73 @@ export async function queueEventRecord(scan: NewEventScan, ownerUserId: string |
   };
   if (scan.outcome !== ActivityOutcome.OPTED_OUT && scan.typeCode) request.typeCode = scan.typeCode;
   if (scan.variantSelected) request.variantSelected = scan.variantSelected;
+  return request;
+}
 
+/**
+ * Write-local-first: stores the record and queues its create. Returns the localId.
+ * @param ownerUserId Cognito sub of the scanning user (only they can send it)
+ */
+export async function queueEventRecord(scan: NewEventScan, ownerUserId: string | null): Promise<string> {
+  const localId = createLocalId();
   await insertLocalEventRecord({ ...scan, localId });
   await enqueueEventRecordCreate(localId, {
     eventId: scan.eventId,
     occurrenceId: scan.occurrenceId,
-    request,
+    request: toCreateRequest(scan),
   }, ownerUserId);
   notifyQueueChanged();
   return localId;
+}
+
+/**
+ * Web (always online, nothing queued): sends the scan now; only an accepted
+ * record is kept, in the session list. Connectivity failures throw.
+ */
+export async function sendEventRecordOnline(tourId: string, scan: NewEventScan): Promise<EventOperationResult> {
+  const outcome = await createActivityRecord(
+    tourId,
+    scan.eventId,
+    scan.occurrenceId,
+    toCreateRequest(scan),
+    SEND_OPTIONS,
+  );
+  if (outcome.kind === 'error') {
+    return outcome.error.code === 'DUPLICATE_ACTIVITY_RECORD'
+      ? { status: 'duplicate', error: outcome.error }
+      : { status: 'rejected', error: outcome.error };
+  }
+
+  const localId = createLocalId();
+  const isFlagged = Boolean(outcome.data.isFlagged);
+  await insertLocalEventRecord({ ...scan, localId });
+  await markEventRecordSynced(localId, { recordId: outcome.data.recordId, isFlagged });
+  notifyQueueChanged();
+  return { status: 'synced', isFlagged };
+}
+
+/** Web counterpart of queueEventRecordCancel: cancels on the server now. */
+export async function cancelEventRecordOnline(
+  tourId: string,
+  record: LocalEventActivityRecord,
+  cancelReason?: string,
+): Promise<EventOperationResult> {
+  if (!record.recordId) return { status: 'skipped' };
+  const reason = cancelReason?.trim();
+  const outcome = await cancelActivityRecord(
+    tourId,
+    record.eventId,
+    record.occurrenceId,
+    record.recordId,
+    reason ? { cancelReason: reason } : {},
+    SEND_OPTIONS,
+  );
+  if (outcome.kind === 'error' && outcome.error.code !== 'RECORD_ALREADY_CANCELLED') {
+    return { status: 'rejected', error: outcome.error };
+  }
+  await markEventRecordCancelled(record.localId, true);
+  notifyQueueChanged();
+  return { status: 'synced', isFlagged: record.isFlagged };
 }
 
 /** Marks a synced record cancelled locally and queues the server cancel. Returns the op localId. */

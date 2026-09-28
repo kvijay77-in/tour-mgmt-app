@@ -186,6 +186,13 @@ export const MODULE_SECTIONS: ModuleSection[] = [
         isVisible: can(Permission.RIDER_EXIT),
         getTarget: () => ({ route: 'RiderExit', params: undefined }),
       },
+      {
+        id: 'rider-profile-definitions',
+        title: 'Rider profile definitions',
+        icon: 'badge',
+        isVisible: can(Permission.RIDER_PROFILE_DEFINITION_MANAGE),
+        getTarget: () => ({ route: 'RiderProfileDefinitions', params: undefined }),
+      },
     ],
   },
 ];

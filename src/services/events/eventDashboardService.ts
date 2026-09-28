@@ -14,6 +14,7 @@ import {
   getOccurrenceReconciliation,
 } from '../api/eventsApi';
 import { getDashboardSnapshot, saveDashboardSnapshot } from '../database/eventStore';
+import { registerSessionMemoryReset } from '../database/database';
 import {
   OccurrenceDashboardResponse,
   OccurrenceProgressResponse,
@@ -39,6 +40,7 @@ export interface StoredOccurrenceSnapshot {
 }
 
 const conditionalCache = new Map<string, { etag: string; data: unknown }>();
+registerSessionMemoryReset(() => conditionalCache.clear());
 let snapshotWriteChain: Promise<void> = Promise.resolve();
 
 async function fetchConditional<T>(

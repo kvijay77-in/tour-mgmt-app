@@ -320,6 +320,7 @@ All communication with the tour-data-api is through the service layer at `src/se
 | `apiClient.ts` | — | Base HTTP client with auth, retry, error handling |
 | `tourApi.ts` | `GET /v1/tours/active`, `GET /v1/tours` | Tour resolution and listing |
 | `riderApi.ts` | `GET /v1/tours/{tourId}/riders`, `GET /v1/tours/{tourId}/rides/{rideId}/riders/{riderId}/details` | Rider roster and on-demand rider popup data |
+| `riderProfileConfigApi.ts` | `GET /v1/config`, `GET /v1/admin/config/{configType}`, `PUT /v1/admin/config/{configType}/{configId}` | Rider profile sections, attributes, LOV definition management |
 | `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, `POST /v1/tours/{tourId}/rides/open`, `POST /v1/tours/{tourId}/rides/start`, `POST /v1/tours/{tourId}/rides/{rideId}/close`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/open`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/close`, CRUD | Ride management, status transitions, and pit-stop runtime state updates |
 | `checkInApi.ts` | `POST /v1/tours/{tourId}/checkins`, GET | Check-in operations |
 | `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress` | Lightweight dashboard progress data (`checkIns` + `summary`) |
@@ -361,6 +362,22 @@ Implemented Dashboard Phase 4 behavior:
 2. Dashboard server refresh is targeted to explicit triggers (manual refresh, explicit ride switch) and stale-session recovery.
 3. Fetch orchestrator has in-flight guards to avoid concurrent duplicate bootstrap/progress requests.
 4. Initial dashboard load removes redundant ride-resolution overlap by using ride-list response as the today-ride decision source.
+
+### Rider Profile Definitions and Attribute Rendering (Phase 2a)
+
+- Contract source: `tour-data-api/docs/rider-profile-attributes-design.md` (backend repo).
+- New RBAC labels:
+  - `RIDER_PROFILE_DEFINITION_MANAGE` (Administrator only): Definitions screen access.
+  - `RIDER_PROFILE_ADMIN_EDIT` (Administrator only): Editing `adminOnly` rider profile attributes.
+- Shared frontend model covers:
+  - `RIDER_PROFILE_SECTION`
+  - `RIDER_PROFILE_ATTRIBUTE`
+  - `LOV`
+- Enabled rider-profile definitions are fetched through `GET /v1/config` at sign-in and cached in the existing AppConfig store for later rider-card rendering and admin edit flows.
+- Shared renderer components under `src/components/riderProfile/` power the admin preview, rider card/details display and administrator-only edit form.
+- Rider card/details rendering uses backend-filtered values (`attributes`) and `sensitiveKeys`; sensitive fields are masked by default and reveal is in-session only.
+- File/Image attributes resolve to a View action through the rider-profile attribute download endpoint.
+- Offline persistence rule: sensitive profile-attribute values are never written to SQLite.
 
 ### Backend Change Request: `checkedInByName`
 
@@ -425,6 +442,13 @@ This toggle exists only for controlled development/testing compatibility.
 ## Offline Architecture
 
 Offline mode is a **mobile** capability (ride check-ins and event scans). Web is used for administration and is always online; offline caching, offline sign-in and the offline toggle are disabled on web.
+
+### Web (no local database)
+
+- SQLite is not part of the web bundle. Metro uses `src/services/database/database.web.ts` instead of `database.ts`; it exports `USE_SESSION_MEMORY = true` and has no database.
+- Stores that hold API data used by web screens (app config, rider personal codes, riders, events bootstrap data, hotel stays, event activity records) keep it **in memory for the browser session only**. It is fetched from the API as on mobile, cleared on page reload, on sign-out and when a different user signs in, and never persisted.
+- Nothing is queued on web: ride check-ins and event scans/cancels are sent straight to the API. If the server cannot be reached the user is told that a connection is needed and nothing is recorded. The outbound sync engine is not started on web.
+- Event Scan's recent-scans list on web shows the scans accepted in the current browser session, with an info note that the list is cleared on reload.
 
 ### Design Principles
 
@@ -528,7 +552,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
 - The Home hub (`HomeScreen`) is the initial route. It lists the modules the user can reach, grouped by section, from the registry in `src/navigation/modules.ts`:
   - **Ride Day** → `MainTabs` (`VIEW_DASHBOARD` or `CHECKIN_RIDER`).
   - **Events** → `EventsHome` (`EVENT_SCAN`, `VIEW_DASHBOARD` or `MANAGE_EVENT_OCCURRENCES`) and **Hotels & Baggage** → `HotelManagement` (`MANAGE_HOTEL_ALLOCATIONS`).
-  - **Administration** → Define/Update Tour (`ADMINISTRATOR`/`SUPER_USER`, Super User read-only), Ride status management, Artifacts, User management (Onboarding / Enable-Disable / Delete / Modify) — `ADMINISTRATOR` only. Event definitions, Tour assignments and Rider exit are added by later phases.
+  - **Administration** → Define/Update Tour (`ADMINISTRATOR`/`SUPER_USER`, Super User read-only), Ride status management, Artifacts, User management (Onboarding / Enable-Disable / Delete / Modify), Rider profile definitions — `ADMINISTRATOR` only. Event definitions, Tour assignments and Rider exit are added by later phases.
   - Registry visibility predicates mirror the conditional route registration in `AppNavigator`, so only registered routes are offered.
 - A user who can reach exactly one entry is sent straight to it (stack reset, e.g. Guest / Hotel Staff / PS_x_USER → `MainTabs`); the Home affordance and sidebar are then hidden.
 - Within the ride module, role-based restrictions stay as **feature gates within Dashboard/menu**:
@@ -610,7 +634,7 @@ Stage colors are defined in `src/constants/colors.ts` and used consistently acro
 
 ### Platform-Specific Notes
 
-- `expo-sqlite` works across iOS, Android, and Web
+- `expo-sqlite` is used on iOS and Android only. It is not bundled for web: `src/services/database/database.web.ts` replaces `database.ts` in the web build (see § Offline Architecture → Web)
 - `@react-native-community/netinfo` provides connectivity events on all platforms
 - Camera/barcode scanning is mobile-focused — web fallback should use manual entry
 - `expo-secure-store` is mobile-only; web uses equivalent browser storage

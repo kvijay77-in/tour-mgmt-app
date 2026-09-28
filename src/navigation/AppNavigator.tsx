@@ -48,6 +48,7 @@ import HotelAllocationUploadScreen from '../screens/events/HotelAllocationUpload
 import HotelAllocationAdjustScreen from '../screens/events/HotelAllocationAdjustScreen';
 import RiderExitScreen from '../screens/admin/RiderExitScreen';
 import TourUserAssignmentScreen from '../screens/admin/TourUserAssignmentScreen';
+import RiderProfileDefinitionsScreen from '../screens/admin/RiderProfileDefinitionsScreen';
 import { EventSessionProvider } from '../context/EventSessionContext';
 import { SyncStatusProvider } from '../context/SyncStatusContext';
 import { Permission } from '../types/models';
@@ -123,7 +124,7 @@ function EventDefinitionListRoute({ navigation }: NativeStackScreenProps<AppStac
 }
 
 function EventDefinitionEditorRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'EventDefinitionEditor'>) {
-  return <EventDefinitionEditorScreen eventId={route.params?.eventId} navigation={navigation} />;
+  return <EventDefinitionEditorScreen eventId={route.params?.eventId} mode={route.params?.mode} navigation={navigation} />;
 }
 
 function OccurrenceManagementRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'OccurrenceManagement'>) {
@@ -195,6 +196,10 @@ function RiderExitRoute({ navigation }: NativeStackScreenProps<AppStackParamList
 
 function TourUserAssignmentRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'TourUserAssignment'>) {
   return <TourUserAssignmentScreen userId={route.params?.userId} navigation={navigation} />;
+}
+
+function RiderProfileDefinitionsRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'RiderProfileDefinitions'>) {
+  return <RiderProfileDefinitionsScreen onClose={() => navigation.goBack()} />;
 }
 
 function AppStack() {
@@ -323,6 +328,13 @@ function AppStack() {
       {can(Permission.RIDER_EXIT) && <Stack.Screen name="RiderExit" component={RiderExitRoute} />}
       {can(Permission.MANAGE_TOUR_USERS) && (
         <Stack.Screen name="TourUserAssignment" component={TourUserAssignmentRoute} />
+      )}
+      {can(Permission.RIDER_PROFILE_DEFINITION_MANAGE) && (
+        <Stack.Screen
+          name="RiderProfileDefinitions"
+          component={RiderProfileDefinitionsRoute}
+          options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+        />
       )}
     </Stack.Navigator>
   );

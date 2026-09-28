@@ -58,6 +58,7 @@ tour-mgmt-app/
 │   │   │   ├── UserModifyScreen.tsx            # Administrator-only user profile modify
 │   │   │   ├── RiderExitScreen.tsx             # RIDER_EXIT rider exit (baggage disposition), cancel exit, retained-baggage release
 │   │   │   ├── TourUserAssignmentScreen.tsx    # MANAGE_TOUR_USERS User-{tourId} create/update (role from groups, stage, hotel, events, activities)
+│   │   │   ├── RiderProfileDefinitionsScreen.tsx # RIDER_PROFILE_DEFINITION_MANAGE rider profile definitions (sections/attributes/LOV)
 │   │   │   └── TourManagementScreen.tsx        # Tour definition, provisioning, re-provisioning, and ride tabs
 │   │   ├── settings/               # Offline sync screens (mobile)
 │   │   │   ├── SyncStatusScreen.tsx         # Unsent items, retry/discard, Sync now, Verify with server, clock warning
@@ -93,6 +94,9 @@ tour-mgmt-app/
 │   │   ├── dashboard/              # Dashboard specific components
 │   │   │   ├── RideInfoContent.tsx # Reusable ride info content (dashboard + All Rides)
 │   │   │   └── RiderCardModal.tsx  # Shared rider card popup (Dashboard tab + Check-In Log tab; "View event progress")
+│   │   ├── riderProfile/           # Rider profile definition preview, rendering and admin edit components
+│   │   │   ├── RiderProfileRenderer.tsx       # Shared dynamic rider-profile renderer for view/edit/preview
+│   │   │   └── RiderProfileAdminEditModal.tsx # Administrator-only edit flow for enabled adminOnly rider attributes
 │   │   └── checkin/                # Check-in specific components
 │   │
 │   ├── navigation/                 # Navigation configuration (native stack + ride tabs; no drawer)
@@ -112,6 +116,7 @@ tour-mgmt-app/
 │   │   │   ├── checkInApi.ts       # Check-in endpoints
 │   │   │   ├── dashboardApi.ts     # Dashboard progress endpoint helpers
 │   │   │   ├── configApi.ts        # Generic app configuration API helpers
+│   │   │   ├── riderProfileConfigApi.ts # Rider profile definitions admin API helpers
 │   │   │   ├── eventsApi.ts        # Event definitions, occurrences, overrides, dashboards/progress/reconciliation, rider progress, records, bootstrap (outcome unions)
 │   │   │   ├── hotelsApi.ts        # Hotels, hotel stays, manual stay upsert, allocation upload presign/status, upload error groups (outcome unions)
 │   │   │   ├── tourUserApi.ts      # Tour-scoped users: own record (/users/me), list, create, update (outcome unions)
@@ -131,6 +136,7 @@ tour-mgmt-app/
 │   │   │   └── __tests__/                  # Unit tests
 │   │   ├── database/               # SQLite for offline support
 │   │   │   ├── database.ts         # Database open, local stores, withWriteTransaction, retention purge
+│   │   │   ├── database.web.ts     # Web build of database.ts: no SQLite; stores keep session-only memory (see Platform-specific files)
 │   │   │   ├── migrations.ts       # Versioned schema migrations (PRAGMA user_version)
 │   │   │   ├── appConfigStore.ts   # AppConfig SQLite persistence and lookups
 │   │   │   ├── tourStore.ts / rideStore.ts / riderStore.ts / checkInStore.ts # Offline data caches
@@ -150,6 +156,8 @@ tour-mgmt-app/
 │   │   ├── offline/                # Offline readiness
 │   │   │   ├── offlineDataService.ts # Cache-through loaders (online → SQLite; offline → SQLite)
 │   │   │   └── retentionService.ts   # Purge of old synced data
+│   │   ├── riderProfile/           # Rider profile definition cache/bootstrap helpers
+│   │   │   └── riderProfileConfigService.ts # Enabled rider-profile config load/refresh via AppConfig store
 │   │   ├── sync/                   # Outbound sync
 │   │   │   ├── outboundSyncService.ts # Single engine: handlers, backoff, triggers, status
 │   │   │   ├── checkInSync.ts      # CHECK_IN handler, offline capture, sent log
@@ -180,11 +188,16 @@ tour-mgmt-app/
 │   │   ├── models.ts               # Data models
 │   │   ├── api.ts                  # API types
 │   │   ├── config.ts               # OrgConfig type for runtime org configuration
+│   │   ├── riderProfile.ts         # Rider profile definition contracts (sections, attributes, LOV)
 │   │   └── navigation.ts           # Navigation types
 │   │
 │   ├── utils/                      # Helper utility functions
 │   │   ├── logger.ts               # Structured, level-gated logging utility
 │   │   ├── permissions.ts          # RBAC permission utilities
+│   │   ├── riderProfilePermissions.ts # Rider profile feature-label gate helpers
+│   │   ├── riderProfileDefinitions.ts # Rider profile section ordering + visibleWhen evaluation
+│   │   ├── riderProfileDefinitionEditor.ts # Definition editor immutable/system checks
+│   │   ├── riderProfileMasking.ts  # Sensitive rider-profile attribute masking helpers
 │   │   ├── eventActivity.ts        # Event engine effective-activity, assignment and local-date rules (pure)
 │   │   ├── riderStatus.ts          # Shared RiderStatus derivation (Dashboard grid + RiderCardModal)
 │   │   ├── checkInValidation.ts    # Check-in validation shared by online/offline flows (pure)
@@ -261,7 +274,9 @@ tour-mgmt-app/
 
 ### Additional Notes
 - **Single Entry Point**: `App.tsx` serves as the root component for Android, iOS, and Web
-- **Platform Agnostic**: All code in `/src` is shared across platforms
+- **Platform Agnostic**: All code in `/src` is shared across platforms, except for the approved platform-specific files below
+- **Platform-specific files (approved exceptions)**: Metro resolves `name.web.ts` instead of `name.ts` in the web build. Use this only when a native-only module must be kept out of the web bundle; prefer runtime `Platform.OS` checks otherwise. Current exceptions:
+  - `src/services/database/database.web.ts` — web has no offline support (see [SolutionDesign.md § Offline Architecture](SolutionDesign.md#offline-architecture)), so `expo-sqlite` is not bundled for web. The stores check `USE_SESSION_MEMORY` and keep data fetched from the API in memory for the browser session only; nothing is queued or persisted on web.
 - **Services Layer**: Business logic isolated in `/services` for reusability
 - **Offline Support**: Database and sync services handle offline functionality
 - **Type Safety**: TypeScript definitions in `/types` for type checking

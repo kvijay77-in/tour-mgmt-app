@@ -7,6 +7,7 @@ import {
   getIdCodeTypeMap,
   upsertAppConfigs,
 } from '../services/database/appConfigStore';
+import { refreshEnabledRiderProfileDefinitions } from '../services/riderProfile/riderProfileConfigService';
 import { hydrateSyncSettingsFromCache } from '../services/sync/syncSettingsService';
 import { logger } from '../utils/logger';
 
@@ -66,6 +67,12 @@ export function AppConfigProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (fetchError) {
         logger.warn(TAG, 'App configuration fetch failed; using cached configuration.', fetchError);
+      }
+
+      try {
+        await refreshEnabledRiderProfileDefinitions();
+      } catch (fetchError) {
+        logger.warn(TAG, 'Rider profile definitions fetch failed; using cached definitions.', fetchError);
       }
 
       await refreshOfflineSyncConfig();
