@@ -22,6 +22,11 @@ import {
   updateNotificationRule,
 } from '../../services/api/notificationRuleApi';
 import { splitAudienceExpressions, validateAudienceExpression, validateTemplate } from '../../utils/notificationRules';
+import {
+  isNotificationAndroidChannel,
+  isNotificationCategory,
+  isNotificationPriority,
+} from '../../utils/notificationRuleForm';
 
 interface NotificationRulesScreenProps {
   onClose: () => void;
@@ -131,6 +136,9 @@ function validateForm(form: RuleFormState): string | null {
   if (audiences.length === 0) return 'At least one audience expression is required.';
   const invalidAudience = audiences.find((entry) => !validateAudienceExpression(entry));
   if (invalidAudience) return `Invalid audience expression: ${invalidAudience}`;
+  if (!isNotificationCategory(form.category)) return 'Category must be ANNOUNCEMENT, ALERT, PERSONAL, or SYSTEM.';
+  if (!isNotificationPriority(form.priority)) return 'Priority must be URGENT or NORMAL.';
+  if (!isNotificationAndroidChannel(form.androidChannel)) return 'Android channel must be urgent or general.';
   if (!validateTemplate(form.titleTemplate)) return 'Title template is required and braces must be balanced.';
   if (!validateTemplate(form.bodyTemplate)) return 'Body template is required and braces must be balanced.';
   const ttlHours = Number.parseInt(form.ttlHours, 10);

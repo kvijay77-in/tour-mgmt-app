@@ -20,6 +20,7 @@ import {
 import { registerPushDeviceIfEligible } from '../services/push/pushService';
 import { navigationRef } from '../navigation/navigationRef';
 import { getNotificationNavigationTarget } from '../utils/notificationRouting';
+import { handlePushNotificationReceived, resolvePushNavigationTarget } from '../utils/notificationPushHandlers';
 
 const TAG = 'NotificationContext';
 const DEFAULT_LIMIT = 100;
@@ -47,13 +48,6 @@ const NotificationContext = createContext<NotificationContextValue>({
 
 export function useNotifications(): NotificationContextValue {
   return useContext(NotificationContext);
-}
-
-function extractPayload(data: unknown): Record<string, unknown> {
-  if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-    return data as Record<string, unknown>;
-  }
-  return {};
 }
 
 export function NotificationProvider({ children }: { children: React.ReactNode }) {
@@ -105,6 +99,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const markAllRead = useCallback(async (readAt?: string): Promise<void> => {
     if (!user) return;
 
+    let canApplyLocalRead = false;
     try {
       const outcome = await markNotificationsRead(readAt ? { readAt } : {});
       if (outcome.kind === 'error') {
@@ -113,24 +108,36 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       }
       if (outcome.kind === 'unavailable') {
         setIsBackendAvailable(false);
-      } else {
-        setIsBackendAvailable(true);
+        return;
       }
+      setIsBackendAvailable(true);
+      canApplyLocalRead = true;
     } catch (error) {
       logger.warn(TAG, describeUnexpectedNotificationError(error));
+      return;
     }
 
+    if (!canApplyLocalRead) return;
     await markCachedNotificationsRead(readAt);
     const effectiveReadAt = readAt ?? new Date().toISOString();
-    setItems((prev) => prev.map((item) => (
-      item.createdAt <= effectiveReadAt ? { ...item, isRead: true } : item
-    )));
-    setUnreadCount((prev) => (readAt ? prev : 0));
+    setItems((prev) => {
+      const next = prev.map((item) => (
+        item.createdAt <= effectiveReadAt ? { ...item, isRead: true } : item
+      ));
+      setUnreadCount(next.filter((item) => !item.isRead).length);
+      return next;
+    });
   }, [user]);
 
   const openTarget = useCallback((item: NotificationItem) => {
     if (!navigationRef.isReady()) return;
-    const target = getNotificationNavigationTarget({ screen: item.target?.screen });
+    const payload: Record<string, unknown> = {
+      ...(item as unknown as Record<string, unknown>),
+    };
+    const target = getNotificationNavigationTarget({
+      screen: item.target?.screen,
+      payload,
+    });
     navigationRef.dispatch(CommonActions.navigate(target.route, target.params));
   }, []);
 
@@ -168,14 +175,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!user || IS_WEB) return;
     const received = Notifications.addNotificationReceivedListener(() => {
-      void refresh();
+      handlePushNotificationReceived(() => {
+        void refresh();
+      });
     });
     const response = Notifications.addNotificationResponseReceivedListener((event) => {
-      const payload = extractPayload(event.notification.request.content.data);
-      const target = getNotificationNavigationTarget({
-        screen: typeof payload.screen === 'string' ? payload.screen : undefined,
-        payload,
-      });
+      const target = resolvePushNavigationTarget(event.notification.request.content.data);
       if (!navigationRef.isReady()) return;
       navigationRef.dispatch(CommonActions.navigate(target.route, target.params));
     });

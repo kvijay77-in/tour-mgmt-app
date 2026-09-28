@@ -120,11 +120,7 @@ export default function SideNav({ sections }: SideNavProps) {
           title={unreadCount > 0 ? `Notifications (${unreadCount})` : 'Notifications'}
           icon="notifications-none"
           active={focusedRoute === 'Notifications'}
-          onPress={() => {
-            if (navigationRef.isReady()) {
-              navigationRef.dispatch(CommonActions.navigate('Notifications'));
-            }
-          }}
+          onPress={() => go({ route: 'Notifications', params: undefined })}
         />
         <SideNavItem
           title="Change password"
