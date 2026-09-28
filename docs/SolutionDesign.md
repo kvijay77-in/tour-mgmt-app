@@ -440,6 +440,13 @@ This toggle exists only for controlled development/testing compatibility.
 
 Offline mode is a **mobile** capability (ride check-ins and event scans). Web is used for administration and is always online; offline caching, offline sign-in and the offline toggle are disabled on web.
 
+### Web (no local database)
+
+- SQLite is not part of the web bundle. Metro uses `src/services/database/database.web.ts` instead of `database.ts`; it exports `USE_SESSION_MEMORY = true` and has no database.
+- Stores that hold API data used by web screens (app config, rider personal codes, riders, events bootstrap data, hotel stays, event activity records) keep it **in memory for the browser session only**. It is fetched from the API as on mobile, cleared on page reload, on sign-out and when a different user signs in, and never persisted.
+- Nothing is queued on web: ride check-ins and event scans/cancels are sent straight to the API. If the server cannot be reached the user is told that a connection is needed and nothing is recorded. The outbound sync engine is not started on web.
+- Event Scan's recent-scans list on web shows the scans accepted in the current browser session, with an info note that the list is cleared on reload.
+
 ### Design Principles
 
 1. **Always offline-ready** — every online load of the data needed offline (active tour, rides, riders, the ride's check-ins, rider/app-user names, events bootstrap) is written through to SQLite with a `sync_meta` timestamp (`services/offline/offlineDataService.ts`). Switching to offline — manually or because the network dropped — never needs an explicit download. While online and today's ride is OPEN/STARTED, the ride datasets are refreshed every `readinessRefreshMinutes` (skipped when already fresh). The UI shows "Offline ready · data as of HH:MM".
@@ -624,7 +631,7 @@ Stage colors are defined in `src/constants/colors.ts` and used consistently acro
 
 ### Platform-Specific Notes
 
-- `expo-sqlite` works across iOS, Android, and Web
+- `expo-sqlite` is used on iOS and Android only. It is not bundled for web: `src/services/database/database.web.ts` replaces `database.ts` in the web build (see § Offline Architecture → Web)
 - `@react-native-community/netinfo` provides connectivity events on all platforms
 - Camera/barcode scanning is mobile-focused — web fallback should use manual entry
 - `expo-secure-store` is mobile-only; web uses equivalent browser storage

@@ -90,6 +90,8 @@ export const EVENT_SCAN_MESSAGES = {
   UNSENT_REMOVED: 'Unsent scan removed.',
   ALREADY_SENT: 'This scan was just sent to the server. Cancel it again to cancel it there.',
   SAVE_FAILED: 'The scan could not be saved on this device. Please try again.',
+  WEB_SESSION_ONLY:
+    'On web this list is kept only for the current browser session and is cleared when the page is reloaded. Recorded scans are saved on the server.',
 } as const;
 
 /** Event dashboard, reconciliation and rider progress copy. {placeholders} are filled by the screen. */

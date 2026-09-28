@@ -35,6 +35,7 @@ import { discardOperation, retryFailedOperations } from '../../services/sync/out
 import { CrossCheckResult, resendMissingCheckIn, verifySentCheckIns } from '../../services/sync/checkInCrossCheck';
 import { describeClockSkew } from '../../services/sync/clockSkew';
 import { SentCheckIn } from '../../services/database/sentCheckInStore';
+import { OFFLINE_CACHE_ENABLED } from '../../services/offline/offlineDataService';
 import { isNetworkError } from '../../services/api/apiClient';
 import { CheckInRequest } from '../../types/api';
 import { logger } from '../../utils/logger';
@@ -107,6 +108,10 @@ export default function SyncStatusScreen({ onClose }: SyncStatusScreenProps) {
   const canSend = !isOffline && !user?.isOfflineSession;
 
   const loadOperations = useCallback(async () => {
+    if (!OFFLINE_CACHE_ENABLED) {
+      setIsLoading(false);
+      return;
+    }
     try {
       setOperations(await getAllQueuedOperations(LIST_LIMIT));
     } catch (error) {

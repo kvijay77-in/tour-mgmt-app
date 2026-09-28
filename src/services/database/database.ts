@@ -15,6 +15,12 @@ import { runMigrations } from './migrations';
 
 const DB_NAME = 'poc_app.db';
 
+/** Native stores use SQLite; database.web.ts sets this for session-only memory on web. */
+export const USE_SESSION_MEMORY = false;
+
+/** Web only (see database.web.ts); stores never hold session memory on native. */
+export function registerSessionMemoryReset(_reset: () => void): void {}
+
 let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {

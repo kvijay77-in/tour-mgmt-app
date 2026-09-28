@@ -1,6 +1,16 @@
 import { CONFIG_TYPE } from '../../constants/idCodes';
 import { AppConfigItem, IdCodeFormatConfig, IdCodeTypeConfig, IdCodeTypeName } from '../../types/config';
-import { getDatabase, withWriteTransaction } from './database';
+import { getDatabase, registerSessionMemoryReset, USE_SESSION_MEMORY, withWriteTransaction } from './database';
+
+/** Web: session-only copy keyed by `configType|configId`. */
+const memoryConfigs = new Map<string, AppConfigItem>();
+registerSessionMemoryReset(() => memoryConfigs.clear());
+
+function memoryItemsByType(configType: string, enabledOnly: boolean): AppConfigItem[] {
+  return [...memoryConfigs.values()]
+    .filter((item) => item.configType === configType && (!enabledOnly || item.enabled))
+    .sort((a, b) => a.configId.localeCompare(b.configId));
+}
 
 function normalizeIdCodeTypeName(value: unknown): IdCodeTypeName | null {
   if (typeof value !== 'string') return null;
@@ -116,6 +126,23 @@ function mapToIdCodeFormat(item: AppConfigItem): IdCodeFormatConfig | null {
 export async function upsertAppConfigs(items: AppConfigItem[]): Promise<void> {
   if (items.length === 0) return;
 
+  if (USE_SESSION_MEMORY) {
+    for (const item of items) {
+      const configType = item.configType?.trim();
+      const configId = item.configId?.trim();
+      if (!configType || !configId) continue;
+      memoryConfigs.set(`${configType}|${configId}`, {
+        ...item,
+        configType,
+        configId,
+        config: item.config ?? {},
+        version: item.version ?? null,
+        updatedAt: item.updatedAt ?? null,
+      });
+    }
+    return;
+  }
+
   const now = new Date().toISOString();
 
   await withWriteTransaction(async (db) => {
@@ -143,6 +170,8 @@ export async function upsertAppConfigs(items: AppConfigItem[]): Promise<void> {
 }
 
 export async function getAppConfigsByType(configType: string): Promise<AppConfigItem[]> {
+  if (USE_SESSION_MEMORY) return memoryItemsByType(configType, false);
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     'SELECT * FROM app_config WHERE configType = ? ORDER BY configId',
@@ -153,6 +182,12 @@ export async function getAppConfigsByType(configType: string): Promise<AppConfig
 }
 
 export async function getEnabledIdCodeFormat(): Promise<IdCodeFormatConfig | null> {
+  if (USE_SESSION_MEMORY) {
+    const [latest] = memoryItemsByType(CONFIG_TYPE.ID_CODE_FORMAT, true).sort((a, b) =>
+      (b.version ?? 0) - (a.version ?? 0) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+    return latest ? mapToIdCodeFormat(latest) : null;
+  }
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     `SELECT * FROM app_config
@@ -167,7 +202,9 @@ export async function getEnabledIdCodeFormat(): Promise<IdCodeFormatConfig | nul
   return mapToIdCodeFormat(item);
 }
 
-export async function getIdCodeTypeMap(): Promise<Record<string, IdCodeTypeConfig>> {
+async function getEnabledIdCodeTypeItems(): Promise<AppConfigItem[]> {
+  if (USE_SESSION_MEMORY) return memoryItemsByType(CONFIG_TYPE.ID_CODE_TYPE, true);
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT * FROM app_config
@@ -175,11 +212,14 @@ export async function getIdCodeTypeMap(): Promise<Record<string, IdCodeTypeConfi
      ORDER BY configId`,
     [CONFIG_TYPE.ID_CODE_TYPE],
   );
+  return rows.map(mapRowToAppConfigItem);
+}
 
+export async function getIdCodeTypeMap(): Promise<Record<string, IdCodeTypeConfig>> {
+  const items = await getEnabledIdCodeTypeItems();
   const map: Record<string, IdCodeTypeConfig> = {};
 
-  for (const row of rows) {
-    const item = mapRowToAppConfigItem(row);
+  for (const item of items) {
     const cfg = item.config as Record<string, unknown>;
     if (!cfg || typeof cfg !== 'object') continue;
 

@@ -133,6 +133,7 @@ tour-mgmt-app/
 │   │   │   └── __tests__/                  # Unit tests
 │   │   ├── database/               # SQLite for offline support
 │   │   │   ├── database.ts         # Database open, local stores, withWriteTransaction, retention purge
+│   │   │   ├── database.web.ts     # Web build of database.ts: no SQLite; stores keep session-only memory (see Platform-specific files)
 │   │   │   ├── migrations.ts       # Versioned schema migrations (PRAGMA user_version)
 │   │   │   ├── appConfigStore.ts   # AppConfig SQLite persistence and lookups
 │   │   │   ├── tourStore.ts / rideStore.ts / riderStore.ts / checkInStore.ts # Offline data caches
@@ -268,7 +269,9 @@ tour-mgmt-app/
 
 ### Additional Notes
 - **Single Entry Point**: `App.tsx` serves as the root component for Android, iOS, and Web
-- **Platform Agnostic**: All code in `/src` is shared across platforms
+- **Platform Agnostic**: All code in `/src` is shared across platforms, except for the approved platform-specific files below
+- **Platform-specific files (approved exceptions)**: Metro resolves `name.web.ts` instead of `name.ts` in the web build. Use this only when a native-only module must be kept out of the web bundle; prefer runtime `Platform.OS` checks otherwise. Current exceptions:
+  - `src/services/database/database.web.ts` — web has no offline support (see [SolutionDesign.md § Offline Architecture](SolutionDesign.md#offline-architecture)), so `expo-sqlite` is not bundled for web. The stores check `USE_SESSION_MEMORY` and keep data fetched from the API in memory for the browser session only; nothing is queued or persisted on web.
 - **Services Layer**: Business logic isolated in `/services` for reusability
 - **Offline Support**: Database and sync services handle offline functionality
 - **Type Safety**: TypeScript definitions in `/types` for type checking

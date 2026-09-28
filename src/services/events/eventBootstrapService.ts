@@ -20,6 +20,7 @@ import {
   saveMyTourAssignment,
 } from '../database/eventStore';
 import { replaceStaysForDate } from '../database/hotelStayStore';
+import { registerSessionMemoryReset } from '../database/database';
 import { EventBootstrapResponse } from '../../types/api';
 import { RoomAllocation } from '../../types/models';
 import { toLocalDateString } from '../../utils/eventActivity';
@@ -36,6 +37,8 @@ export interface EventBootstrapRefreshResult {
 
 const etagByTour = new Map<string, string>();
 const inFlightByTour = new Map<string, Promise<EventBootstrapRefreshResult>>();
+// A kept ETag would get a 304 and leave the cleared web session data empty.
+registerSessionMemoryReset(() => etagByTour.clear());
 
 /** Concurrent calls for the same tour share one request. */
 export function refreshEventBootstrap(tourId: string): Promise<EventBootstrapRefreshResult> {

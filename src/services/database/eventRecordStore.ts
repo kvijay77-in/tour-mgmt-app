@@ -1,10 +1,12 @@
 /**
  * Event activity record store — write-local-first capture of event scans.
  * Each local record is paired with a pending_operations entry (same localId)
- * that the event sync service pushes to the backend.
+ * that the event sync service pushes to the backend. On web (always online,
+ * nothing queued) only the records the server accepted in this browser session
+ * are kept, in memory (see database.web.ts).
  */
 
-import { getDatabase } from './database';
+import { getDatabase, registerSessionMemoryReset, USE_SESSION_MEMORY } from './database';
 import { ActivityOutcome, EventRecordMethod } from '../../types/models';
 
 export type EventRecordSyncStatus = 'PENDING' | 'SYNCED' | 'FAILED';
@@ -38,7 +40,37 @@ export type NewLocalEventActivityRecord = Omit<
   'recordId' | 'isFlagged' | 'isCancelled' | 'isLocal' | 'syncStatus' | 'syncError' | 'retryCount' | 'createdAt'
 >;
 
+const memoryRecords = new Map<string, LocalEventActivityRecord>();
+registerSessionMemoryReset(() => memoryRecords.clear());
+
+/** Newest first, like the SQL `ORDER BY timestamp DESC`. */
+function memoryRecordsWhere(match: (record: LocalEventActivityRecord) => boolean): LocalEventActivityRecord[] {
+  return [...memoryRecords.values()]
+    .filter(match)
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+function updateMemoryRecord(localId: string, patch: Partial<LocalEventActivityRecord>): void {
+  const record = memoryRecords.get(localId);
+  if (record) memoryRecords.set(localId, { ...record, ...patch });
+}
+
 export async function insertLocalEventRecord(record: NewLocalEventActivityRecord): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memoryRecords.set(record.localId, {
+      ...record,
+      recordId: null,
+      isFlagged: false,
+      isCancelled: false,
+      isLocal: true,
+      syncStatus: 'PENDING',
+      syncError: null,
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+    });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `INSERT INTO event_activity_records
@@ -68,6 +100,11 @@ export async function getEventRecordsByOccurrence(
   occurrenceId: string,
   limit?: number,
 ): Promise<LocalEventActivityRecord[]> {
+  if (USE_SESSION_MEMORY) {
+    const records = memoryRecordsWhere((record) => record.occurrenceId === occurrenceId);
+    return typeof limit === 'number' ? records.slice(0, limit) : records;
+  }
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT * FROM event_activity_records
@@ -80,6 +117,8 @@ export async function getEventRecordsByOccurrence(
 }
 
 export async function getEventRecordByLocalId(localId: string): Promise<LocalEventActivityRecord | null> {
+  if (USE_SESSION_MEMORY) return memoryRecords.get(localId) ?? null;
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT * FROM event_activity_records WHERE localId = ?',
@@ -94,6 +133,12 @@ export async function findActiveEventRecord(
   riderId: string,
   activityId: string,
 ): Promise<LocalEventActivityRecord | null> {
+  if (USE_SESSION_MEMORY) {
+    return memoryRecordsWhere((record) =>
+      record.occurrenceId === occurrenceId && record.riderId === riderId && record.activityId === activityId &&
+      !record.isCancelled && record.syncStatus !== 'FAILED')[0] ?? null;
+  }
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     `SELECT * FROM event_activity_records
@@ -107,6 +152,11 @@ export async function findActiveEventRecord(
 
 /** This device's non-cancelled, non-failed records for one rider (rider progress). */
 export async function getActiveEventRecordsByRider(riderId: string): Promise<LocalEventActivityRecord[]> {
+  if (USE_SESSION_MEMORY) {
+    return memoryRecordsWhere((record) =>
+      record.riderId === riderId && !record.isCancelled && record.syncStatus !== 'FAILED');
+  }
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT * FROM event_activity_records
@@ -118,6 +168,11 @@ export async function getActiveEventRecordsByRider(riderId: string): Promise<Loc
 }
 
 export async function getUnsyncedEventRecordCount(occurrenceId?: string): Promise<number> {
+  if (USE_SESSION_MEMORY) {
+    return memoryRecordsWhere((record) =>
+      record.syncStatus === 'PENDING' && (!occurrenceId || record.occurrenceId === occurrenceId)).length;
+  }
+
   const db = await getDatabase();
   const row = occurrenceId
     ? await db.getFirstAsync<{ count: number }>(
@@ -132,6 +187,8 @@ export async function getUnsyncedEventRecordCount(occurrenceId?: string): Promis
 
 /** Count of records the server rejected (COUNT query for banners). */
 export async function getFailedEventRecordCount(): Promise<number> {
+  if (USE_SESSION_MEMORY) return memoryRecordsWhere((record) => record.syncStatus === 'FAILED').length;
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<{ count: number }>(
     `SELECT COUNT(*) as count FROM event_activity_records WHERE syncStatus = 'FAILED'`,
@@ -144,6 +201,11 @@ export async function getFailedEventRecords(
   occurrenceId: string,
   limit = 50,
 ): Promise<LocalEventActivityRecord[]> {
+  if (USE_SESSION_MEMORY) {
+    return memoryRecordsWhere((record) =>
+      record.syncStatus === 'FAILED' && record.occurrenceId === occurrenceId).slice(0, limit);
+  }
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT * FROM event_activity_records WHERE syncStatus = 'FAILED' AND occurrenceId = ?
@@ -155,6 +217,13 @@ export async function getFailedEventRecords(
 
 /** Put a failed record back to PENDING when the user retries it. */
 export async function markEventRecordPending(localId: string): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    if (memoryRecords.get(localId)?.syncStatus === 'FAILED') {
+      updateMemoryRecord(localId, { syncStatus: 'PENDING', syncError: null });
+    }
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `UPDATE event_activity_records SET syncStatus = 'PENDING', syncError = NULL WHERE localId = ? AND syncStatus = 'FAILED'`,
@@ -166,6 +235,17 @@ export async function markEventRecordSynced(
   localId: string,
   result: { recordId: string; isFlagged: boolean },
 ): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    updateMemoryRecord(localId, {
+      recordId: result.recordId,
+      isFlagged: result.isFlagged,
+      isLocal: false,
+      syncStatus: 'SYNCED',
+      syncError: null,
+    });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `UPDATE event_activity_records
@@ -176,6 +256,12 @@ export async function markEventRecordSynced(
 }
 
 export async function markEventRecordFailed(localId: string, error: string): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    const retryCount = (memoryRecords.get(localId)?.retryCount ?? 0) + 1;
+    updateMemoryRecord(localId, { syncStatus: 'FAILED', syncError: error, retryCount });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `UPDATE event_activity_records
@@ -186,6 +272,11 @@ export async function markEventRecordFailed(localId: string, error: string): Pro
 }
 
 export async function incrementEventRecordRetry(localId: string): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    updateMemoryRecord(localId, { retryCount: (memoryRecords.get(localId)?.retryCount ?? 0) + 1 });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     'UPDATE event_activity_records SET retryCount = retryCount + 1 WHERE localId = ?',
@@ -195,6 +286,11 @@ export async function incrementEventRecordRetry(localId: string): Promise<void> 
 
 /** Set optimistically when a cancel is queued; reverted if the server rejects it. */
 export async function markEventRecordCancelled(localId: string, isCancelled = true): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    updateMemoryRecord(localId, { isCancelled });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     'UPDATE event_activity_records SET isCancelled = ? WHERE localId = ?',
@@ -204,6 +300,11 @@ export async function markEventRecordCancelled(localId: string, isCancelled = tr
 
 /** Removes an unsynced record (its pending operation must be dropped by the caller). */
 export async function deleteEventRecord(localId: string): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memoryRecords.delete(localId);
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync('DELETE FROM event_activity_records WHERE localId = ?', [localId]);
 }

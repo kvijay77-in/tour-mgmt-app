@@ -9,7 +9,9 @@
  * 3. Recent scans on this device with sync state, cancel, and "Sync issues".
  *
  * Write-local-first: every scan is stored in SQLite and queued; online it is sent at
- * once, offline it waits for the event sync loop. See docs/Event-Engine-Design.md.
+ * once, offline it waits for the event sync loop. Web (always online) sends scans and
+ * cancels directly; its recent list is kept in memory for the browser session only.
+ * See docs/Event-Engine-Design.md.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -65,14 +67,18 @@ import {
   upsertRiders,
 } from '../../services/database/riderStore';
 import { loadScanPauseSeconds } from '../../services/config/scanPauseConfigService';
+import { OFFLINE_CACHE_ENABLED } from '../../services/offline/offlineDataService';
 import { playFailure, playScanTick, playSuccess } from '../../services/feedback/feedbackService';
 import { formatTypeNotAllowedMessage, resolveScannedRiderId } from '../../services/idcode/idCodeService';
 import {
+  cancelEventRecordOnline,
   discardUnsyncedEventRecord,
   EventOperationResult,
+  NewEventScan,
   processEventOperationNow,
   queueEventRecord,
   queueEventRecordCancel,
+  sendEventRecordOnline,
   toRecordTimestamp,
 } from '../../services/sync/eventSyncService';
 import { IdCodeTypeConfig } from '../../types/config';
@@ -226,6 +232,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   const [cancelReason, setCancelReason] = useState('');
   const [isCancelling, setIsCancelling] = useState(false);
   const [issues, setIssues] = useState<LocalEventActivityRecord[]>([]);
+  const [showSessionInfo, setShowSessionInfo] = useState(false);
 
   const processingRef = useRef(false);
   const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -449,28 +456,37 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
     setIsSubmitting(true);
     setBanner(null);
     const optedOut = outcome === ActivityOutcome.OPTED_OUT;
+    const scanRecord: NewEventScan = {
+      occurrenceId: occurrence.occurrenceId,
+      eventId: event.eventId,
+      activityId: activity.activityId,
+      activityName: activity.name,
+      riderId: scan.riderId,
+      typeCode: optedOut ? null : scan.typeCode,
+      bagLabel: optedOut ? null : scan.bagLabel,
+      outcome,
+      variantSelected: optedOut ? null : variant,
+      method: scan.method,
+      timestamp: toRecordTimestamp(),
+    };
     try {
-      const localId = await queueEventRecord({
-        occurrenceId: occurrence.occurrenceId,
-        eventId: event.eventId,
-        activityId: activity.activityId,
-        activityName: activity.name,
-        riderId: scan.riderId,
-        typeCode: optedOut ? null : scan.typeCode,
-        bagLabel: optedOut ? null : scan.bagLabel,
-        outcome,
-        variantSelected: optedOut ? null : variant,
-        method: scan.method,
-        timestamp: toRecordTimestamp(),
-      }, user?.userId ?? null);
-      const result = isOffline ? null : await processEventOperationNow(localId);
+      let result: EventOperationResult | null;
+      if (OFFLINE_CACHE_ENABLED) {
+        const localId = await queueEventRecord(scanRecord, user?.userId ?? null);
+        result = isOffline ? null : await processEventOperationNow(localId);
+      } else {
+        result = await sendEventRecordOnline(tourId, scanRecord);
+      }
       renderResult(result, scan, scan.typeCode);
       resetPending();
       releaseScanner(true);
     } catch (error) {
       logger.error(TAG, 'Saving scan failed', error);
       void playFailure('error');
-      setBanner({ kind: 'error', message: EVENT_SCAN_MESSAGES.SAVE_FAILED });
+      setBanner({
+        kind: 'error',
+        message: OFFLINE_CACHE_ENABLED ? EVENT_SCAN_MESSAGES.SAVE_FAILED : describeUnexpectedEventError(error),
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -610,6 +626,13 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
     if (!record || !tourId) return;
     setIsCancelling(true);
     try {
+      if (!OFFLINE_CACHE_ENABLED) {
+        const result = await cancelEventRecordOnline(tourId, record, cancelReason);
+        setBanner(result.status === 'rejected' || result.status === 'duplicate'
+          ? { kind: result.error.kind, message: result.error.message }
+          : { kind: 'info', message: EVENT_SCAN_MESSAGES.SCAN_CANCELLED });
+        return;
+      }
       if (record.syncStatus !== 'SYNCED') {
         const removed = await discardUnsyncedEventRecord(record.localId);
         setBanner({ kind: 'info', message: removed ? EVENT_SCAN_MESSAGES.UNSENT_REMOVED : EVENT_SCAN_MESSAGES.ALREADY_SENT });
@@ -953,7 +976,28 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
         ) : null}
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent scans on this device</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent scans on this device</Text>
+            {!OFFLINE_CACHE_ENABLED ? (
+              <TouchableOpacity
+                accessibilityLabel="About recent scans on web"
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showSessionInfo }}
+                hitSlop={12}
+                onPress={() => setShowSessionInfo((shown) => !shown)}
+                style={styles.infoButton}
+              >
+                <MaterialIcons name="info-outline" size={16} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {showSessionInfo ? (
+            <StatusBanner
+              kind="info"
+              message={EVENT_SCAN_MESSAGES.WEB_SESSION_ONLY}
+              onDismiss={() => setShowSessionInfo(false)}
+            />
+          ) : null}
           {recent.length === 0 ? <Text style={styles.hint}>No scans yet.</Text> : null}
           {recent.map((record) => {
             const badge = recordBadge(record);
@@ -1104,6 +1148,8 @@ const styles = StyleSheet.create({
   autoRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   autoLabel: { color: COLORS.textSecondary, flex: 1, fontSize: 13, fontWeight: '600' },
   section: { marginTop: 8 },
+  sectionHeader: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  infoButton: { marginBottom: 6, padding: 2 },
   sectionTitle: {
     color: COLORS.textSecondary,
     fontSize: 12,

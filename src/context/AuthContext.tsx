@@ -647,6 +647,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch {
       // Sign out locally even if the API call fails
     } finally {
+      // Web: drop session data so the next sign-in loads the latest from the server.
+      if (!IS_MOBILE) {
+        await clearUserScopedCache().catch((err: unknown) => logger.warn(TAG, 'Failed to clear session data', err));
+      }
       setUser(null);
       setError(null);
     }

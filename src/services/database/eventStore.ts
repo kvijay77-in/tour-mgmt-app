@@ -1,10 +1,11 @@
 /**
  * Event store — SQLite cache for event definitions, occurrences, rider
  * baggage status, dashboard snapshots, and the caller's own tour assignment.
- * Populated from the events bootstrap; read when offline.
+ * Populated from the events bootstrap; read when offline. On web the same data
+ * is held in memory for the browser session only (see database.web.ts).
  */
 
-import { getDatabase } from './database';
+import { getDatabase, registerSessionMemoryReset, USE_SESSION_MEMORY } from './database';
 import {
   ActivityOverride,
   BaggageStatus,
@@ -16,6 +17,33 @@ import {
   RiderBaggageStatus,
   TourUserAssignment,
 } from '../../types/models';
+
+const memory = {
+  events: new Map<string, EventDefinition>(),
+  occurrences: new Map<string, EventOccurrence>(),
+  baggage: new Map<string, RiderBaggageStatus>(),
+  snapshots: new Map<string, { payload: unknown; fetchedAt: string }>(),
+  assignments: new Map<string, { assignment: TourUserAssignment | null; fetchedAt: string }>(),
+};
+registerSessionMemoryReset(() => Object.values(memory).forEach((map) => map.clear()));
+
+function toMemoryEvent(event: EventDefinition): EventDefinition {
+  return {
+    ...event,
+    location: event.location ?? '',
+    defaultAllowedTypeCodes: event.defaultAllowedTypeCodes ?? [],
+    activities: event.activities ?? [],
+  };
+}
+
+function toMemoryOccurrence(occurrence: EventOccurrence): EventOccurrence {
+  return {
+    ...occurrence,
+    dateSeq: `${occurrence.date}#${occurrence.seq}`,
+    activityOverrides: occurrence.activityOverrides ?? [],
+    linkedOccurrenceRef: occurrence.linkedOccurrenceRef ?? null,
+  };
+}
 
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string' || value.length === 0) return fallback;
@@ -44,6 +72,12 @@ async function inTransaction(work: () => Promise<void>): Promise<void> {
 
 /** Replace all cached definitions (bootstrap returns the full list). */
 export async function replaceEvents(events: EventDefinition[]): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.events.clear();
+    events.forEach((event) => memory.events.set(event.eventId, toMemoryEvent(event)));
+    return;
+  }
+
   const db = await getDatabase();
 
   await inTransaction(async () => {
@@ -60,6 +94,11 @@ export async function upsertEvent(event: EventDefinition): Promise<void> {
 }
 
 async function writeEvent(event: EventDefinition): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.events.set(event.eventId, toMemoryEvent(event));
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `INSERT OR REPLACE INTO events
@@ -82,6 +121,10 @@ async function writeEvent(event: EventDefinition): Promise<void> {
 }
 
 export async function getEvents(): Promise<EventDefinition[]> {
+  if (USE_SESSION_MEMORY) {
+    return [...memory.events.values()].sort((a, b) => a.eventName.localeCompare(b.eventName));
+  }
+
   const db = await getDatabase();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     'SELECT * FROM events ORDER BY eventName',
@@ -90,6 +133,8 @@ export async function getEvents(): Promise<EventDefinition[]> {
 }
 
 export async function getEventById(eventId: string): Promise<EventDefinition | null> {
+  if (USE_SESSION_MEMORY) return memory.events.get(eventId) ?? null;
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT * FROM events WHERE eventId = ?',
@@ -118,6 +163,13 @@ function mapRowToEvent(row: Record<string, unknown>): EventDefinition {
 
 /** Replace all cached occurrences (bootstrap activeOccurrences is the full upcoming set). */
 export async function replaceOccurrences(occurrences: EventOccurrence[]): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.occurrences.clear();
+    occurrences.forEach((occurrence) =>
+      memory.occurrences.set(occurrence.occurrenceId, toMemoryOccurrence(occurrence)));
+    return;
+  }
+
   const db = await getDatabase();
   await inTransaction(async () => {
     await db.runAsync('DELETE FROM event_occurrences');
@@ -133,6 +185,11 @@ export async function upsertOccurrence(occurrence: EventOccurrence): Promise<voi
 }
 
 async function writeOccurrence(occurrence: EventOccurrence): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.occurrences.set(occurrence.occurrenceId, toMemoryOccurrence(occurrence));
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `INSERT OR REPLACE INTO event_occurrences
@@ -159,6 +216,15 @@ export async function getOccurrences(filter?: {
   date?: string;
   status?: OccurrenceStatus;
 }): Promise<EventOccurrence[]> {
+  if (USE_SESSION_MEMORY) {
+    return [...memory.occurrences.values()]
+      .filter((occurrence) =>
+        (!filter?.eventId || occurrence.eventId === filter.eventId) &&
+        (!filter?.date || occurrence.date === filter.date) &&
+        (!filter?.status || occurrence.status === filter.status))
+      .sort((a, b) => a.date.localeCompare(b.date) || a.seq - b.seq);
+  }
+
   const clauses: string[] = [];
   const params: string[] = [];
   if (filter?.eventId) {
@@ -184,6 +250,8 @@ export async function getOccurrences(filter?: {
 }
 
 export async function getOccurrenceById(occurrenceId: string): Promise<EventOccurrence | null> {
+  if (USE_SESSION_MEMORY) return memory.occurrences.get(occurrenceId) ?? null;
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT * FROM event_occurrences WHERE occurrenceId = ?',
@@ -214,6 +282,12 @@ function mapRowToOccurrence(row: Record<string, unknown>): EventOccurrence {
 // ---------------------------------------------------------------------------
 
 export async function replaceRiderBaggageStatuses(statuses: RiderBaggageStatus[]): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.baggage.clear();
+    statuses.forEach((status) => memory.baggage.set(status.riderId, status));
+    return;
+  }
+
   const db = await getDatabase();
   const now = new Date().toISOString();
   await inTransaction(async () => {
@@ -230,6 +304,11 @@ export async function replaceRiderBaggageStatuses(statuses: RiderBaggageStatus[]
 }
 
 export async function upsertRiderBaggageStatus(status: RiderBaggageStatus): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.baggage.set(status.riderId, status);
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `INSERT OR REPLACE INTO rider_baggage_status
@@ -240,6 +319,11 @@ export async function upsertRiderBaggageStatus(status: RiderBaggageStatus): Prom
 }
 
 export async function getRiderBaggageStatus(riderId: string): Promise<RiderBaggageStatus | null> {
+  if (USE_SESSION_MEMORY) {
+    const status = memory.baggage.get(riderId);
+    return status ? { ...status, baggageReleasedAt: status.baggageReleasedAt ?? null } : null;
+  }
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT * FROM rider_baggage_status WHERE riderId = ?',
@@ -258,6 +342,11 @@ export async function getRiderBaggageStatus(riderId: string): Promise<RiderBagga
 // ---------------------------------------------------------------------------
 
 export async function saveDashboardSnapshot(occurrenceId: string, payload: unknown): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.snapshots.set(occurrenceId, { payload, fetchedAt: new Date().toISOString() });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `INSERT OR REPLACE INTO event_dashboard_snapshots (occurrenceId, payloadJson, fetchedAt)
@@ -269,6 +358,11 @@ export async function saveDashboardSnapshot(occurrenceId: string, payload: unkno
 export async function getDashboardSnapshot<T>(
   occurrenceId: string,
 ): Promise<{ payload: T; fetchedAt: string } | null> {
+  if (USE_SESSION_MEMORY) {
+    const stored = memory.snapshots.get(occurrenceId);
+    return stored ? { payload: stored.payload as T, fetchedAt: stored.fetchedAt } : null;
+  }
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT payloadJson, fetchedAt FROM event_dashboard_snapshots WHERE occurrenceId = ?',
@@ -288,6 +382,11 @@ export async function saveMyTourAssignment(
   tourId: string,
   assignment: TourUserAssignment | null,
 ): Promise<void> {
+  if (USE_SESSION_MEMORY) {
+    memory.assignments.set(tourId, { assignment, fetchedAt: new Date().toISOString() });
+    return;
+  }
+
   const db = await getDatabase();
   await db.runAsync(
     `INSERT OR REPLACE INTO my_tour_assignment (tourId, payloadJson, fetchedAt)
@@ -300,6 +399,8 @@ export async function saveMyTourAssignment(
 export async function getMyTourAssignment(
   tourId: string,
 ): Promise<{ assignment: TourUserAssignment | null; fetchedAt: string } | undefined> {
+  if (USE_SESSION_MEMORY) return memory.assignments.get(tourId);
+
   const db = await getDatabase();
   const row = await db.getFirstAsync<Record<string, unknown>>(
     'SELECT payloadJson, fetchedAt FROM my_tour_assignment WHERE tourId = ?',
