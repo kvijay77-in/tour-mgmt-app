@@ -1,4 +1,5 @@
 import {
+  LovItem,
   OrderedRiderProfileSection,
   RiderProfileAttributeDefinition,
   RiderProfileSectionDefinition,
@@ -7,6 +8,92 @@ import {
 
 function sortByOrder<T extends { config: { order: number }; configId: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => a.config.order - b.config.order || a.configId.localeCompare(b.configId));
+}
+
+function cloneWithOrder<T extends { config: { order: number } }>(item: T, order: number): T {
+  return {
+    ...item,
+    config: {
+      ...item.config,
+      order,
+    },
+  };
+}
+
+export function recomputeDefinitionOrders<T extends { config: { order: number } }>(items: T[]): T[] {
+  return items.map((item, index) => cloneWithOrder(item, index + 1));
+}
+
+export function moveOrderedDefinition<T extends { config: { order: number }; configId: string }>(
+  items: T[],
+  configId: string,
+  direction: 'up' | 'down',
+): T[] {
+  const ordered = sortByOrder(items);
+  const index = ordered.findIndex((item) => item.configId === configId);
+  if (index < 0) return ordered;
+
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= ordered.length) {
+    return recomputeDefinitionOrders(ordered);
+  }
+
+  const next = [...ordered];
+  const [item] = next.splice(index, 1);
+  next.splice(targetIndex, 0, item);
+  return recomputeDefinitionOrders(next);
+}
+
+export function moveAttributeDefinition(
+  attributes: RiderProfileAttributeDefinition[],
+  configId: string,
+  targetSectionId: string,
+  direction?: 'up' | 'down',
+): RiderProfileAttributeDefinition[] {
+  const sorted = sortByOrder(attributes);
+  const target = sorted.find((attribute) => attribute.configId === configId);
+  if (!target) return sorted;
+
+  const updatedAttributes = sorted.map((attribute) =>
+    attribute.configId === configId
+      ? {
+        ...attribute,
+        config: {
+          ...attribute.config,
+          sectionId: targetSectionId,
+        },
+      }
+      : attribute);
+
+  const grouped = new Map<string, RiderProfileAttributeDefinition[]>();
+  for (const attribute of updatedAttributes) {
+    const list = grouped.get(attribute.config.sectionId) ?? [];
+    list.push(attribute);
+    grouped.set(attribute.config.sectionId, list);
+  }
+
+  if (direction) {
+    const targetSection = grouped.get(targetSectionId) ?? [];
+    grouped.set(targetSectionId, moveOrderedDefinition(targetSection, configId, direction));
+  }
+
+  const result: RiderProfileAttributeDefinition[] = [];
+  for (const [sectionId, list] of grouped.entries()) {
+    const ordered = recomputeDefinitionOrders(sortByOrder(list));
+    grouped.set(sectionId, ordered);
+    result.push(...ordered);
+  }
+
+  return result;
+}
+
+export function recomputeLovItemOrders(items: LovItem[]): LovItem[] {
+  return [...items]
+    .sort((a, b) => a.order - b.order || a.value.localeCompare(b.value))
+    .map((item, index) => ({
+      ...item,
+      order: index + 1,
+    }));
 }
 
 export function orderDefinitionsIntoSections(

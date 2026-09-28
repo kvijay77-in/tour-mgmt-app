@@ -445,8 +445,10 @@ Administrator-only (feature label `RIDER_PROFILE_DEFINITION_MANAGE`), online onl
 1. Rider card and rider details show configuration-driven profile attributes grouped by configured section and ordered by configured order.
 2. UI shows only keys returned by backend role-filtered rider endpoints and only when matching enabled definitions.
 3. Sensitive keys (`sensitiveKeys`) are masked by default and can be revealed on demand in-session.
-4. Offline SQLite cache must never store sensitive profile-attribute values.
-5. Non-sensitive visible attributes may be cached using existing offline patterns.
+4. File/Image attributes expose a View action backed by the rider-profile download endpoint.
+5. Administrators with feature label `RIDER_PROFILE_ADMIN_EDIT` can open an online-only form from rider details to edit enabled `adminOnly` attributes only; saves send only changed keys plus backend `definitionsVersion`.
+6. Offline SQLite cache must never store sensitive profile-attribute values.
+7. Non-sensitive visible attributes may be cached using existing offline patterns.
 
 ### Enable/Disable Existing User
 

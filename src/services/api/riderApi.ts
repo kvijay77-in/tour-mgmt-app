@@ -5,7 +5,7 @@
 
 import { apiClient, ApiError } from './apiClient';
 import { EventApiOutcome, run } from './eventsApi';
-import { BaggageReleaseRequest, GetRidersQuery, RiderExitRequest } from '../../types/api';
+import { BaggageReleaseRequest, GetRidersQuery, RiderExitRequest, UpdateRiderProfileRequest } from '../../types/api';
 import { DietaryPreference, Rider, RiderDetailsData, TourRider } from '../../types/models';
 import { USE_MOCK_DATA, getMockRiderDetailsResponse } from './mockData';
 
@@ -149,4 +149,40 @@ export async function getRideRiderDetails(
     }
     throw error;
   }
+}
+
+export async function updateRiderProfile(
+  profileId: string,
+  body: UpdateRiderProfileRequest,
+): Promise<Record<string, unknown> | null> {
+  const response = await apiClient.put<Record<string, unknown>>(
+    `/v1/riders/profile/${encodeURIComponent(profileId)}`,
+    body,
+  );
+  return response.data ?? null;
+}
+
+export async function getRiderProfileAttributeDownloadUrl(
+  profileId: string,
+  key: string,
+): Promise<string | null> {
+  const response = await apiClient.get<unknown>(
+    `/v1/riders/profile/${encodeURIComponent(profileId)}/attributes/${encodeURIComponent(key)}/download`,
+  );
+
+  if (typeof response.data === 'string') {
+    return response.data;
+  }
+
+  if (response.data && typeof response.data === 'object') {
+    const payload = response.data as Record<string, unknown>;
+    if (typeof payload.downloadUrl === 'string') {
+      return payload.downloadUrl;
+    }
+    if (payload.data && typeof payload.data === 'object' && typeof (payload.data as Record<string, unknown>).downloadUrl === 'string') {
+      return (payload.data as Record<string, unknown>).downloadUrl as string;
+    }
+  }
+
+  return null;
 }

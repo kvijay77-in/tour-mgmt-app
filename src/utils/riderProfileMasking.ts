@@ -26,3 +26,15 @@ export function getMaskedAttributeDisplay(
 
   return { masked: true, displayValue: MASK };
 }
+
+export function stripSensitiveProfileValues<T extends Record<string, unknown> | undefined>(
+  values: T,
+  sensitiveKeys: readonly string[] | undefined,
+): T {
+  if (!values || !sensitiveKeys || sensitiveKeys.length === 0) {
+    return values;
+  }
+
+  const nextEntries = Object.entries(values).filter(([key]) => !sensitiveKeys.includes(key));
+  return Object.fromEntries(nextEntries) as T;
+}

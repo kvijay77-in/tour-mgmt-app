@@ -67,6 +67,8 @@ export interface RiderProfileGroupField {
   helpText?: string;
   validation?: RiderProfileValidation;
   lovId?: string;
+  dependsOn?: string;
+  fallbackToText?: boolean;
 }
 
 export interface RiderProfileAttributeConfig {

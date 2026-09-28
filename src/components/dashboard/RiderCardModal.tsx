@@ -5,15 +5,24 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions, Linking } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { loadRideRiderDetails, OfflineDataUnavailableError } from '../../services/offline/offlineDataService';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
+import { getRiderProfileAttributeDownloadUrl } from '../../services/api/riderApi';
+import { loadEnabledRiderProfileDefinitions } from '../../services/riderProfile/riderProfileConfigService';
+import { useAuth } from '../../context/AuthContext';
+import { useOffline } from '../../context/OfflineContext';
 import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn } from '../../utils/riderStatus';
+import { canEditAdminOnlyRiderProfileAttributes } from '../../utils/riderProfilePermissions';
+import { orderDefinitionsIntoSections } from '../../utils/riderProfileDefinitions';
 import { logger } from '../../utils/logger';
 import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage, TourRiderStatus } from '../../types/models';
 import { COLORS, getStageColor } from '../../constants/colors';
 import { navigationRef } from '../../navigation/navigationRef';
+import { OrderedRiderProfileSection, RiderProfileLovDefinition } from '../../types/riderProfile';
+import RiderProfileRenderer from '../riderProfile/RiderProfileRenderer';
+import RiderProfileAdminEditModal from '../riderProfile/RiderProfileAdminEditModal';
 
 interface RiderCardModalProps {
   visible: boolean;
@@ -90,19 +99,31 @@ function isExitedTourRider(status?: string): boolean {
 }
 
 export default function RiderCardModal({ visible, tourId, ride, riderId, onClose }: RiderCardModalProps) {
+  const { user } = useAuth();
+  const { isOffline } = useOffline();
   const { width, height } = useWindowDimensions();
   const [details, setDetails] = useState<RiderDetailsData | null>(null);
+  const [profileSections, setProfileSections] = useState<OrderedRiderProfileSection[]>([]);
+  const [lovsById, setLovsById] = useState<Record<string, RiderProfileLovDefinition>>({});
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [isAdminEditVisible, setIsAdminEditVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canEditAdminFields = user ? canEditAdminOnlyRiderProfileAttributes(user.userRole) && !isOffline : false;
 
   const load = useCallback(async () => {
     if (!tourId || !ride || !riderId) return;
 
     setIsLoading(true);
     setError(null);
+    setDownloadError(null);
     setDetails(null);
     try {
-      const { data } = await loadRideRiderDetails(tourId, ride.rideId, riderId);
+      const [{ data }, definitions] = await Promise.all([
+        loadRideRiderDetails(tourId, ride.rideId, riderId),
+        loadEnabledRiderProfileDefinitions().catch(() => null),
+      ]);
       if (!data) {
         setError('Rider details are not available for this rider.');
         return;
@@ -118,6 +139,13 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
           rideId: ci.rideId || ride.rideId,
         })),
       });
+      if (definitions) {
+        setProfileSections(orderDefinitionsIntoSections(definitions.sections, definitions.attributes));
+        setLovsById(Object.fromEntries(definitions.lovs.map((lov) => [lov.configId, lov])));
+      } else {
+        setProfileSections([]);
+        setLovsById({});
+      }
     } catch (err) {
       logger.error('RiderCardModal', 'Failed to load rider details', err);
       const isApiError = err instanceof ApiError || (err as ApiError)?.name === 'ApiError';
@@ -143,6 +171,11 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
       void load();
     } else if (!visible) {
       setDetails(null);
+      setProfileSections([]);
+      setLovsById({});
+      setRevealedKeys(new Set());
+      setDownloadError(null);
+      setIsAdminEditVisible(false);
       setError(null);
       setIsLoading(false);
     }
@@ -156,6 +189,27 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
   const floatChipLabel = riderFloatDef && ride
     ? `Float${riderFloatDef.floatNo > 1 ? `-${riderFloatDef.floatNo}` : ''} → ${getFloatTargetLabel(riderFloatDef.floatToStage, ride.stages.length)}`
     : null;
+  const profileValues = details?.profileAttributes ?? details?.rider.attributes ?? {};
+
+  const handleViewProfileFile = useCallback(async (key: string) => {
+    if (!details?.rider.profileId) {
+      setDownloadError('This rider profile does not have a downloadable file for that attribute.');
+      return;
+    }
+
+    try {
+      const url = await getRiderProfileAttributeDownloadUrl(details.rider.profileId, key);
+      if (!url) {
+        setDownloadError('File download is not available for that attribute.');
+        return;
+      }
+      await Linking.openURL(url);
+      setDownloadError(null);
+    } catch (err) {
+      const apiError = err instanceof ApiError ? err.message : 'Failed to open the file. Please try again.';
+      setDownloadError(apiError);
+    }
+  }, [details?.rider.profileId]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -203,6 +257,27 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
               </View>
 
               <View style={styles.riderCardSection}>
+                {profileSections.length > 0 && Object.keys(profileValues).length > 0 ? (
+                  <>
+                    <Text style={styles.riderCardSectionTitle}>Profile attributes</Text>
+                    {downloadError ? <Text style={styles.riderCardErrorText}>{downloadError}</Text> : null}
+                    <RiderProfileRenderer
+                      sections={profileSections}
+                      values={profileValues}
+                      lovsById={lovsById}
+                      sensitiveKeys={details?.sensitiveKeys}
+                      revealedKeys={revealedKeys}
+                      onToggleReveal={(key) => setRevealedKeys((current) => {
+                        const next = new Set(current);
+                        next.add(key);
+                        return next;
+                      })}
+                      onViewFile={(key) => void handleViewProfileFile(key)}
+                      filterAttribute={(attribute) => Object.prototype.hasOwnProperty.call(profileValues, attribute.configId)}
+                    />
+                  </>
+                ) : null}
+
                 {selectedRider.overallStatus === CheckInStatus.NOT_RIDING ? (
                   (() => {
                     const notRidingCheckIn = getLatestSpecialCheckIn(selectedRider, 'NR');
@@ -298,6 +373,16 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                 )}
               </View>
 
+              {canEditAdminFields && details ? (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  style={styles.secondaryButton}
+                  onPress={() => setIsAdminEditVisible(true)}
+                >
+                  <Text style={styles.secondaryButtonText}>Edit admin fields</Text>
+                </TouchableOpacity>
+              ) : null}
+
               <TouchableOpacity
                 accessibilityRole="button"
                 style={styles.secondaryButton}
@@ -317,6 +402,17 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
           )}
         </TouchableOpacity>
       </TouchableOpacity>
+      {details ? (
+        <RiderProfileAdminEditModal
+          visible={isAdminEditVisible}
+          rider={details.rider}
+          details={details}
+          sections={profileSections}
+          lovsById={lovsById}
+          onClose={() => setIsAdminEditVisible(false)}
+          onSaved={load}
+        />
+      ) : null}
     </Modal>
   );
 }

@@ -141,6 +141,7 @@ Rider profile definition/admin APIs used by management screens:
 - `GET /v1/admin/config/{configType}` for `RIDER_PROFILE_SECTION`, `RIDER_PROFILE_ATTRIBUTE`, `LOV` (includes disabled items).
 - `PUT /v1/admin/config/{configType}/{configId}` with current `version` for optimistic concurrency (`CONFIG_VERSION_CONFLICT` handling).
 - `PUT /v1/riders/profile/{profileId}` with changed keys only and `definitionsVersion` for admin-only attribute edits.
+- `GET /v1/riders/profile/{profileId}/attributes/{key}/download` for file/image profile attributes shown in rider details.
 
 The client uses `fetch` (available in React Native) — no additional HTTP library needed.
 
@@ -170,6 +171,7 @@ Production scan support requires two additional backend-fed datasets:
 App behavior:
 - Fetch both configuration partitions after every sign-in.
 - Persist config locally in SQLite for offline scan continuity.
+- Rider-profile enabled definitions are also refreshed after sign-in and cached in the same AppConfig store for rider-card rendering and admin-only profile edits.
 - Read rider names payload and persist `personalCode` to Rider ID mapping locally.
 - Use only local mapping during scan resolution (no per-scan network dependency).
 
