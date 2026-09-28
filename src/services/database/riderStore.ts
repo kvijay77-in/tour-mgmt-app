@@ -6,7 +6,6 @@
 
 import { getDatabase, registerSessionMemoryReset, USE_SESSION_MEMORY, withWriteTransaction } from './database';
 import { DietaryPreference, Rider } from '../../types/models';
-import { stripSensitiveProfileValues } from '../../utils/riderProfileMasking';
 
 const memoryRiders = new Map<string, { rider: Rider; tourId: string | null }>();
 registerSessionMemoryReset(() => memoryRiders.clear());
@@ -34,13 +33,9 @@ export async function upsertRiders(riders: Rider[], tourId?: string): Promise<vo
       }
     }
     for (const rider of riders) {
-      const sanitized = {
-        ...rider,
-        attributes: stripSensitiveProfileValues(rider.attributes, rider.sensitiveKeys),
-      };
       const existing = memoryRiders.get(rider.riderId);
       memoryRiders.set(rider.riderId, {
-        rider: { ...sanitized, dietaryPreference: existing?.rider.dietaryPreference ?? null },
+        rider: { ...rider, dietaryPreference: existing?.rider.dietaryPreference ?? null },
         tourId: tourId ?? existing?.tourId ?? null,
       });
     }

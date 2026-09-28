@@ -119,6 +119,9 @@ function renderViewValue(params: {
   } = params;
 
   if (definition.config.type === 'BOOLEAN') {
+    if (value === null || value === undefined) {
+      return <Text style={styles.valueText}>{emptyValueLabel}</Text>;
+    }
     return <Text style={styles.valueText}>{value ? 'Yes' : 'No'}</Text>;
   }
 
@@ -184,17 +187,18 @@ function renderViewValue(params: {
     sensitiveKeys,
     revealedKeys,
   );
+  const isSensitive = Boolean(sensitiveKeys?.includes(definition.configId));
 
   return (
     <View style={styles.maskedRow}>
       <Text style={styles.valueText}>{masked.displayValue || emptyValueLabel}</Text>
-      {masked.masked ? (
+      {isSensitive ? (
         <TouchableOpacity
           accessibilityRole="button"
           onPress={() => onToggleReveal?.(definition.configId)}
           style={styles.actionButton}
         >
-          <Text style={styles.actionButtonText}>Reveal</Text>
+          <Text style={styles.actionButtonText}>{masked.masked ? 'Reveal' : 'Hide'}</Text>
         </TouchableOpacity>
       ) : null}
     </View>

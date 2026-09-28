@@ -303,7 +303,11 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                       revealedKeys={revealedKeys}
                       onToggleReveal={(key) => setRevealedKeys((current) => {
                         const next = new Set(current);
-                        next.add(key);
+                        if (next.has(key)) {
+                          next.delete(key);
+                        } else {
+                          next.add(key);
+                        }
                         return next;
                       })}
                       onViewFile={(key) => void handleViewProfileFile(key)}

@@ -813,7 +813,7 @@ export default function RiderProfileDefinitionsScreen({ onClose }: RiderProfileD
 
   const applyCsvImport = (mode: 'merge' | 'replace') => {
     const parsed = parseLovCsv(lovForm.csvText);
-    if (parsed.errors.length > 0) {
+    if (parsed.items.length === 0 && parsed.errors.length > 0) {
       setBanner({ kind: 'warning', message: parsed.errors.join('\n') });
       return;
     }
@@ -821,7 +821,12 @@ export default function RiderProfileDefinitionsScreen({ onClose }: RiderProfileD
       ...current,
       items: recomputeLovItemOrders(mergeLovItems(current.items, parsed.items, mode)),
     }));
-    setBanner({ kind: 'info', message: `Imported ${parsed.items.length} LOV rows (${mode}).` });
+    setBanner({
+      kind: parsed.errors.length > 0 ? 'warning' : 'info',
+      message: parsed.errors.length > 0
+        ? `Imported ${parsed.items.length} valid LOV rows (${mode}).\n${parsed.errors.join('\n')}`
+        : `Imported ${parsed.items.length} LOV rows (${mode}).`,
+    });
   };
 
   const sectionCards = [...sections].sort((a, b) => a.config.order - b.config.order || a.configId.localeCompare(b.configId));

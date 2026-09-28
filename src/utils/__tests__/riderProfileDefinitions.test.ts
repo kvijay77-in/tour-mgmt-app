@@ -70,7 +70,8 @@ describe('orderDefinitionsIntoSections', () => {
 
     const movedSection = moveAttributeDefinition(attributes, 'second', 'medical');
     const medicalMoved = movedSection.filter((item) => item.config.sectionId === 'medical').sort((a, b) => a.config.order - b.config.order);
-    expect(medicalMoved.map((item) => `${item.configId}:${item.config.order}`)).toEqual(['third:1', 'second:2']);
+    expect(medicalMoved.map((item) => item.configId)).toEqual(['third', 'second']);
+    expect(movedSection.map((item) => item.config.order)).toEqual([1, 2, 3]);
   });
 });
 

@@ -78,8 +78,9 @@ export function moveAttributeDefinition(
   }
 
   const result: RiderProfileAttributeDefinition[] = [];
+  let globalOrder = 1;
   for (const [sectionId, list] of grouped.entries()) {
-    const ordered = recomputeDefinitionOrders(sortByOrder(list));
+    const ordered = sortByOrder(list).map((item) => cloneWithOrder(item, globalOrder++));
     grouped.set(sectionId, ordered);
     result.push(...ordered);
   }
