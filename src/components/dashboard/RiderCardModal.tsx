@@ -4,7 +4,7 @@
  * the given ride/rider on demand and renders the same read-only card.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, ActivityIndicator, useWindowDimensions, Linking } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { loadRideRiderDetails, OfflineDataUnavailableError } from '../../services/offline/offlineDataService';
@@ -98,6 +98,20 @@ function isExitedTourRider(status?: string): boolean {
   return typeof status === 'string' && status.trim().toUpperCase() === TourRiderStatus.EXITED;
 }
 
+function getPathValue(source: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, key) => {
+    if (!current || typeof current !== 'object') return undefined;
+    return (current as Record<string, unknown>)[key];
+  }, source);
+}
+
+function hasDisplayValue(value: unknown): boolean {
+  return value !== null
+    && value !== undefined
+    && value !== ''
+    && (!Array.isArray(value) || value.length > 0);
+}
+
 export default function RiderCardModal({ visible, tourId, ride, riderId, onClose }: RiderCardModalProps) {
   const { user } = useAuth();
   const { isOffline } = useOffline();
@@ -189,7 +203,27 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
   const floatChipLabel = riderFloatDef && ride
     ? `Float${riderFloatDef.floatNo > 1 ? `-${riderFloatDef.floatNo}` : ''} → ${getFloatTargetLabel(riderFloatDef.floatToStage, ride.stages.length)}`
     : null;
-  const profileValues = details?.profileAttributes ?? details?.rider.attributes ?? {};
+  const profileValues = useMemo(() => {
+    if (!details) return {};
+    const backendValues = details.profileAttributes ?? details.rider.attributes ?? {};
+    const values: Record<string, unknown> = { ...backendValues };
+    profileSections.forEach((section) => {
+      section.attributes.forEach((attribute) => {
+        if (Object.prototype.hasOwnProperty.call(values, attribute.configId)) {
+          return;
+        }
+        if (attribute.config.storage.scope === 'CORE') {
+          values[attribute.configId] = getPathValue(details.rider as unknown as Record<string, unknown>, attribute.config.storage.path);
+        }
+      });
+    });
+    return values;
+  }, [details, profileSections]);
+  const hasProfileValues = useMemo(
+    () => profileSections.some((section) =>
+      section.attributes.some((attribute) => hasDisplayValue(profileValues[attribute.configId]))),
+    [profileSections, profileValues],
+  );
 
   const handleViewProfileFile = useCallback(async (key: string) => {
     if (!details?.rider.profileId) {
@@ -257,7 +291,7 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
               </View>
 
               <View style={styles.riderCardSection}>
-                {profileSections.length > 0 && Object.keys(profileValues).length > 0 ? (
+                {profileSections.length > 0 && hasProfileValues ? (
                   <>
                     <Text style={styles.riderCardSectionTitle}>Profile attributes</Text>
                     {downloadError ? <Text style={styles.riderCardErrorText}>{downloadError}</Text> : null}
@@ -273,7 +307,7 @@ export default function RiderCardModal({ visible, tourId, ride, riderId, onClose
                         return next;
                       })}
                       onViewFile={(key) => void handleViewProfileFile(key)}
-                      filterAttribute={(attribute) => Object.prototype.hasOwnProperty.call(profileValues, attribute.configId)}
+                      filterAttribute={(attribute) => hasDisplayValue(profileValues[attribute.configId])}
                     />
                   </>
                 ) : null}

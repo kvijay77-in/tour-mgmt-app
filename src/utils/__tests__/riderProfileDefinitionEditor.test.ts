@@ -92,6 +92,25 @@ describe('parseLovCsv', () => {
       { value: 'B', label: 'Bravo', order: 3, enabled: true, parent: 'A' },
     ]);
   });
+
+  it('handles quoted commas and reports validation errors', () => {
+    const parsed = parseLovCsv([
+      'value,label,order,parent',
+      '"A","Alpha, One",1,',
+      'B,Bravo,not-a-number,',
+      ',Missing value,2,',
+      '"C","Quote ""Inside""",3,',
+    ].join('\n'));
+
+    expect(parsed.items).toEqual([
+      { value: 'A', label: 'Alpha, One', order: 1, enabled: true, parent: undefined },
+      { value: 'C', label: 'Quote "Inside"', order: 3, enabled: true, parent: undefined },
+    ]);
+    expect(parsed.errors).toEqual([
+      'Row 3: order must be a non-negative number.',
+      'Row 4: value and label are required.',
+    ]);
+  });
 });
 
 describe('buildAdminProfileUpdatePayload', () => {
@@ -134,6 +153,39 @@ describe('buildAdminProfileUpdatePayload', () => {
     expect(payload).toEqual({
       definitionsVersion: 77,
       personalCode: 'D221',
+    });
+  });
+
+  it('supports nested CORE storage paths', () => {
+    const payload = buildAdminProfileUpdatePayload({
+      definitionsVersion: 5,
+      currentCore: {
+        emergencyContact: {
+          phone: '+911234',
+        },
+      },
+      nextValues: {
+        emergencyPhone: '+919999',
+      },
+      definitions: [{
+        configId: 'emergencyPhone',
+        enabled: true,
+        config: {
+          label: 'Emergency phone',
+          sectionId: 'contact',
+          order: 1,
+          type: 'PHONE',
+          storage: { scope: 'CORE', path: 'emergencyContact.phone' },
+          adminOnly: true,
+        },
+      }],
+    });
+
+    expect(payload).toEqual({
+      definitionsVersion: 5,
+      emergencyContact: {
+        phone: '+919999',
+      },
     });
   });
 });

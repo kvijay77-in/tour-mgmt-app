@@ -3,6 +3,7 @@ import {
   LovConfig,
   RiderProfileAttributeConfig,
   RiderProfileAttributeDefinition,
+  RiderProfileGroupField,
   RiderProfileSectionConfig,
   RiderProfileSectionDefinition,
   RiderProfileLovDefinition,
@@ -37,6 +38,45 @@ function toLovDefinitions(items: AppConfigItem<LovConfig>[]): RiderProfileLovDef
   }));
 }
 
+function collectReferencedLovIds(attributes: RiderProfileAttributeDefinition[]): Set<string> {
+  const referenced = new Set<string>();
+
+  const addFromGroupFields = (fields: RiderProfileGroupField[] | undefined) => {
+    fields?.forEach((field) => {
+      if (field.lovId) referenced.add(field.lovId);
+    });
+  };
+
+  attributes.forEach((attribute) => {
+    if (attribute.config.lovId) {
+      referenced.add(attribute.config.lovId);
+    }
+    addFromGroupFields(attribute.config.fields);
+  });
+
+  return referenced;
+}
+
+function filterRiderProfileLovs(
+  attributes: RiderProfileAttributeDefinition[],
+  lovs: RiderProfileLovDefinition[],
+): RiderProfileLovDefinition[] {
+  const referenced = collectReferencedLovIds(attributes);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    lovs.forEach((lov) => {
+      if (lov.config.parentLovId && referenced.has(lov.config.parentLovId) && !referenced.has(lov.configId)) {
+        referenced.add(lov.configId);
+        changed = true;
+      }
+    });
+  }
+
+  return lovs.filter((lov) => referenced.has(lov.configId));
+}
+
 async function loadCachedDefinitions(): Promise<{
   sections: RiderProfileSectionDefinition[];
   attributes: RiderProfileAttributeDefinition[];
@@ -48,10 +88,13 @@ async function loadCachedDefinitions(): Promise<{
     getAppConfigsByType('LOV'),
   ]);
 
+  const attributeDefinitions = toAttributeDefinitions(attributes as AppConfigItem<RiderProfileAttributeConfig>[]);
+  const lovDefinitions = toLovDefinitions(lovs as AppConfigItem<LovConfig>[]);
+
   return {
     sections: toSectionDefinitions(sections as AppConfigItem<RiderProfileSectionConfig>[]),
-    attributes: toAttributeDefinitions(attributes as AppConfigItem<RiderProfileAttributeConfig>[]),
-    lovs: toLovDefinitions(lovs as AppConfigItem<LovConfig>[]),
+    attributes: attributeDefinitions,
+    lovs: filterRiderProfileLovs(attributeDefinitions, lovDefinitions),
   };
 }
 

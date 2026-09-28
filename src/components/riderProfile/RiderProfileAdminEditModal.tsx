@@ -16,6 +16,7 @@ import { OrderedRiderProfileSection, RiderProfileLovDefinition } from '../../typ
 import {
   buildAdminProfileUpdatePayload,
 } from '../../utils/riderProfileDefinitionEditor';
+import { evaluateVisibleWhen } from '../../utils/riderProfileDefinitions';
 import RiderProfileRenderer from './RiderProfileRenderer';
 import StatusBanner from '../events/StatusBanner';
 
@@ -96,7 +97,10 @@ export default function RiderProfileAdminEditModal({
       return;
     }
 
-    const missingRequired = flatAttributes.find((attribute) => attribute.config.required && isEmptyValue(values[attribute.configId]));
+    const missingRequired = flatAttributes.find((attribute) =>
+      attribute.config.required
+      && evaluateVisibleWhen(attribute.config.visibleWhen, values)
+      && isEmptyValue(values[attribute.configId]));
     if (missingRequired) {
       setBanner({ kind: 'warning', message: `${missingRequired.config.label} is required.` });
       return;
