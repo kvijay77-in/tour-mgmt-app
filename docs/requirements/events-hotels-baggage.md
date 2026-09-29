@@ -1,0 +1,9 @@
+# Events, hotels and baggage
+
+_Last updated: 2026-09-29_
+
+An event definition describes activities; a dated occurrence makes them available for a tour. Authorized staff scan the appropriate rider or baggage code for activities in an active occurrence, inspect its dashboard and rider progress, and reconcile baggage at the appropriate step. Crew and hotel users see only activities allowed by their assignments. Administrators manage event definitions and occurrences; Super Users can manage occurrences but not definitions. Event scanning supports the mobile offline queue subject to local readiness and later server validation.
+
+Definitions support ordered activities, optional variants and opt-out, prerequisite activities and allowed code types; occurrence-specific adjustments must not change the definition. Occurrences may be started, completed or cancelled, with outstanding mandatory items counted rather than silently discarded. Scans must reject disallowed code types and duplicates. Unsent offline scans may be removed locally, while submitted scans require an authorized cancellation. Occurrence dashboards show completed, outstanding, opted-out and flagged activity counts; baggage reconciliation compares loading and unloading and identifies missing riders. Event dashboards can show the last saved snapshot offline with a stale-data indication.
+
+Administrators and Super Users manage hotels and room allocations online. Hotel details include an ID, name, city and address; an allocation may be adjusted for a rider and night. Bulk CSV upload either applies in full or reports all row errors without changing allocations. Room capacity and roommate compatibility are checked before accepting changes. Consult [events design](../design/events.md) and the backend [RBAC reference](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/design/rbac.md).
