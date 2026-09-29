@@ -6,7 +6,7 @@ jest.mock('../../api/configApi', () => ({
 }));
 
 const { listAppConfigs } = jest.requireMock('../../api/configApi') as {
-  listAppConfigs: jest.Mock;
+  listAppConfigs: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
 };
 
 describe('notificationLimitsService', () => {
