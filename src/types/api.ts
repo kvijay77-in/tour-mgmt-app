@@ -278,6 +278,12 @@ export interface CreateEventRequest {
   sequenceEnforced: boolean;
   defaultAllowedTypeCodes: string[];
   allowSelfService?: boolean;
+  notificationConfig?: {
+    completionNotifyEnabled?: boolean;
+    completionRuleId?: string;
+    reminderEnabled?: boolean;
+    reminderRuleId?: string;
+  };
   activities: EventActivityInput[];
 }
 
@@ -307,6 +313,7 @@ export interface UpsertActivityOverrideRequest {
   activityId: string;
   enabled?: boolean | null;
   selfServiceEnabled?: boolean | null;
+  skipped?: boolean | null;
   allowedTypeCodes?: string[] | null;
   note?: string | null;
 }
@@ -528,7 +535,8 @@ export interface NotificationRule {
   category: NotificationCategory;
   audiences: string[];
   titleTemplate: string;
-  bodyTemplate: string;
+  messageTemplate: string;
+  bodyTemplate?: string;
   push: boolean;
   priority: NotificationPriority;
   androidChannel: 'urgent' | 'general';
@@ -542,3 +550,20 @@ export interface NotificationRule {
 }
 
 export type UpsertNotificationRuleRequest = Omit<NotificationRule, 'updatedAt' | 'updatedBy'>;
+
+export type NotificationReminderType = 'RIDE_CHECKIN_NOT_STARTED' | 'EVENT_CHECKIN_NOT_STARTED';
+
+export interface CreateNotificationReminderRequest {
+  reminderType: NotificationReminderType;
+  tourId: string;
+  rideId?: string;
+  eventId?: string;
+  occurrenceId?: string;
+  ruleId?: string;
+}
+
+export interface CreateNotificationReminderResponse {
+  notificationId: string;
+  targetCount: number;
+  riderIds?: string[];
+}

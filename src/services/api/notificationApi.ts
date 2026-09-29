@@ -2,6 +2,8 @@ import { ApiError, apiClient, isNetworkError } from './apiClient';
 import {
   CreateNotificationRequest,
   CreateNotificationResponse,
+  CreateNotificationReminderRequest,
+  CreateNotificationReminderResponse,
   MarkNotificationsReadRequest,
   NotificationUnreadCountResponse,
   NotificationsResponse,
@@ -128,6 +130,20 @@ export function createNotification(
     });
     if (!response.data) {
       throw new Error('Notification create response is empty.');
+    }
+    return response.data;
+  });
+}
+
+export function createNotificationReminder(
+  body: CreateNotificationReminderRequest,
+): Promise<NotificationApiOutcome<CreateNotificationReminderResponse>> {
+  return run(async () => {
+    const response = await apiClient.post<CreateNotificationReminderResponse>('/v1/notifications/reminders', body, {
+      isExpectedError: isExpected,
+    });
+    if (!response.data) {
+      throw new Error('Notification reminder response is empty.');
     }
     return response.data;
   });

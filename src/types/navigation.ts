@@ -63,6 +63,7 @@ export type AppStackParamList = {
   Notifications: undefined;
   NotificationAnnounce: undefined;
   NotificationRules: undefined;
+  NotificationReminders: undefined;
 };
 
 // Phase 2: Main tab navigator (Dashboard, CheckIn, Log)

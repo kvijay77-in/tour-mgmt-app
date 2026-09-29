@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -21,6 +21,7 @@ import {
   listNotificationRules,
   updateNotificationRule,
 } from '../../services/api/notificationRuleApi';
+import { DEFAULT_NOTIFICATION_LIMITS, getNotificationLimits, NotificationLimits } from '../../services/config/notificationLimitsService';
 import { splitAudienceExpressions, validateAudienceExpression, validateTemplate } from '../../utils/notificationRules';
 import {
   isNotificationAndroidChannel,
@@ -38,7 +39,7 @@ interface RuleFormState {
   category: NotificationCategory;
   audiences: string;
   titleTemplate: string;
-  bodyTemplate: string;
+  messageTemplate: string;
   push: boolean;
   priority: 'URGENT' | 'NORMAL';
   androidChannel: 'urgent' | 'general';
@@ -59,7 +60,7 @@ function initialForm(): RuleFormState {
     category: 'ANNOUNCEMENT',
     audiences: 'ALL',
     titleTemplate: '',
-    bodyTemplate: '',
+    messageTemplate: '',
     push: true,
     priority: 'NORMAL',
     androidChannel: 'general',
@@ -81,7 +82,7 @@ function toForm(rule: NotificationRule): RuleFormState {
     category: rule.category,
     audiences: rule.audiences.join('\n'),
     titleTemplate: rule.titleTemplate,
-    bodyTemplate: rule.bodyTemplate,
+    messageTemplate: rule.messageTemplate || rule.bodyTemplate || '',
     push: rule.push,
     priority: rule.priority,
     androidChannel: rule.androidChannel,
@@ -118,7 +119,8 @@ function toPayload(form: RuleFormState): UpsertNotificationRuleRequest {
     category: form.category,
     audiences,
     titleTemplate: form.titleTemplate.trim(),
-    bodyTemplate: form.bodyTemplate.trim(),
+    messageTemplate: form.messageTemplate.trim(),
+    bodyTemplate: form.messageTemplate.trim(),
     push: form.push,
     priority: form.priority,
     androidChannel: form.androidChannel,
@@ -130,7 +132,7 @@ function toPayload(form: RuleFormState): UpsertNotificationRuleRequest {
   };
 }
 
-function validateForm(form: RuleFormState): string | null {
+function validateForm(form: RuleFormState, limits: NotificationLimits): string | null {
   if (!form.ruleId.trim()) return 'Rule ID is required.';
   const audiences = splitAudienceExpressions(form.audiences);
   if (audiences.length === 0) return 'At least one audience expression is required.';
@@ -140,7 +142,13 @@ function validateForm(form: RuleFormState): string | null {
   if (!isNotificationPriority(form.priority)) return 'Priority must be URGENT or NORMAL.';
   if (!isNotificationAndroidChannel(form.androidChannel)) return 'Android channel must be urgent or general.';
   if (!validateTemplate(form.titleTemplate)) return 'Title template is required and braces must be balanced.';
-  if (!validateTemplate(form.bodyTemplate)) return 'Body template is required and braces must be balanced.';
+  if (!validateTemplate(form.messageTemplate)) return 'Message template is required and braces must be balanced.';
+  if (form.titleTemplate.trim().length > limits.maxTitleLength) {
+    return `Title template must be at most ${limits.maxTitleLength} characters.`;
+  }
+  if (form.messageTemplate.trim().length > limits.maxMessageLength) {
+    return `Message template must be at most ${limits.maxMessageLength} characters.`;
+  }
   const ttlHours = Number.parseInt(form.ttlHours, 10);
   if (!Number.isFinite(ttlHours) || ttlHours < 1) return 'TTL hours must be a positive integer.';
   return null;
@@ -153,6 +161,7 @@ export default function NotificationRulesScreen({ onClose }: NotificationRulesSc
   const [rules, setRules] = useState<NotificationRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
   const [form, setForm] = useState<RuleFormState>(initialForm);
+  const [limits, setLimits] = useState<NotificationLimits>(DEFAULT_NOTIFICATION_LIMITS);
   const [isLoading, setIsLoading] = useState(false);
 
   const selectedRule = useMemo(
@@ -191,7 +200,7 @@ export default function NotificationRulesScreen({ onClose }: NotificationRulesSc
   };
 
   const saveRule = async () => {
-    const validationError = validateForm(form);
+    const validationError = validateForm(form, limits);
     if (validationError) {
       Alert.alert('Validation failed', validationError);
       return;
@@ -218,6 +227,11 @@ export default function NotificationRulesScreen({ onClose }: NotificationRulesSc
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    void refresh();
+    void getNotificationLimits().then(setLimits);
+  }, [refresh]);
 
   const removeRule = async () => {
     if (!selectedRule) return;
@@ -304,15 +318,27 @@ export default function NotificationRulesScreen({ onClose }: NotificationRulesSc
           />
 
           <Text style={styles.label}>Title template</Text>
-          <TextInput value={form.titleTemplate} onChangeText={(value) => setForm((prev) => ({ ...prev, titleTemplate: value }))} style={styles.input} />
-
-          <Text style={styles.label}>Body template</Text>
           <TextInput
-            value={form.bodyTemplate}
-            onChangeText={(value) => setForm((prev) => ({ ...prev, bodyTemplate: value }))}
+            value={form.titleTemplate}
+            maxLength={limits.maxTitleLength}
+            onChangeText={(value) => setForm((prev) => ({ ...prev, titleTemplate: value }))}
+            style={styles.input}
+          />
+          <Text style={styles.hintText}>
+            {form.titleTemplate.length}/{limits.maxTitleLength}
+          </Text>
+
+          <Text style={styles.label}>Message template</Text>
+          <TextInput
+            value={form.messageTemplate}
+            maxLength={limits.maxMessageLength}
+            onChangeText={(value) => setForm((prev) => ({ ...prev, messageTemplate: value }))}
             style={[styles.input, styles.textArea]}
             multiline
           />
+          <Text style={styles.hintText}>
+            {form.messageTemplate.length}/{limits.maxMessageLength}
+          </Text>
 
           <View style={styles.switchRow}>
             <Text style={styles.label}>Push</Text>
@@ -506,6 +532,11 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 90,
     textAlignVertical: 'top',
+  },
+  hintText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    marginTop: -2,
   },
   switchRow: {
     marginTop: 2,

@@ -33,7 +33,8 @@ import {
   getEvent,
   updateEvent,
 } from '../../services/api/eventsApi';
-import { CreateEventRequest, EventActivityInput, UpdateEventRequest } from '../../types/api';
+import { listNotificationRules } from '../../services/api/notificationRuleApi';
+import { CreateEventRequest, EventActivityInput, NotificationRule, UpdateEventRequest } from '../../types/api';
 import { IdCodeTypeConfig } from '../../types/config';
 import { EventActivity, EventDefinition, EventType, Permission } from '../../types/models';
 import { AppStackParamList } from '../../types/navigation';
@@ -61,6 +62,10 @@ interface EventForm {
   sequenceEnforced: boolean;
   allowSelfService: boolean;
   defaultAllowedTypeCodes: string[];
+  completionNotifyEnabled: boolean;
+  completionRuleId: string;
+  reminderEnabled: boolean;
+  reminderRuleId: string;
 }
 
 interface ActivityDraft extends EventActivity {
@@ -78,6 +83,10 @@ const EMPTY_FORM: EventForm = {
   sequenceEnforced: false,
   allowSelfService: false,
   defaultAllowedTypeCodes: [],
+  completionNotifyEnabled: false,
+  completionRuleId: '',
+  reminderEnabled: false,
+  reminderRuleId: '',
 };
 
 function toDraft(activity: Partial<EventActivity> & Pick<EventActivity, 'activityId'>, isNew: boolean): ActivityDraft {
@@ -128,6 +137,10 @@ function toEventForm(event: EventDefinition): EventForm {
     sequenceEnforced: event.sequenceEnforced,
     allowSelfService: Boolean(event.allowSelfService),
     defaultAllowedTypeCodes: event.defaultAllowedTypeCodes ?? [],
+    completionNotifyEnabled: Boolean(event.notificationConfig?.completionNotifyEnabled),
+    completionRuleId: event.notificationConfig?.completionRuleId ?? '',
+    reminderEnabled: Boolean(event.notificationConfig?.reminderEnabled),
+    reminderRuleId: event.notificationConfig?.reminderRuleId ?? '',
   };
 }
 
@@ -136,6 +149,12 @@ function validate(form: EventForm, drafts: ActivityDraft[], isCreate: boolean): 
   if (isCreate && !EVENT_ID_PATTERN.test(form.eventId.trim())) errors.eventId = EVENT_VALIDATION_MESSAGES.EVENT_ID_FORMAT;
   if (!form.eventName.trim()) errors.eventName = EVENT_VALIDATION_MESSAGES.EVENT_NAME_REQUIRED;
   if (!form.location.trim()) errors.location = EVENT_VALIDATION_MESSAGES.LOCATION_REQUIRED;
+  if (form.completionNotifyEnabled && !form.completionRuleId.trim()) {
+    errors.completionRuleId = 'Select a completion rule.';
+  }
+  if (form.reminderEnabled && !form.reminderRuleId.trim()) {
+    errors.reminderRuleId = 'Select a reminder rule.';
+  }
   if (drafts.length === 0) errors.activities = EVENT_VALIDATION_MESSAGES.ACTIVITIES_REQUIRED;
 
   drafts.forEach((draft, index) => {
@@ -163,6 +182,19 @@ function buildUpdate(original: EventDefinition, form: EventForm, activities: Eve
   if (form.location.trim() !== original.location) changes.location = form.location.trim();
   if (form.sequenceEnforced !== original.sequenceEnforced) changes.sequenceEnforced = form.sequenceEnforced;
   if (form.allowSelfService !== Boolean(original.allowSelfService)) changes.allowSelfService = form.allowSelfService;
+  const currentNotificationConfig = {
+    completionNotifyEnabled: form.completionNotifyEnabled,
+    completionRuleId: form.completionRuleId.trim() || undefined,
+    reminderEnabled: form.reminderEnabled,
+    reminderRuleId: form.reminderRuleId.trim() || undefined,
+  };
+  const originalNotificationConfig = {
+    completionNotifyEnabled: Boolean(original.notificationConfig?.completionNotifyEnabled),
+    completionRuleId: original.notificationConfig?.completionRuleId || undefined,
+    reminderEnabled: Boolean(original.notificationConfig?.reminderEnabled),
+    reminderRuleId: original.notificationConfig?.reminderRuleId || undefined,
+  };
+  if (!same(currentNotificationConfig, originalNotificationConfig)) changes.notificationConfig = currentNotificationConfig;
   if (!same(form.defaultAllowedTypeCodes, original.defaultAllowedTypeCodes ?? [])) {
     changes.defaultAllowedTypeCodes = form.defaultAllowedTypeCodes;
   }
@@ -218,6 +250,53 @@ function ToggleField({ label, value, onChange, disabled }: ToggleFieldProps) {
     <View style={styles.toggle}>
       <Switch accessibilityLabel={label} disabled={disabled} onValueChange={onChange} value={value} />
       <Text style={styles.toggleLabel}>{label}</Text>
+    </View>
+  );
+}
+
+interface RuleSelectorFieldProps {
+  label: string;
+  value: string;
+  rules: NotificationRule[];
+  disabled: boolean;
+  error?: string;
+  onChange: (value: string) => void;
+}
+
+function RuleSelectorField({ label, value, rules, disabled, error, onChange }: RuleSelectorFieldProps) {
+  const options = rules.filter((rule) => rule.enabled);
+  const selected = value.trim();
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.chips}>
+        <TouchableOpacity
+          accessibilityRole="radio"
+          accessibilityState={{ selected: selected.length === 0, disabled }}
+          disabled={disabled}
+          onPress={() => onChange('')}
+          style={[styles.chip, selected.length === 0 && styles.chipSelected]}
+        >
+          <Text style={[styles.chipText, selected.length === 0 && styles.chipTextSelected]}>None</Text>
+        </TouchableOpacity>
+        {options.map((rule) => {
+          const isSelected = selected === rule.ruleId;
+          return (
+            <TouchableOpacity
+              key={rule.ruleId}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: isSelected, disabled }}
+              disabled={disabled}
+              onPress={() => onChange(rule.ruleId)}
+              style={[styles.chip, isSelected && styles.chipSelected]}
+            >
+              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{rule.ruleId}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      {options.length === 0 ? <Text style={styles.hint}>No enabled notification rules available.</Text> : null}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
 }
@@ -367,6 +446,7 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
   const [original, setOriginal] = useState<EventDefinition | null>(null);
   const [form, setForm] = useState<EventForm>(EMPTY_FORM);
   const [drafts, setDrafts] = useState<ActivityDraft[]>([]);
+  const [notificationRules, setNotificationRules] = useState<NotificationRule[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<FieldErrors>({});
   const [banner, setBanner] = useState<{ kind: EventMessageKind; message: string } | null>(null);
@@ -379,7 +459,10 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
     setIsLoading(true);
     setBanner(null);
     try {
-      const outcome = await getEvent(tourId, eventId);
+      const [outcome, rulesOutcome] = await Promise.all([
+        getEvent(tourId, eventId),
+        listNotificationRules(),
+      ]);
       if (outcome.kind === 'error') {
         if (outcome.error.status === 404) setNotFound(true);
         else setBanner({ kind: outcome.error.kind, message: outcome.error.message });
@@ -389,6 +472,9 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
       setOriginal({ ...outcome.data, activities: sortedActivities });
       setForm(toEventForm(outcome.data));
       setDrafts(sortedActivities.map((activity) => toDraft(activity, false)));
+      if (rulesOutcome.kind === 'success') {
+        setNotificationRules(rulesOutcome.data);
+      }
     } catch (err) {
       logger.error(TAG, 'Loading event failed', err);
       setBanner({ kind: 'error', message: describeUnexpectedEventError(err) });
@@ -400,6 +486,20 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
   useEffect(() => {
     if (!isOffline) void load();
   }, [isOffline, load]);
+
+  useEffect(() => {
+    if (!isCreate || isOffline) return;
+    let cancelled = false;
+    void listNotificationRules().then((outcome) => {
+      if (cancelled) return;
+      if (outcome.kind === 'success') {
+        setNotificationRules(outcome.data);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreate, isOffline]);
 
   const setField = <K extends keyof EventForm>(key: K, value: EventForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -485,6 +585,12 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
           location: form.location.trim(),
           sequenceEnforced: form.sequenceEnforced,
           allowSelfService: form.allowSelfService,
+          notificationConfig: {
+            completionNotifyEnabled: form.completionNotifyEnabled,
+            completionRuleId: form.completionRuleId.trim() || undefined,
+            reminderEnabled: form.reminderEnabled,
+            reminderRuleId: form.reminderRuleId.trim() || undefined,
+          },
           defaultAllowedTypeCodes: form.defaultAllowedTypeCodes,
           activities,
         };
@@ -570,6 +676,36 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
         value={form.allowSelfService}
         onChange={(value) => setField('allowSelfService', value)}
         disabled={inputsDisabled}
+      />
+      <View style={styles.sectionDivider} />
+      <Text style={styles.sectionLabel}>Notification configuration</Text>
+      <ToggleField
+        label="Completion notifications"
+        value={form.completionNotifyEnabled}
+        onChange={(value) => setField('completionNotifyEnabled', value)}
+        disabled={inputsDisabled}
+      />
+      <RuleSelectorField
+        label="Completion rule"
+        value={form.completionRuleId}
+        rules={notificationRules}
+        disabled={inputsDisabled || !form.completionNotifyEnabled}
+        error={errors.completionRuleId}
+        onChange={(value) => setField('completionRuleId', value)}
+      />
+      <ToggleField
+        label="Reminders"
+        value={form.reminderEnabled}
+        onChange={(value) => setField('reminderEnabled', value)}
+        disabled={inputsDisabled}
+      />
+      <RuleSelectorField
+        label="Reminder rule"
+        value={form.reminderRuleId}
+        rules={notificationRules}
+        disabled={inputsDisabled || !form.reminderEnabled}
+        error={errors.reminderRuleId}
+        onChange={(value) => setField('reminderRuleId', value)}
       />
       <View style={styles.spacer} />
       <TypeCodeMultiSelect
@@ -795,6 +931,8 @@ const styles = StyleSheet.create({
   inputError: { borderColor: COLORS.danger },
   errorText: { color: COLORS.danger, fontSize: 12, marginTop: 4 },
   hint: { color: COLORS.textSecondary, fontSize: 12, fontStyle: 'italic' },
+  sectionDivider: { borderTopColor: COLORS.borderLight, borderTopWidth: 1, marginVertical: 8 },
+  sectionLabel: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: 4 },
   spacer: { height: 8 },
   segmented: { backgroundColor: COLORS.gray[200], borderRadius: 6, flexDirection: 'row', padding: 3 },
   segment: { alignItems: 'center', borderRadius: 4, flex: 1, justifyContent: 'center', minHeight: 38 },

@@ -15,6 +15,15 @@ const ALLOWED_TARGET_SCREENS: NotificationTargetScreen[] = [
   'HOTEL_MANAGEMENT',
 ];
 
+const TARGET_SCREEN_ALIASES: Record<string, NotificationTargetScreen> = {
+  RIDESTATUS: 'DASHBOARD',
+  RIDE_STATUS: 'DASHBOARD',
+  RIDEINFO: 'RIDE_INFO',
+  EVENTSHOME: 'EVENTS_HOME',
+  EVENTS: 'EVENTS_HOME',
+  HOTELMANAGEMENT: 'HOTEL_MANAGEMENT',
+};
+
 export function isAllowedNotificationTargetScreen(screen: string): screen is NotificationTargetScreen {
   return ALLOWED_TARGET_SCREENS.includes(screen as NotificationTargetScreen);
 }
@@ -28,11 +37,14 @@ export function getNotificationNavigationTarget(params: {
   payload?: Record<string, unknown>;
 }): NotificationNavigationTarget {
   const normalizedScreen = params.screen?.trim().toUpperCase();
-  if (!normalizedScreen || !isAllowedNotificationTargetScreen(normalizedScreen)) {
+  const resolvedScreen = normalizedScreen
+    ? (TARGET_SCREEN_ALIASES[normalizedScreen] ?? normalizedScreen)
+    : undefined;
+  if (!resolvedScreen || !isAllowedNotificationTargetScreen(resolvedScreen)) {
     return { route: 'Notifications', params: undefined };
   }
 
-  switch (normalizedScreen) {
+  switch (resolvedScreen) {
     case 'NOTIFICATIONS':
       return { route: 'Notifications', params: undefined };
     case 'DASHBOARD':

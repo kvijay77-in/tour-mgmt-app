@@ -28,6 +28,9 @@ export function getOverrideBadges(
   ) {
     badges.push(override.selfServiceEnabled ? 'Self-service (this day only)' : 'No self-service (this day only)');
   }
+  if (override.skipped === true) {
+    badges.push('Skipped (this day only)');
+  }
   if (Array.isArray(override.allowedTypeCodes)) {
     badges.push('ID types narrowed (this day only)');
   }

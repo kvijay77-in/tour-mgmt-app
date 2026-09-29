@@ -207,6 +207,13 @@ export const MODULE_SECTIONS: ModuleSection[] = [
         isVisible: can(Permission.NOTIFICATION_MANAGE),
         getTarget: () => ({ route: 'NotificationRules', params: undefined }),
       },
+      {
+        id: 'notification-reminders',
+        title: 'Send reminders',
+        icon: 'notifications',
+        isVisible: can(Permission.NOTIFICATION_MANAGE),
+        getTarget: () => ({ route: 'NotificationReminders', params: undefined }),
+      },
     ],
   },
 ];

@@ -25,4 +25,15 @@ describe('notificationRouting', () => {
       params: undefined,
     });
   });
+
+  it('maps backend compatibility aliases', () => {
+    expect(getNotificationNavigationTarget({ screen: 'RideStatus' })).toEqual({
+      route: 'MainTabs',
+      params: undefined,
+    });
+    expect(getNotificationNavigationTarget({ screen: 'EVENTS' })).toEqual({
+      route: 'EventsHome',
+      params: undefined,
+    });
+  });
 });

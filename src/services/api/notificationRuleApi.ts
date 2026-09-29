@@ -45,9 +45,18 @@ async function run<T>(
 }
 
 function extractRules(payload: unknown): NotificationRule[] {
-  if (Array.isArray(payload)) return payload as NotificationRule[];
+  if (Array.isArray(payload)) return payload.map(normalizeRule);
   const record = payload as { items?: unknown } | null;
-  return Array.isArray(record?.items) ? (record.items as NotificationRule[]) : [];
+  return Array.isArray(record?.items) ? record.items.map((item) => normalizeRule(item)) : [];
+}
+
+function normalizeRule(value: unknown): NotificationRule {
+  const rule = value as NotificationRule;
+  return {
+    ...rule,
+    messageTemplate: rule.messageTemplate ?? rule.bodyTemplate ?? '',
+    bodyTemplate: rule.bodyTemplate ?? rule.messageTemplate ?? '',
+  };
 }
 
 export function describeUnexpectedNotificationRuleError(error: unknown): string {
@@ -74,7 +83,7 @@ export function getNotificationRule(ruleId: string): Promise<NotificationRuleApi
     if (!response.data) {
       throw new Error('Notification rule response is empty.');
     }
-    return response.data;
+    return normalizeRule(response.data);
   });
 }
 
@@ -88,7 +97,7 @@ export function createNotificationRule(
     if (!response.data) {
       throw new Error('Notification rule create response is empty.');
     }
-    return response.data;
+    return normalizeRule(response.data);
   });
 }
 
@@ -105,7 +114,7 @@ export function updateNotificationRule(
     if (!response.data) {
       throw new Error('Notification rule update response is empty.');
     }
-    return response.data;
+    return normalizeRule(response.data);
   });
 }
 

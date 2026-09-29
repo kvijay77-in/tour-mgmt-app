@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { createNotification, describeUnexpectedNotificationError } from '../../services/api/notificationApi';
+import { DEFAULT_NOTIFICATION_LIMITS, getNotificationLimits, NotificationLimits } from '../../services/config/notificationLimitsService';
 
 interface NotificationAnnounceScreenProps {
   onClose: () => void;
@@ -75,6 +76,7 @@ export default function NotificationAnnounceScreen({ onClose }: NotificationAnno
   const [riderId, setRiderId] = useState('');
   const [userSub, setUserSub] = useState('');
   const [push, setPush] = useState(true);
+  const [limits, setLimits] = useState<NotificationLimits>(DEFAULT_NOTIFICATION_LIMITS);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const audiences = useMemo(() => buildAudiences(preset, { tourId, group, status, riderId, userSub }), [
@@ -93,6 +95,14 @@ export default function NotificationAnnounceScreen({ onClose }: NotificationAnno
     }
     if (audiences.length === 0) {
       Alert.alert('Audience required', 'Please complete audience details for the selected preset.');
+      return;
+    }
+    if (title.trim().length > limits.maxTitleLength) {
+      Alert.alert('Title too long', `Title must be ${limits.maxTitleLength} characters or fewer.`);
+      return;
+    }
+    if (message.trim().length > limits.maxMessageLength) {
+      Alert.alert('Message too long', `Message must be ${limits.maxMessageLength} characters or fewer.`);
       return;
     }
 
@@ -126,6 +136,10 @@ export default function NotificationAnnounceScreen({ onClose }: NotificationAnno
     }
   };
 
+  useEffect(() => {
+    void getNotificationLimits().then(setLimits);
+  }, []);
+
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 12) }]}>
       <View style={styles.header}>
@@ -143,16 +157,19 @@ export default function NotificationAnnounceScreen({ onClose }: NotificationAnno
         <TextInput value={ruleId} onChangeText={setRuleId} style={styles.input} placeholder="ANNOUNCEMENT" />
 
         <Text style={styles.label}>Title</Text>
-        <TextInput value={title} onChangeText={setTitle} style={styles.input} placeholder="Title" />
+        <TextInput value={title} onChangeText={setTitle} maxLength={limits.maxTitleLength} style={styles.input} placeholder="Title" />
+        <Text style={styles.hintText}>{title.length}/{limits.maxTitleLength}</Text>
 
         <Text style={styles.label}>Message</Text>
         <TextInput
           value={message}
           onChangeText={setMessage}
+          maxLength={limits.maxMessageLength}
           style={[styles.input, styles.textArea]}
           multiline
           placeholder="Message"
         />
+        <Text style={styles.hintText}>{message.length}/{limits.maxMessageLength}</Text>
 
         <Text style={styles.label}>Audience preset</Text>
         <View style={styles.presetWrap}>
@@ -332,5 +349,10 @@ const styles = StyleSheet.create({
   previewValue: {
     fontSize: 13,
     color: COLORS.textPrimary,
+  },
+  hintText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    marginTop: -4,
   },
 });

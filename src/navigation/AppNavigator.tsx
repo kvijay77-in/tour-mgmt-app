@@ -52,6 +52,7 @@ import RiderProfileDefinitionsScreen from '../screens/admin/RiderProfileDefiniti
 import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import NotificationAnnounceScreen from '../screens/admin/NotificationAnnounceScreen';
 import NotificationRulesScreen from '../screens/admin/NotificationRulesScreen';
+import NotificationRemindersScreen from '../screens/admin/NotificationRemindersScreen';
 import { EventSessionProvider } from '../context/EventSessionContext';
 import { SyncStatusProvider } from '../context/SyncStatusContext';
 import { Permission } from '../types/models';
@@ -217,6 +218,10 @@ function NotificationRulesRoute({ navigation }: NativeStackScreenProps<AppStackP
   return <NotificationRulesScreen onClose={() => navigation.goBack()} />;
 }
 
+function NotificationRemindersRoute({ navigation }: NativeStackScreenProps<AppStackParamList, 'NotificationReminders'>) {
+  return <NotificationRemindersScreen onClose={() => navigation.goBack()} />;
+}
+
 function AppStack() {
   const { user } = useAuth();
   const isAdministrator = user?.userRole === UserRole.ADMINISTRATOR;
@@ -367,6 +372,13 @@ function AppStack() {
         <Stack.Screen
           name="NotificationRules"
           component={NotificationRulesRoute}
+          options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
+        />
+      )}
+      {can(Permission.NOTIFICATION_MANAGE) && (
+        <Stack.Screen
+          name="NotificationReminders"
+          component={NotificationRemindersRoute}
           options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }}
         />
       )}

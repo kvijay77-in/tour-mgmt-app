@@ -30,6 +30,9 @@ export function getEffectiveActivityEnabled(
   activity: Pick<EventActivity, 'enabled'>,
   override?: ActivityOverride | null,
 ): boolean {
+  if (override?.skipped === true) {
+    return false;
+  }
   if (typeof override?.enabled === 'boolean') {
     return override.enabled;
   }
