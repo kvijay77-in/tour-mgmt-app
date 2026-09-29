@@ -10,7 +10,7 @@ This app follows the notification framework owned by `kvijay77-in/tour-data-api`
 ```mermaid
 flowchart LR
   MA[Mgmt App] -- JWT --> MAPI[TourDataApi] --> NAPI[Notification APIs]
-  ADM[Announce / Rules screens] --> MAPI
+  ADM[Announce / Rules / Reminders screens] --> MAPI
   BL[Backend Lambdas] --> NS[[notify]] --> MN[(MgmtNotification)] & TN[(Notification-tourId)] & RN[(RiderNotification)]
   NAPI --> NR[(NotificationRule)]
   MN & TN & RN -- Streams --> SND[Push Sender] --> MPD[(MgmtPushDevice)]
@@ -26,3 +26,5 @@ flowchart LR
 - Route targets from notification payloads must use the allow-list:
   `NOTIFICATIONS`, `DASHBOARD`, `RIDE_INFO`, `EVENTS_HOME`, `HOTEL_MANAGEMENT`.
   Unknown targets must open the inbox.
+- Frontend compatibility aliases map backend target names (for example `RideStatus`) to the app allow-list target routes before navigation.
+- Administration includes three notification tools (`NOTIFICATION_MANAGE`): **Announce**, **Notification Rules**, and **Send Reminders** (active rides/events with per-item reminder dispatch).

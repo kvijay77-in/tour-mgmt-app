@@ -325,8 +325,8 @@ All communication with the tour-data-api is through the service layer at `src/se
 | `rideApi.ts` | `GET /v1/tours/{tourId}/rides/today`, `POST /v1/tours/{tourId}/rides/open`, `POST /v1/tours/{tourId}/rides/start`, `POST /v1/tours/{tourId}/rides/{rideId}/close`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/open`, `POST /v1/tours/{tourId}/rides/{rideId}/stages/{stageNumber}/pitstop/close`, CRUD | Ride management, status transitions, and pit-stop runtime state updates |
 | `checkInApi.ts` | `POST /v1/tours/{tourId}/checkins`, GET | Check-in operations |
 | `dashboardApi.ts` | `GET /v1/tours/{tourId}/rides/{rideId}/dashboard/progress` | Lightweight dashboard progress data (`checkIns` + `summary`) |
-| `notificationApi.ts` | `GET/PUT /v1/notifications*`, `POST /v1/notifications`, `POST/DELETE /v1/notifications/devices` | Inbox fetch/read + push device registration and admin send |
-| `notificationRuleApi.ts` | `GET/POST/PUT/DELETE /v1/admin/notification-rules*` | Admin notification rule management |
+| `notificationApi.ts` | `GET/PUT /v1/notifications*`, `POST /v1/notifications`, `POST /v1/notifications/reminders`, `POST/DELETE /v1/notifications/devices` | Inbox fetch/read + push device registration, admin announce, and reminder dispatch |
+| `notificationRuleApi.ts` | `GET/POST/PUT/DELETE /v1/admin/notification-rules*` | Admin notification rule management (`messageTemplate` primary, `bodyTemplate` compatibility) |
 
 Administrator user-management flows use `src/services/auth/cognitoUserManagementService.ts` and standard Cognito Identity Provider APIs for:
 - Cognito group listing for role selection
@@ -341,6 +341,10 @@ Administrator user-management flows use `src/services/auth/cognitoUserManagement
 - No new `EXPO_PUBLIC` variable is introduced for push authorization. Expo access token is backend-only (SSM).
 - Expo push token registration reads `projectId` from `app.json` (`extra.eas.projectId`).
 - Web uses bell + inbox refresh only; push device registration is skipped on web.
+- Notification payload target routing uses a frontend compatibility map (for backend aliases such as `RideStatus`) before allow-list navigation resolution.
+- Event definitions support optional `notificationConfig` (`completionNotifyEnabled`, `completionRuleId`, `reminderEnabled`, `reminderRuleId`).
+- Occurrence activity overrides support optional `skipped` in addition to enable/self-service/type narrowing controls.
+- Admin reminders use `POST /v1/notifications/reminders` for ride/event not-started reminder dispatch.
 
 ### API Client Features
 
@@ -379,7 +383,7 @@ Implemented Dashboard Phase 4 behavior:
 - New RBAC labels:
   - `RIDER_PROFILE_DEFINITION_MANAGE` (Administrator only): Definitions screen access.
   - `RIDER_PROFILE_ADMIN_EDIT` (Administrator only): Editing `adminOnly` rider profile attributes.
-  - `NOTIFICATION_MANAGE` (Administrator only): Announce + Notification Rules screens and admin send endpoint.
+  - `NOTIFICATION_MANAGE` (Administrator only): Announce + Notification Rules + Send Reminders screens and notification admin endpoints.
 - Shared frontend model covers:
   - `RIDER_PROFILE_SECTION`
   - `RIDER_PROFILE_ATTRIBUTE`
@@ -552,6 +556,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
             ├── UserModifyScreen           (fullScreenModal — ADMINISTRATOR only)
             ├── NotificationAnnounceScreen (fullScreenModal — ADMINISTRATOR only)
             ├── NotificationRulesScreen    (fullScreenModal — ADMINISTRATOR only)
+            ├── NotificationRemindersScreen (fullScreenModal — ADMINISTRATOR only)
             └── TourManagementScreen       (fullScreenModal — ADMINISTRATOR/SUPER_USER)
 ```
 
@@ -569,7 +574,7 @@ App.tsx (GestureHandlerRootView > SafeAreaProvider > ErrorBoundary
   - **Ride Day** → `MainTabs` (`VIEW_DASHBOARD` or `CHECKIN_RIDER`).
   - **Events** → `EventsHome` (`EVENT_SCAN`, `VIEW_DASHBOARD` or `MANAGE_EVENT_OCCURRENCES`) and **Hotels & Baggage** → `HotelManagement` (`MANAGE_HOTEL_ALLOCATIONS`).
   - **Administration** → Define/Update Tour (`ADMINISTRATOR`/`SUPER_USER`, Super User read-only), Ride status management, Artifacts, User management (Onboarding / Enable-Disable / Delete / Modify), Rider profile definitions — `ADMINISTRATOR` only. Event definitions, Tour assignments and Rider exit are added by later phases.
-  - **Administration** → also includes **Announce** and **Notification Rules** entries gated by `NOTIFICATION_MANAGE` (`ADMINISTRATOR` only).
+  - **Administration** → also includes **Announce**, **Notification Rules**, and **Send Reminders** entries gated by `NOTIFICATION_MANAGE` (`ADMINISTRATOR` only).
   - Registry visibility predicates mirror the conditional route registration in `AppNavigator`, so only registered routes are offered.
 - A user who can reach exactly one entry is sent straight to it (stack reset, e.g. Guest / Hotel Staff / PS_x_USER → `MainTabs`); the Home affordance and sidebar are then hidden.
 - Within the ride module, role-based restrictions stay as **feature gates within Dashboard/menu**:

@@ -410,11 +410,15 @@ Notification delivery is push-first with inbox as source of truth.
 
 Administrator-only (feature label `NOTIFICATION_MANAGE`), web-first with mobile fallback.
 
-1. Home hub Administration and web sidebar must expose **Announce** and **Notification Rules** entries for `ADMINISTRATOR` only.
+1. Home hub Administration and web sidebar must expose **Announce**, **Notification Rules**, and **Send Reminders** entries for `ADMINISTRATOR` only.
 2. **Announce** supports title, message, push toggle and audience presets:
    - All users, All riders, All staff, Tour riders, Tour staff, Staff group, Riders by tour status, single rider/user.
 3. **Notification Rules** supports list/create/edit/enable-disable/delete.
-4. Rule editor validates audience expression syntax and title/body templates before save.
+4. Rule editor validates audience expression syntax and title/message templates before save.
+5. **Send Reminders** lists active rides and active event occurrences and allows per-item reminder dispatch:
+   - ride reminder request: `reminderType=RIDE_CHECKIN_NOT_STARTED`, `tourId`, `rideId`
+   - event reminder request: `reminderType=EVENT_CHECKIN_NOT_STARTED`, `tourId`, `eventId`, `occurrenceId`
+   - operator confirmation must surface response metadata (`targetCount` and optional `riderIds`).
 
 ### New User Onboarding
 
