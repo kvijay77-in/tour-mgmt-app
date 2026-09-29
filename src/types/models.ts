@@ -528,6 +528,12 @@ export interface EventDefinition {
   defaultAllowedTypeCodes: string[];
   /** Informational only; never changes scan logic */
   allowSelfService: boolean;
+  notificationConfig?: {
+    completionNotifyEnabled?: boolean;
+    completionRuleId?: string;
+    reminderEnabled?: boolean;
+    reminderRuleId?: string;
+  };
   activities: EventActivity[];
   createdAt?: string;
   updatedAt?: string;
@@ -539,6 +545,7 @@ export interface ActivityOverride {
   activityId: string;
   enabled?: boolean | null;
   selfServiceEnabled?: boolean | null;
+  skipped?: boolean | null;
   /** Narrows the activity's effective allowed type codes for this occurrence only */
   allowedTypeCodes?: string[] | null;
   note?: string | null;
@@ -686,6 +693,7 @@ export enum Permission {
   RIDER_EXIT = 'RIDER_EXIT',
   RIDER_PROFILE_DEFINITION_MANAGE = 'RIDER_PROFILE_DEFINITION_MANAGE',
   RIDER_PROFILE_ADMIN_EDIT = 'RIDER_PROFILE_ADMIN_EDIT',
+  NOTIFICATION_MANAGE = 'NOTIFICATION_MANAGE',
 }
 
 /**

@@ -60,6 +60,10 @@ export type AppStackParamList = {
   RiderExit: undefined;
   TourUserAssignment: { userId?: string } | undefined;
   RiderProfileDefinitions: undefined;
+  Notifications: undefined;
+  NotificationAnnounce: undefined;
+  NotificationRules: undefined;
+  NotificationReminders: undefined;
 };
 
 // Phase 2: Main tab navigator (Dashboard, CheckIn, Log)

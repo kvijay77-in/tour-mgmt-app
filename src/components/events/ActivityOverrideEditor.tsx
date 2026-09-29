@@ -103,6 +103,7 @@ export default function ActivityOverrideEditor({
   const insets = useSafeAreaInsets();
   const [enabled, setEnabled] = useState<TriState>('inherit');
   const [selfService, setSelfService] = useState<TriState>('inherit');
+  const [skipped, setSkipped] = useState<TriState>('inherit');
   const [narrowTypes, setNarrowTypes] = useState(false);
   const [typeCodes, setTypeCodes] = useState<string[]>([]);
   const [note, setNote] = useState('');
@@ -113,6 +114,7 @@ export default function ActivityOverrideEditor({
     const override = findActivityOverride(occurrence, activity.activityId);
     setEnabled(toTriState(override?.enabled));
     setSelfService(toTriState(override?.selfServiceEnabled));
+    setSkipped(toTriState(override?.skipped));
     setNarrowTypes(Array.isArray(override?.allowedTypeCodes));
     setTypeCodes(override?.allowedTypeCodes ?? []);
     setNote(override?.note ?? '');
@@ -122,7 +124,7 @@ export default function ActivityOverrideEditor({
   if (!activity || !occurrence) return null;
 
   const baseCodes = activity.allowedTypeCodes.length > 0 ? activity.allowedTypeCodes : event.defaultAllowedTypeCodes;
-  const allInherit = enabled === 'inherit' && selfService === 'inherit' && !narrowTypes;
+  const allInherit = enabled === 'inherit' && selfService === 'inherit' && skipped === 'inherit' && !narrowTypes;
   const fieldsDisabled = disabled || isSubmitting;
 
   const handleSave = () => {
@@ -135,6 +137,7 @@ export default function ActivityOverrideEditor({
       activityId: activity.activityId,
       enabled: fromTriState(enabled),
       selfServiceEnabled: fromTriState(selfService),
+      skipped: fromTriState(skipped),
       allowedTypeCodes: narrowTypes ? typeCodes : null,
       note: note.trim() || null,
     });
@@ -170,6 +173,13 @@ export default function ActivityOverrideEditor({
           inheritedValue={Boolean(occurrence.selfServiceEnabled)}
           disabled={fieldsDisabled}
           onChange={setSelfService}
+        />
+        <TriStateField
+          label="Skipped"
+          value={skipped}
+          inheritedValue={false}
+          disabled={fieldsDisabled}
+          onChange={setSkipped}
         />
 
         <View style={styles.field}>

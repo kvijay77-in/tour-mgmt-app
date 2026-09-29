@@ -313,6 +313,28 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    description: 'Notifications inbox cache for offline read (mobile only)',
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS notifications_inbox (
+          notificationId TEXT PRIMARY KEY,
+          ruleId TEXT NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          priority TEXT NOT NULL,
+          targetJson TEXT,
+          tourId TEXT,
+          createdAt TEXT NOT NULL,
+          isRead INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications_inbox(createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications_inbox(isRead, createdAt DESC);
+      `);
+    },
+  },
 ];
 
 /** Latest schema version this build knows about. */

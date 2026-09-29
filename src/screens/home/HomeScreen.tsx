@@ -27,6 +27,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSyncStatus } from '../../context/SyncStatusContext';
 import { useOffline } from '../../context/OfflineContext';
 import OfflineBanner from '../../components/common/OfflineBanner';
+import NotificationBell from '../../components/common/NotificationBell';
 import { canUseAdvancedSettings } from '../../utils/permissions';
 import { useTour } from '../../context/TourContext';
 import { loadOrgConfig } from '../../services/config/orgConfigService';
@@ -113,6 +114,7 @@ export default function HomeScreen() {
           <Text style={styles.headerTitle} numberOfLines={1}>{tour?.name ?? 'Tour Management'}</Text>
           {orgName && <Text style={styles.headerSubtitle} numberOfLines={1}>{orgName}</Text>}
         </View>
+        <NotificationBell light style={styles.notificationButton} />
         <TouchableOpacity
           style={styles.accountButton}
           onPress={() => setIsAccountMenuOpen(true)}
@@ -258,7 +260,10 @@ const styles = StyleSheet.create({
   },
   accountButton: {
     padding: 4,
-    marginLeft: 8,
+    marginLeft: 4,
+  },
+  notificationButton: {
+    marginRight: 4,
   },
   content: {
     padding: 16,

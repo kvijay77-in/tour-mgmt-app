@@ -278,6 +278,12 @@ export interface CreateEventRequest {
   sequenceEnforced: boolean;
   defaultAllowedTypeCodes: string[];
   allowSelfService?: boolean;
+  notificationConfig?: {
+    completionNotifyEnabled?: boolean;
+    completionRuleId?: string;
+    reminderEnabled?: boolean;
+    reminderRuleId?: string;
+  };
   activities: EventActivityInput[];
 }
 
@@ -307,6 +313,7 @@ export interface UpsertActivityOverrideRequest {
   activityId: string;
   enabled?: boolean | null;
   selfServiceEnabled?: boolean | null;
+  skipped?: boolean | null;
   allowedTypeCodes?: string[] | null;
   note?: string | null;
 }
@@ -460,4 +467,103 @@ export interface TourUsersResponse {
   users: TourUserAssignment[];
   count: number;
   tourId: string;
+}
+
+// ============================================================================
+// NOTIFICATIONS
+// ============================================================================
+
+export type NotificationPriority = 'URGENT' | 'NORMAL';
+
+export type NotificationCategory = 'ANNOUNCEMENT' | 'ALERT' | 'PERSONAL' | 'SYSTEM';
+
+export interface NotificationTarget {
+  screen: string;
+  paramKeys?: string[];
+}
+
+export interface NotificationItem {
+  notificationId: string;
+  ruleId: string;
+  title: string;
+  body: string;
+  priority: NotificationPriority;
+  target?: NotificationTarget;
+  tourId?: string;
+  createdAt: string;
+  isRead: boolean;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  unreadCount: number;
+}
+
+export interface NotificationUnreadCountResponse {
+  unreadCount: number;
+}
+
+export interface RegisterNotificationDeviceRequest {
+  token: string;
+  platform: 'ios' | 'android';
+}
+
+export interface MarkNotificationsReadRequest {
+  readAt?: string;
+}
+
+export interface CreateNotificationRequest {
+  ruleId: string;
+  tourId?: string;
+  context: Record<string, unknown>;
+  audiences?: string[];
+}
+
+export interface CreateNotificationResponse {
+  notificationId: string;
+}
+
+export interface NotificationQuietHours {
+  from: string;
+  to: string;
+  tz: string;
+}
+
+export interface NotificationRule {
+  ruleId: string;
+  enabled: boolean;
+  category: NotificationCategory;
+  audiences: string[];
+  titleTemplate: string;
+  messageTemplate: string;
+  bodyTemplate?: string;
+  push: boolean;
+  priority: NotificationPriority;
+  androidChannel: 'urgent' | 'general';
+  target?: NotificationTarget;
+  ttlHours: number;
+  quietHours?: NotificationQuietHours;
+  allowOverride: boolean;
+  version: number;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export type UpsertNotificationRuleRequest = Omit<NotificationRule, 'updatedAt' | 'updatedBy'>;
+
+export type NotificationReminderType = 'RIDE_CHECKIN_NOT_STARTED' | 'EVENT_CHECKIN_NOT_STARTED';
+
+export interface CreateNotificationReminderRequest {
+  reminderType: NotificationReminderType;
+  tourId: string;
+  rideId?: string;
+  eventId?: string;
+  occurrenceId?: string;
+  ruleId?: string;
+}
+
+export interface CreateNotificationReminderResponse {
+  notificationId: string;
+  targetCount: number;
+  riderIds?: string[];
 }

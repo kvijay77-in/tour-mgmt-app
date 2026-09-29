@@ -38,6 +38,7 @@ import { CheckIn, CheckInStatus, Ride, RideStatus, Stage, StageType, UserRole } 
 import StageFilterBar from './StageFilterBar';
 import { AppMenu } from '../common/AppMenu';
 import OfflineBanner from '../common/OfflineBanner';
+import NotificationBell from '../common/NotificationBell';
 import { useVisibleModules } from '../../navigation/modules';
 import { getLocalToday } from '../../utils/dates';
 
@@ -412,6 +413,7 @@ export default function DashboardTabsHeader() {
               <MaterialIcons name="today" size={22} color={COLORS.white} />
             </TouchableOpacity>
           )}
+          <NotificationBell light />
           <TouchableOpacity
             onPress={() => {
               void loadRides();

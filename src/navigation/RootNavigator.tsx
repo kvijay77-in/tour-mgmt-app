@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { TourProvider } from '../context/TourContext';
 import { AppConfigProvider } from '../context/AppConfigContext';
 import { NameDirectoryProvider } from '../context/NameDirectoryContext';
+import { NotificationProvider } from '../context/NotificationContext';
 import { COLORS } from '../constants/colors';
 import AuthNavigator from './AuthNavigator';
 import AppNavigator from './AppNavigator';
@@ -40,8 +41,10 @@ export default function RootNavigator() {
     <TourProvider>
       <AppConfigProvider>
         <NameDirectoryProvider>
-          <StatusBar style="auto" />
-          <AppNavigator />
+          <NotificationProvider>
+            <StatusBar style="auto" />
+            <AppNavigator />
+          </NotificationProvider>
         </NameDirectoryProvider>
       </AppConfigProvider>
     </TourProvider>

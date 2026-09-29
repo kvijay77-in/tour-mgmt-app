@@ -195,6 +195,7 @@ export async function clearUserScopedCache(): Promise<void> {
       DELETE FROM app_user_names;
       DELETE FROM my_tour_assignment;
       DELETE FROM event_dashboard_snapshots;
+      DELETE FROM notifications_inbox;
     `);
   });
 }
