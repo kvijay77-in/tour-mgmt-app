@@ -9,6 +9,7 @@ const ID = IS_TEST ? `${BASE_ID}.dev` : BASE_ID;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
+  slug: config.slug ?? 'tour-mgmt-app',
   name: IS_TEST ? `${BASE_NAME} (Test)` : BASE_NAME,
   scheme: IS_TEST ? `${BASE_SCHEME}-dev` : BASE_SCHEME,
   icon: IS_TEST ? './assets/icon-test.png' : './assets/icon.png',

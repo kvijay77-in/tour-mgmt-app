@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -10,7 +11,7 @@ Reads populated EXPO_PUBLIC_* entries from a .env file and upserts them into
 EAS project environments using `npx eas-cli env:set`.
 
 Defaults:
-  --file EAS.env
+  --file tools/EAS.env (empty template)
   environments: preview production
 
 Notes:
@@ -38,7 +39,7 @@ should_skip_key() {
   local key="$1"
 
   case "$key" in
-    EXPO_PUBLIC_ENVIRONMENT|EXPO_PUBLIC_USE_MOCK_DATA|EXPO_PUBLIC_LOG_LEVEL|EXPO_PUBLIC_API_DEBUG_GET)
+    EXPO_PUBLIC_ENVIRONMENT|EXPO_PUBLIC_USE_MOCK_DATA|EXPO_PUBLIC_LOG_LEVEL|EXPO_PUBLIC_API_DEBUG_GET|EXPO_PUBLIC_QR_DEV_FORMAT)
       return 0
       ;;
     *)
@@ -47,7 +48,7 @@ should_skip_key() {
   esac
 }
 
-env_file="EAS.env"
+env_file="${script_dir}/EAS.env"
 dry_run=0
 declare -a target_envs=()
 

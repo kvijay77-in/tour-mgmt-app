@@ -331,7 +331,7 @@
 
     <div class="field">
       <label for="domain">Domain <span class="optional">(optional — for Universal/App Links)</span></label>
-      <input type="text" id="domain" placeholder="e.g. setup.checkin-app.example.com">
+      <input type="text" id="domain" placeholder="e.g. setup.tour-mgmt-app.example.com">
       <div class="hint">If set, generates an HTTPS link in addition to the deep link.</div>
     </div>
 
@@ -903,7 +903,7 @@ async function generate() {
 
     // Build URLs
     const params = `payload=${encodeURIComponent(payloadB64)}&sig=${encodeURIComponent(sigHex)}`;
-    generatedDeepLink = `checkin-app://setup?${params}`;
+    generatedDeepLink = `tour-mgmt-app://setup?${params}`;
 
     const domain = getField('domain');
     generatedUniversalLink = domain

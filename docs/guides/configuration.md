@@ -2,10 +2,10 @@
 
 _Last updated: 2026-09-29_
 
-The repository root [`.env.example`](../../.env.example) lists development fallback variables for organizer setup, authentication, the tour-data-api HTTP endpoint, optional mock data, logging and scan format. Copy it to an ignored `.env` for development. Expo variables with `EXPO_PUBLIC_` are embedded in the client and **must never contain secrets**; review any signing material and use an approved secure publishing process. The existing setup-link flow is described in [app distribution](../design/app-distribution.md).
+The repository root [`.env.example`](../../.env.example) lists local development fallback variables for organizer setup, authentication, the tour-data-api HTTP endpoint, optional mock data, logging and scan format. Copy it to an ignored `.env` for local development only. Store builds take backend and Firebase configuration from the EAS `preview` (Test) or `production` environment; do not commit populated environment files. `EXPO_PUBLIC_*` values are embedded in the app and **must never contain secrets**.
 
 [`tools/setup-link-generator.html`](../../tools/setup-link-generator.html) assists an authorized organizer in preparing an invite setup link or QR. Keep generated links and configuration private; do not paste real configuration into documentation.
 
-[`tools/EAS.env`](../../tools/EAS.env) and [`tools/push-eas-env.sh`](../../tools/push-eas-env.sh) relate to EAS build-time configuration; inspect values before use and do not add credentials to tracked files. [`eas.json`](../../eas.json) defines app build profiles and [`app.json`](../../app.json) defines Expo application settings. Follow the [release guide](release.md) when distributing a build.
+[`tools/EAS.env`](../../tools/EAS.env) is an empty template; `tools/push-eas-env.sh` can upload string variables to a selected EAS environment from a private local file. Keep Test and Production values separate, and add `GOOGLE_SERVICES_JSON` through EAS as a file variable rather than the string helper. [`app.config.ts`](../../app.config.ts) resolves the variant identifiers and name from `APP_VARIANT`; [`eas.json`](../../eas.json) defines the profiles. Follow the [variant design](../design/app-variants-and-environments.md) and [EAS build guide](eas-build-and-release.md) before a store build.
 
 Backend authentication, API and storage resources are owned by [tour-data-api](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/guides/deployment.md); this repository creates no AWS infrastructure.

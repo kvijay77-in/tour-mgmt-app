@@ -101,7 +101,6 @@ export default function App() {
             );
             setState({ phase: 'ready' });
           } else {
-            logStartupConfiguration(envBaseUrl);
             logger.info(TAG, 'No org config found — showing setup screen');
             logStartupConfiguration(process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL ?? '');
             setState({ phase: 'setup' });
@@ -110,6 +109,7 @@ export default function App() {
       } catch (err) {
         logger.error(TAG, 'Bootstrap error', err);
         if (!cancelled) {
+          logStartupConfiguration(process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL ?? '');
           setState({ phase: 'setup' });
         }
       }
@@ -154,12 +154,12 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>
-        <ErrorBoundary>
-          <View style={styles.appFrame}>
-            <TestBanner />
+        <View style={styles.appFrame}>
+          <TestBanner />
+          <ErrorBoundary>
             {content}
-          </View>
-        </ErrorBoundary>
+          </ErrorBoundary>
+        </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

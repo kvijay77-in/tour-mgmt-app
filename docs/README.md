@@ -7,8 +7,8 @@ Start with the [non-technical user guide](user-guide/README.md) if you are using
 | Area | Contents |
 | --- | --- |
 | [Requirements](requirements/README.md) | One functional requirement topic per file |
-| [Design](design/README.md) | Implemented app architecture and feature design |
-| [Guides](guides/README.md) | Development, configuration, structure and EAS release |
+| [Design](design/README.md) | Implemented app architecture and feature design, including [Test and Production variants](design/app-variants-and-environments.md) |
+| [Guides](guides/README.md) | Development, configuration, structure, EAS release and the [variant build guide](guides/eas-build-and-release.md) |
 | [User guide](user-guide/README.md) | Role-based day-to-day instructions |
 | [Misc](misc/README.md) | Historical and working notes; not current requirements |
 
