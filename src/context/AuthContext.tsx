@@ -33,7 +33,11 @@ import {
   setAuthTokenProvider,
   setAuthInvalidatedCallback,
 } from '../services/api/apiClient';
-import { routeBackendForLogin } from '../config/reviewAccess';
+import {
+  isReviewBackendActive,
+  routeBackendForLogin,
+  setReviewerSessionActive,
+} from '../config/reviewAccess';
 import { AppRole } from '../types/models';
 import { isSupportedRoleGroup, resolvePrimaryRole } from '../utils/permissions';
 import { loadPitStopContextStageNumber } from '../services/config/pitStopContextService';
@@ -338,6 +342,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     await recordOnlineSignIn({ username, userId, userRoles, password, rememberMe });
+    await setReviewerSessionActive(isReviewBackendActive());
     setUser({ username, userId, userRole: primaryRole, userRoles });
     return { status: 'DONE' };
   }, []);
@@ -649,6 +654,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch {
       // Sign out locally even if the API call fails
     } finally {
+      await setReviewerSessionActive(false).catch((err: unknown) =>
+        logger.warn(TAG, 'Failed to clear reviewer session state', err),
+      );
       // Web: drop session data so the next sign-in loads the latest from the server.
       if (!IS_MOBILE) {
         await clearUserScopedCache().catch((err: unknown) => logger.warn(TAG, 'Failed to clear session data', err));

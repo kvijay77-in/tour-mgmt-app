@@ -19,8 +19,11 @@ import { configureAmplify } from './amplify';
 import { setApiBaseUrl } from '../services/api/apiClient';
 import { OrgConfig } from '../types/config';
 import { logger } from '../utils/logger';
+import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
 const TAG = 'BackendRouter';
+const REVIEW_SESSION_KEY = 'review.active';
 
 type BackendKind = 'primary' | 'review';
 
@@ -107,6 +110,31 @@ function applyReviewBackend(): void {
   setApiBaseUrl(cfg.apiBaseUrl);
   _activeBackend = 'review';
   logger.info(TAG, 'Switched to review (Dev) backend');
+}
+
+export function isReviewBackendActive(): boolean {
+  return _activeBackend === 'review';
+}
+
+export async function setReviewerSessionActive(active: boolean): Promise<void> {
+  if (Platform.OS === 'web') return;
+  if (active) {
+    await SecureStore.setItemAsync(REVIEW_SESSION_KEY, 'true');
+  } else {
+    await SecureStore.deleteItemAsync(REVIEW_SESSION_KEY);
+  }
+}
+
+export async function restoreReviewerSession(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  try {
+    if ((await SecureStore.getItemAsync(REVIEW_SESSION_KEY)) !== 'true') return false;
+    applyReviewBackend();
+    return isReviewBackendActive();
+  } catch (err) {
+    logger.warn(TAG, 'Failed to restore reviewer backend session', err);
+    return false;
+  }
 }
 
 function applyPrimaryBackend(): void {
