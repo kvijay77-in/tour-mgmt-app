@@ -2,7 +2,9 @@
 
 _Last updated: 2026-09-29_
 
-This repository is the Expo/React Native management client for mobile and web. `App.tsx` and the navigators assemble authentication, the home hub, Ride Day, Events, Hotels & Baggage and Administration screens. The app has **no infrastructure of its own**. [tour-data-api](https://github.com/kvijay77-in/tour-data-api) owns authentication, API, data and storage resources; the client obtains a session through Amplify Auth and makes HTTP requests through `src/services/api/apiClient.ts`. It never directly manages the backend data stores.
+This repository is the Expo/React Native management client for mobile and web. `App.tsx` and the navigators assemble authentication, the home hub, Ride Day, Events, Hotels & Baggage and Administration screens. EAS builds the same code as two store variants: Test (`com.tourmgmt.app.dev`, `tour-mgmt-app-dev`) and Production (`com.tourmgmt.app`, `tour-mgmt-app`). The Test variant is built from EAS `preview` values and connects to Dev; Production uses EAS `production` values, with the existing app-reviewer route to Dev. See [app variants and environments](app-variants-and-environments.md).
+
+The app has **no infrastructure of its own**. [tour-data-api](https://github.com/kvijay77-in/tour-data-api) owns authentication, API, data and storage resources; the client obtains a session through Amplify Auth and makes HTTP requests through `src/services/api/apiClient.ts`. It never directly manages the backend data stores.
 
 ```mermaid
 flowchart LR
@@ -14,6 +16,10 @@ flowchart LR
   CTX --> LOCAL[Mobile local cache and outbound queue]
   LOCAL --> SVC
 ```
+
+## Authentication and backend profile
+
+EAS selects the app identity and primary backend at build time: the `test` profile uses the Dev values in EAS `preview`, and `production` uses Prod values in EAS `production`. The Production-only reviewer username route reconfigures Amplify and the API client for the Dev reviewer profile before `signIn()`. A successful reviewer session is recorded in SecureStore; `App.tsx` restores that profile before mounting `AuthProvider`, whose first `getCurrentUser()` / `fetchAuthSession()` calls then use the matching Cognito pool. Sign-out clears the persisted marker. See [app variants and environments](app-variants-and-environments.md) for the EAS matrix and store process.
 
 `src/navigation/RootNavigator.tsx` handles setup and auth transitions. `AppNavigator.tsx` registers permission-gated screens, while `modules.ts` defines Home/sidebar visibility and targets. `MainTabNavigator.tsx` handles Ride Day tabs. State providers live in `src/context/`; screens in `src/screens/`, reusable UI in `src/components/`, API adapters in `src/services/api/` and sync/storage in `src/services/sync/` and `src/services/database/`. `src/utils/logger.ts` centralizes logs.
 

@@ -33,7 +33,11 @@ import {
   setAuthTokenProvider,
   setAuthInvalidatedCallback,
 } from '../services/api/apiClient';
-import { routeBackendForLogin } from '../config/reviewAccess';
+import {
+  isReviewBackendActive,
+  routeBackendForLogin,
+  setReviewerSessionActive,
+} from '../config/reviewAccess';
 import { AppRole } from '../types/models';
 import { isSupportedRoleGroup, resolvePrimaryRole } from '../utils/permissions';
 import { loadPitStopContextStageNumber } from '../services/config/pitStopContextService';
@@ -64,6 +68,13 @@ import { logger } from '../utils/logger';
 
 const TAG = 'AuthContext';
 const IS_MOBILE = Platform.OS !== 'web';
+
+async function signOutAndClearReviewerSession(): Promise<void> {
+  await signOut().catch(() => {});
+  await setReviewerSessionActive(false).catch((err: unknown) =>
+    logger.warn(TAG, 'Failed to clear reviewer session state', err),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -230,7 +241,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   /** Sign out and optionally show a "no role assigned" error. */
   const handleNoRole = useCallback(async (showErrorMessage = true) => {
     logger.warn(TAG, 'User has no role assigned — signing out');
-    await signOut().catch(() => {});
+    await signOutAndClearReviewerSession();
     setUser(null);
     if (showErrorMessage) {
       setError('No role has been assigned to your account. Please contact your tour administrator.');
@@ -269,7 +280,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
     // Called only when a forced refresh confirmed the session is invalid.
     setAuthInvalidatedCallback(() => {
-      signOut().catch(() => {});
+      signOutAndClearReviewerSession().catch(() => {});
       setUser(null);
       setError('Your session has expired. Please sign in again.');
     });
@@ -329,7 +340,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const count = await countOperationsOwnedByOthers(userId).catch(() => 0);
       if (count > 0) {
         logger.warn(TAG, 'Sign-in blocked: another user has unsynced data on this device', { count });
-        await signOut().catch(() => {});
+        await signOutAndClearReviewerSession();
         setUser(null);
         return { status: 'OTHER_USER_DATA', userId, count, previousUsername: lastUser.username };
       }
@@ -338,6 +349,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
 
     await recordOnlineSignIn({ username, userId, userRoles, password, rememberMe });
+    await setReviewerSessionActive(isReviewBackendActive());
     setUser({ username, userId, userRole: primaryRole, userRoles });
     return { status: 'DONE' };
   }, []);
@@ -363,7 +375,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!session.tokens?.accessToken) {
           // Refresh token rejected by Cognito — session is definitely invalid
           logger.warn(TAG, 'Session invalid — no access token');
-          await signOut().catch(() => {});
+          await signOutAndClearReviewerSession();
           setUser(null);
           return;
         }
@@ -393,7 +405,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }
         } else {
           logger.info(TAG, 'Existing session could not be restored — login required', err);
-          await signOut().catch(() => {});
+          await signOutAndClearReviewerSession();
           setUser(null);
         }
       } finally {
@@ -442,7 +454,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // A lingering session on the previously-configured pool (or a session
       // kept for offline use) can block sign-in. Clear it and retry once.
       if (signInErr instanceof Error && signInErr.name === 'UserAlreadyAuthenticatedException') {
-        await signOut().catch(() => {});
+        await signOutAndClearReviewerSession();
         result = await signIn({
           username,
           password,
@@ -559,7 +571,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           const password = await getSavedPassword();
           if (!password) throw new Error('No saved password for re-authentication');
           routeBackendForLogin(offlineUser.username);
-          await signOut().catch(() => {});
+          await signOutAndClearReviewerSession();
           const result = await signIn({
             username: offlineUser.username,
             password,
@@ -581,6 +593,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           userId: currentUser.userId,
           userRoles,
         });
+        await setReviewerSessionActive(isReviewBackendActive());
         logger.info(TAG, 'Offline session re-authenticated online');
         setUser({ username: currentUser.username, userId: currentUser.userId, userRole: primaryRole, userRoles });
       } catch (err) {
@@ -590,7 +603,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         }
         logger.warn(TAG, 'Saved sign-in rejected by Cognito — online sign-in required', err);
         await invalidateSavedSignIn();
-        await signOut().catch(() => {});
+        await signOutAndClearReviewerSession();
         setUser(null);
         setError('Please sign in again to send your offline data. It stays safely on this device until then.');
       } finally {
@@ -649,6 +662,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch {
       // Sign out locally even if the API call fails
     } finally {
+      await setReviewerSessionActive(false).catch((err: unknown) =>
+        logger.warn(TAG, 'Failed to clear reviewer session state', err),
+      );
       // Web: drop session data so the next sign-in loads the latest from the server.
       if (!IS_MOBILE) {
         await clearUserScopedCache().catch((err: unknown) => logger.warn(TAG, 'Failed to clear session data', err));

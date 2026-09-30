@@ -6,10 +6,11 @@ This is a navigational overview of the current repository, not an inventory of e
 
 ```text
 App.tsx                 Application entry point
-app.json                Expo configuration
+app.config.ts           Variant-specific Expo configuration
+app.json                Static Expo configuration
 eas.json                EAS build profiles
 src/
-├── components/         Shared UI, dashboard, events, artifacts and rider profile
+├── components/         Shared UI (including the Test ribbon), dashboard, events, artifacts and rider profile
 ├── config/             App configuration and review routing
 ├── constants/          Colors, roles, stages, layout and ID codes
 ├── context/            Auth, app config, tours, rides, events, offline, notifications

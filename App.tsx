@@ -15,11 +15,13 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import { ErrorBoundary } from './src/components/common/ErrorBoundary';
+import TestBanner from './src/components/common/TestBanner';
 import { AuthProvider } from './src/context/AuthContext';
 import { OfflineProvider } from './src/context/OfflineContext';
 import { configureAmplify } from './src/config/amplify';
-import { initBackendRouting } from './src/config/reviewAccess';
+import { initBackendRouting, restoreReviewerSession } from './src/config/reviewAccess';
 import { COLORS } from './src/constants/colors';
 import { OrgConfig } from './src/types/config';
 import { loadOrgConfig } from './src/services/config/orgConfigService';
@@ -39,6 +41,17 @@ function applyOrgConfig(config: OrgConfig): void {
   configureAmplify(config);
   setApiBaseUrl(config.apiBaseUrl);
   initBackendRouting(config);
+}
+
+function logStartupConfiguration(apiBaseUrl: string): void {
+  let apiHost = 'not-configured';
+  try {
+    if (apiBaseUrl) apiHost = new URL(apiBaseUrl).host;
+  } catch {
+    apiHost = 'invalid';
+  }
+  const variant = Constants.expoConfig?.extra?.appVariant ?? 'production';
+  logger.info(TAG, `Startup configuration: variant=${variant}, apiHost=${apiHost}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -64,6 +77,12 @@ export default function App() {
 
         if (storedConfig) {
           applyOrgConfig(storedConfig);
+          const restoredReviewer = await restoreReviewerSession();
+          logStartupConfiguration(
+            restoredReviewer
+              ? process.env.EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL ?? ''
+              : storedConfig.apiBaseUrl,
+          );
           setState({ phase: 'ready' });
         } else {
           // Check if env-var fallback is available (dev mode)
@@ -74,15 +93,23 @@ export default function App() {
             logger.info(TAG, 'No stored org config — using env-var fallback (dev mode)');
             configureAmplify();
             initBackendRouting();
+            const restoredReviewer = await restoreReviewerSession();
+            logStartupConfiguration(
+              restoredReviewer
+                ? process.env.EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL ?? ''
+                : envBaseUrl,
+            );
             setState({ phase: 'ready' });
           } else {
             logger.info(TAG, 'No org config found — showing setup screen');
+            logStartupConfiguration(process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL ?? '');
             setState({ phase: 'setup' });
           }
         }
       } catch (err) {
         logger.error(TAG, 'Bootstrap error', err);
         if (!cancelled) {
+          logStartupConfiguration(process.env.EXPO_PUBLIC_TOUR_DATA_API_BASE_URL ?? '');
           setState({ phase: 'setup' });
         }
       }
@@ -95,43 +122,44 @@ export default function App() {
     };
   }, []);
 
-  const handleConfigured = (config: OrgConfig) => {
+  const handleConfigured = async (config: OrgConfig) => {
     applyOrgConfig(config);
+    const restoredReviewer = await restoreReviewerSession();
+    logStartupConfiguration(
+      restoredReviewer
+        ? process.env.EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL ?? ''
+        : config.apiBaseUrl,
+    );
     setState({ phase: 'ready' });
   };
 
-  if (state.phase === 'loading') {
-    return (
-      <SafeAreaProvider>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (state.phase === 'setup') {
-    return (
-      <SafeAreaProvider>
-        <ErrorBoundary>
-          <OrgSetupScreen onConfigured={handleConfigured} />
-        </ErrorBoundary>
-      </SafeAreaProvider>
-    );
-  }
+  const content = state.phase === 'loading'
+    ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </View>
+    )
+    : state.phase === 'setup'
+      ? <OrgSetupScreen onConfigured={handleConfigured} />
+      : (
+        <OfflineProvider>
+          <AuthProvider>
+            <NavigationContainer ref={navigationRef}>
+              <RootNavigator />
+            </NavigationContainer>
+          </AuthProvider>
+        </OfflineProvider>
+      );
 
   return (
     <GestureHandlerRootView style={styles.gestureRoot}>
       <SafeAreaProvider>
-        <ErrorBoundary>
-          <OfflineProvider>
-            <AuthProvider>
-              <NavigationContainer ref={navigationRef}>
-                <RootNavigator />
-              </NavigationContainer>
-            </AuthProvider>
-          </OfflineProvider>
-        </ErrorBoundary>
+        <View style={styles.appFrame}>
+          <TestBanner />
+          <ErrorBoundary>
+            {content}
+          </ErrorBoundary>
+        </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -139,6 +167,9 @@ export default function App() {
 
 const styles = StyleSheet.create({
   gestureRoot: {
+    flex: 1,
+  },
+  appFrame: {
     flex: 1,
   },
   loadingContainer: {

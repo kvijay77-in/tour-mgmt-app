@@ -137,12 +137,14 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 ### SEC-06 Backend config values hard-coded in `eas.json` and committed `tools/EAS.env`
 - **Severity:** Medium
-- **Where:** `eas.json:28-40` (`localpreview` profile: user pool ID, client ID, API URL, reviewer username); `tools/EAS.env` (committed, populated).
+- **Where:** historical finding; variant build values now come from the EAS `preview` and `production` environments.
 - **Observation:** Cognito pool/client IDs and API URLs are not secrets on their own (they ship in every build). But committing them breaks the project rule *"No hardcoding of any credentials, URLs, or configuration values directly in the codebase"*. It also publishes the **store-reviewer username** and the Dev API URL. `tools/push-eas-env.sh` already exists to push values to EAS environments.
 - **Impact:** Configuration drift between profiles, reconnaissance value for attackers (reviewer account plus Dev endpoint), and a habit that makes it easy to commit a real secret one day (the HMAC key in SEC-01 already goes through the same `EXPO_PUBLIC_*` path).
-- **Recommendation:** Move the `localpreview` values into an EAS environment (`eas env:create`/`push-eas-env.sh`). Rename `tools/EAS.env` to `tools/EAS.env.example` with empty values and add `tools/EAS.env` to `.gitignore`. Give the reviewer account a strong password, a minimal role and Dev-only data. Consider purging the history if the repo is ever made public.
+- **Recommendation:** Keep distinct Test and Production values in their EAS environments. Do not commit populated environment files. Give the reviewer account a strong password, a minimal role and Dev-only data.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
+
+**Status:** ✅ Addressed for current builds. `localpreview` no longer contains backend or reviewer values, and `tools/EAS.env` is an empty template.
 
 ### SEC-07 Unneeded `RECORD_AUDIO` permission and misleading camera rationale
 - **Severity:** Medium (store review and privacy)
@@ -155,10 +157,10 @@ Suggested order if you accept everything: **SEC-01, SEC-02, SEC-03, DES-01, DES-
 
 ### SEC-08 Placeholder deep-link domain and hijackable custom scheme
 - **Severity:** Low
-- **Where:** `app.json:9` (`"scheme": "checkin-app"`), `app.json:12-14` and `:31-45` (`setup.checkin-app.example.com`)
+- **Where:** `app.json` deep-link scheme and the placeholder `setup.tour-mgmt-app.example.com` domain
 - **Observation:** The universal/app-link domain is the `example.com` placeholder, so `autoVerify` can never succeed. Setup therefore depends on the custom scheme, which **any other app can also register**.
 - **Impact:** Setup links may open in another app or not open at all. Combined with SEC-01, this widens the phishing surface.
-- **Recommendation:** Host `assetlinks.json` / `apple-app-site-association` on a real domain you own and update `app.json`. Treat the custom scheme as a fallback only. Use a more unique scheme name (for example `com.kvijay77.tourmgmt`).
+- **Recommendation:** Host `assetlinks.json` / `apple-app-site-association` on a real domain you own and update `app.json`. Treat the custom scheme as a fallback only. Use the variant-specific schemes `tour-mgmt-app` and `tour-mgmt-app-dev`.
 
 **Decision:** ☐ Accept ☐ Reject ☐ Defer
 
