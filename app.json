@@ -1,48 +1,23 @@
 {
   "expo": {
-    "name": "tour-mgmt-app",
+    "name": "Tour Mgmt",
     "slug": "tour-mgmt-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "checkin-app",
     "ios": {
       "supportsTablet": true,
-      "associatedDomains": [
-        "applinks:setup.checkin-app.example.com"
-      ],
-      "bundleIdentifier": "com.kvijay77.tourmgmt",
-      "buildNumber": "4",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.kvijay77.tourmgmt",
-      "versionCode": 21,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "predictiveBackGestureEnabled": false,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "setup.checkin-app.example.com",
-              "pathPrefix": "/setup"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
-      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
