@@ -103,8 +103,8 @@ async function writeEvent(event: EventDefinition): Promise<void> {
   await db.runAsync(
     `INSERT OR REPLACE INTO events
       (eventId, eventName, eventType, location, sequenceEnforced, defaultAllowedTypeCodesJson,
-       allowSelfService, activitiesJson, updatedAt, lastSyncedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       registrationEnabled, selfServiceAllowed, activitiesJson, updatedAt, lastSyncedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       event.eventId,
       event.eventName,
@@ -112,7 +112,8 @@ async function writeEvent(event: EventDefinition): Promise<void> {
       event.location ?? null,
       event.sequenceEnforced ? 1 : 0,
       JSON.stringify(event.defaultAllowedTypeCodes ?? []),
-      event.allowSelfService ? 1 : 0,
+      event.registrationEnabled ? 1 : 0,
+      event.selfServiceAllowed ? 1 : 0,
       JSON.stringify(event.activities ?? []),
       event.updatedAt ?? null,
       new Date().toISOString(),
@@ -143,7 +144,7 @@ export async function getEventById(eventId: string): Promise<EventDefinition | n
   return row ? mapRowToEvent(row) : null;
 }
 
-function mapRowToEvent(row: Record<string, unknown>): EventDefinition {
+export function mapRowToEvent(row: Record<string, unknown>): EventDefinition {
   return {
     eventId: row.eventId as string,
     eventName: row.eventName as string,
@@ -151,7 +152,8 @@ function mapRowToEvent(row: Record<string, unknown>): EventDefinition {
     location: (row.location as string | null) ?? '',
     sequenceEnforced: (row.sequenceEnforced as number) === 1,
     defaultAllowedTypeCodes: parseJson<string[]>(row.defaultAllowedTypeCodesJson, []),
-    allowSelfService: (row.allowSelfService as number) === 1,
+    registrationEnabled: (row.registrationEnabled as number) === 1,
+    selfServiceAllowed: (row.selfServiceAllowed as number) === 1,
     activities: parseJson<EventActivity[]>(row.activitiesJson, []),
     updatedAt: (row.updatedAt as string | null) ?? undefined,
   };
@@ -193,7 +195,7 @@ async function writeOccurrence(occurrence: EventOccurrence): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
     `INSERT OR REPLACE INTO event_occurrences
-      (occurrenceId, eventId, date, seq, status, selfServiceEnabled, activityOverridesJson,
+      (occurrenceId, eventId, date, seq, status, selfServiceAllowed, activityOverridesJson,
        linkedOccurrenceRef, updatedAt, lastSyncedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -202,7 +204,7 @@ async function writeOccurrence(occurrence: EventOccurrence): Promise<void> {
       occurrence.date,
       occurrence.seq,
       occurrence.status,
-      occurrence.selfServiceEnabled ? 1 : 0,
+      occurrence.selfServiceAllowed == null ? null : occurrence.selfServiceAllowed ? 1 : 0,
       JSON.stringify(occurrence.activityOverrides ?? []),
       occurrence.linkedOccurrenceRef ?? null,
       occurrence.updatedAt ?? null,
@@ -260,7 +262,7 @@ export async function getOccurrenceById(occurrenceId: string): Promise<EventOccu
   return row ? mapRowToOccurrence(row) : null;
 }
 
-function mapRowToOccurrence(row: Record<string, unknown>): EventOccurrence {
+export function mapRowToOccurrence(row: Record<string, unknown>): EventOccurrence {
   const date = row.date as string;
   const seq = row.seq as number;
   return {
@@ -270,7 +272,9 @@ function mapRowToOccurrence(row: Record<string, unknown>): EventOccurrence {
     date,
     seq,
     status: row.status as OccurrenceStatus,
-    selfServiceEnabled: (row.selfServiceEnabled as number) === 1,
+    selfServiceAllowed: row.selfServiceAllowed == null
+      ? row.selfServiceAllowed as null | undefined
+      : (row.selfServiceAllowed as number) === 1,
     activityOverrides: parseJson<ActivityOverride[]>(row.activityOverridesJson, []),
     linkedOccurrenceRef: (row.linkedOccurrenceRef as string | null) ?? null,
     updatedAt: (row.updatedAt as string | null) ?? undefined,

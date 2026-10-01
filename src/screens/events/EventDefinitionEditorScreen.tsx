@@ -60,7 +60,8 @@ interface EventForm {
   eventType: EventType;
   location: string;
   sequenceEnforced: boolean;
-  allowSelfService: boolean;
+  registrationEnabled: boolean;
+  selfServiceAllowed: boolean;
   defaultAllowedTypeCodes: string[];
   completionNotifyEnabled: boolean;
   completionRuleId: string;
@@ -81,7 +82,8 @@ const EMPTY_FORM: EventForm = {
   eventType: EventType.SINGLE,
   location: '',
   sequenceEnforced: false,
-  allowSelfService: false,
+  registrationEnabled: false,
+  selfServiceAllowed: false,
   defaultAllowedTypeCodes: [],
   completionNotifyEnabled: false,
   completionRuleId: '',
@@ -103,6 +105,7 @@ function toDraft(activity: Partial<EventActivity> & Pick<EventActivity, 'activit
     restrictToAssignedUsers: activity.restrictToAssignedUsers ?? true,
     variantOptions,
     notes: activity.notes ?? '',
+    selfServiceAllowed: activity.selfServiceAllowed,
     isNew,
     variantText: variantOptions.join(', '),
   };
@@ -125,6 +128,7 @@ function toActivityInputs(drafts: ActivityDraft[]): EventActivityInput[] {
     restrictToAssignedUsers: draft.restrictToAssignedUsers,
     variantOptions: parseVariants(draft.variantText),
     notes: draft.notes.trim(),
+    selfServiceAllowed: draft.selfServiceAllowed,
   }));
 }
 
@@ -135,7 +139,8 @@ function toEventForm(event: EventDefinition): EventForm {
     eventType: event.eventType,
     location: event.location,
     sequenceEnforced: event.sequenceEnforced,
-    allowSelfService: Boolean(event.allowSelfService),
+    registrationEnabled: Boolean(event.registrationEnabled),
+    selfServiceAllowed: Boolean(event.selfServiceAllowed),
     defaultAllowedTypeCodes: event.defaultAllowedTypeCodes ?? [],
     completionNotifyEnabled: Boolean(event.notificationConfig?.completionNotifyEnabled),
     completionRuleId: event.notificationConfig?.completionRuleId ?? '',
@@ -181,7 +186,8 @@ function buildUpdate(original: EventDefinition, form: EventForm, activities: Eve
   if (form.eventType !== original.eventType) changes.eventType = form.eventType;
   if (form.location.trim() !== original.location) changes.location = form.location.trim();
   if (form.sequenceEnforced !== original.sequenceEnforced) changes.sequenceEnforced = form.sequenceEnforced;
-  if (form.allowSelfService !== Boolean(original.allowSelfService)) changes.allowSelfService = form.allowSelfService;
+  if (form.registrationEnabled !== Boolean(original.registrationEnabled)) changes.registrationEnabled = form.registrationEnabled;
+  if (form.selfServiceAllowed !== Boolean(original.selfServiceAllowed)) changes.selfServiceAllowed = form.selfServiceAllowed;
   const currentNotificationConfig = {
     completionNotifyEnabled: form.completionNotifyEnabled,
     completionRuleId: form.completionRuleId.trim() || undefined,
@@ -336,6 +342,29 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
           onChange={(restrictToAssignedUsers) => onChange({ restrictToAssignedUsers })}
           disabled={disabled}
         />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Self-service</Text>
+        <View style={styles.segmented}>
+          {[
+            { value: undefined, label: 'Follow event' },
+            { value: true, label: 'Allowed' },
+            { value: false, label: 'Not allowed' },
+          ].map((option) => (
+            <TouchableOpacity
+              key={option.label}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: draft.selfServiceAllowed === option.value, disabled }}
+              disabled={disabled}
+              onPress={() => onChange({ selfServiceAllowed: option.value })}
+              style={[styles.segment, draft.selfServiceAllowed === option.value && styles.segmentSelected]}
+            >
+              <Text style={[styles.segmentText, draft.selfServiceAllowed === option.value && styles.segmentTextSelected]}>
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
       <View style={wide ? styles.columns : undefined}>
         <View style={wide ? styles.column : undefined}>
@@ -584,7 +613,8 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
           eventType: form.eventType,
           location: form.location.trim(),
           sequenceEnforced: form.sequenceEnforced,
-          allowSelfService: form.allowSelfService,
+          registrationEnabled: form.registrationEnabled,
+          selfServiceAllowed: form.selfServiceAllowed,
           notificationConfig: {
             completionNotifyEnabled: form.completionNotifyEnabled,
             completionRuleId: form.completionRuleId.trim() || undefined,
@@ -672,9 +702,16 @@ export default function EventDefinitionEditorScreen({ eventId, mode, navigation 
         disabled={inputsDisabled}
       />
       <ToggleField
-        label="Self-service by default (informational)"
-        value={form.allowSelfService}
-        onChange={(value) => setField('allowSelfService', value)}
+        label="Registration required"
+        value={form.registrationEnabled}
+        onChange={(value) => setField('registrationEnabled', value)}
+        disabled={inputsDisabled}
+      />
+      <Text style={styles.hint}>When off, all riders on the tour are treated as registered.</Text>
+      <ToggleField
+        label="Riders may self-serve"
+        value={form.selfServiceAllowed}
+        onChange={(value) => setField('selfServiceAllowed', value)}
         disabled={inputsDisabled}
       />
       <View style={styles.sectionDivider} />

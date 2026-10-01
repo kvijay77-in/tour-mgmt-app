@@ -207,7 +207,7 @@ export default function CheckInLogScreen() {
               <Text style={riderDisplay.isAnomaly ? styles.logAnomalyText : undefined}>{riderDisplay.name}</Text>
             </Text>
           ) : null}
-          <Text>{` | ${stageLabel} | ${time} | ${checkedBy}`}</Text>
+          <Text>{` | ${stageLabel} | ${time} | ${checkedBy}${item.method === CheckInMethod.SELF_SERVICE ? ' | Self' : ''}`}</Text>
           {item.localSyncStatus ? (
             <Text style={item.localSyncStatus === 'FAILED' ? styles.logFailedText : styles.logPendingText}>
               {item.localSyncStatus === 'FAILED' ? ' | sync issue' : ' | not sent'}
@@ -241,7 +241,7 @@ export default function CheckInLogScreen() {
     <View style={styles.container}>
       <View style={styles.contentArea}>
         <View style={styles.controlsRow}>
-          <Text style={styles.legendText}># Manual Check-in</Text>
+          <Text style={styles.legendText}># Manual Check-in | Self = rider self check-in</Text>
           <View style={styles.controlsGroup}>
             <View style={styles.nameToggle}>
               <Text style={styles.nameToggleLabel}>Show name</Text>
@@ -319,6 +319,9 @@ export default function CheckInLogScreen() {
             <Text style={styles.confirmText}>
               Cancel this check-in entry for {confirmCancelEntry?.riderId}?
             </Text>
+            {confirmCancelEntry?.isQuitRiding && (
+              <Text style={styles.safetyHint}>Confirm the rider is safe and fit to resume before cancelling.</Text>
+            )}
             {isCancelling ? (
               <ActivityIndicator size="small" color={COLORS.primary} style={styles.confirmSpinner} />
             ) : (
@@ -372,7 +375,7 @@ const styles = StyleSheet.create({
   emptyText: { color: COLORS.textSecondary, textAlign: 'center' },
   controlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8 },
   controlsGroup: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  legendText: { fontSize: 11, color: COLORS.textSecondary, fontFamily: monospaceFont },
+  legendText: { fontSize: 11, color: COLORS.textSecondary, fontFamily: monospaceFont, flexShrink: 1, marginRight: 8 },
   nameToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   nameToggleLabel: { color: COLORS.textSecondary, marginRight: 8 },
   listContent: { paddingHorizontal: 12, paddingBottom: 12 },
@@ -487,6 +490,13 @@ const styles = StyleSheet.create({
   confirmText: {
     fontSize: 14,
     color: COLORS.textPrimary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  safetyHint: {
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 16,
   },

@@ -45,6 +45,7 @@ export type AppStackParamList = {
   EventDefinitionList: undefined;
   EventDefinitionEditor: { eventId?: string; mode?: 'view' | 'edit' } | undefined;
   OccurrenceManagement: { eventId: string };
+  OccurrenceRegistrations: { eventId: string; occurrenceId: string };
   // Event engine Phase 4
   EventScan: { eventId: string; occurrenceId: string };
   // Event engine Phase 5

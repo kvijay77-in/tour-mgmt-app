@@ -67,13 +67,14 @@ interface ProgressSection {
   date: string;
   seq: number;
   status: OccurrenceStatus | null;
-  steps: ActivityStep[] | null;
+  steps: Array<ActivityStep & { isSelf?: boolean }> | null;
 }
 
 interface ProgressInputs {
   events: EventDefinition[];
   occurrences: EventOccurrence[];
   statusByOccurrence: Map<string, StatusMap>;
+  selfServiceByOccurrence: Map<string, Set<string>>;
   localRecords: LocalEventActivityRecord[];
   focusOccurrenceId?: string;
   eventFilter?: string;
@@ -90,9 +91,15 @@ function buildSections(inputs: ProgressInputs): ProgressSection[] {
   const eventById = new Map(inputs.events.map((event) => [event.eventId, event]));
   const occurrenceById = new Map(inputs.occurrences.map((occurrence) => [occurrence.occurrenceId, occurrence]));
   const statusByOccurrence = new Map(inputs.statusByOccurrence);
+  const selfServiceByOccurrence = new Map(inputs.selfServiceByOccurrence);
   const queuedByOccurrence = new Map<string, Set<string>>();
 
   inputs.localRecords.forEach((record) => {
+    if (record.method === 'SELF_SERVICE') {
+      const selfActivityIds = selfServiceByOccurrence.get(record.occurrenceId) ?? new Set<string>();
+      selfActivityIds.add(record.activityId);
+      selfServiceByOccurrence.set(record.occurrenceId, selfActivityIds);
+    }
     if (record.syncStatus === 'PENDING') {
       const queued = queuedByOccurrence.get(record.occurrenceId) ?? new Set<string>();
       queued.add(record.activityId);
@@ -129,7 +136,10 @@ function buildSections(inputs: ProgressInputs): ProgressSection[] {
             occurrence,
             statusByOccurrence.get(occurrenceId) ?? {},
             queuedByOccurrence.get(occurrenceId) ?? new Set(),
-          )
+          ).map((step) => ({
+            ...step,
+            isSelf: selfServiceByOccurrence.get(occurrenceId)?.has(step.activityId) ?? false,
+          }))
           : null,
       };
     })
@@ -182,6 +192,7 @@ export default function RiderProgressScreen({ riderId, eventId, occurrenceId, na
         ? [...occurrences, snapshotOccurrence]
         : occurrences,
       statusByOccurrence,
+      selfServiceByOccurrence: new Map(),
       localRecords,
       focusOccurrenceId: occurrenceId,
       eventFilter: eventId,
@@ -239,16 +250,23 @@ export default function RiderProgressScreen({ riderId, eventId, occurrenceId, na
       });
 
       const statusByOccurrence = new Map<string, StatusMap>();
+      const selfServiceByOccurrence = new Map<string, Set<string>>();
       progressOutcome.data.forEach((item) => {
         const statuses = statusByOccurrence.get(item.occurrenceId) ?? {};
         statuses[item.activityId] = item.status;
         statusByOccurrence.set(item.occurrenceId, statuses);
+        if (item.method === 'SELF_SERVICE') {
+          const selfActivityIds = selfServiceByOccurrence.get(item.occurrenceId) ?? new Set<string>();
+          selfActivityIds.add(item.activityId);
+          selfServiceByOccurrence.set(item.occurrenceId, selfActivityIds);
+        }
       });
 
       setSections(buildSections({
         events,
         occurrences,
         statusByOccurrence,
+        selfServiceByOccurrence,
         localRecords,
         focusOccurrenceId: occurrenceId,
         eventFilter: eventId,

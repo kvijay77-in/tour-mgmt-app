@@ -15,6 +15,7 @@ import {
   EventAssignment,
   EventDefinition,
   EventOccurrence,
+  EventRegistration,
   EventRecordMethod,
   EventType,
   RideStatus,
@@ -70,6 +71,8 @@ export interface CreateRideRequest {
     stageId: string;
     stageNumber: number;
     type: 'START' | 'PIT_STOP' | 'FINISH';
+    selfCheckInAllowed?: boolean;
+    selfNotRidingAllowed?: boolean;
     name: string;
     location?: string;
     distanceFromStart?: number;
@@ -83,6 +86,8 @@ export interface CreateRideRequest {
   openTime?: string;
   closeTime?: string;
   description?: string;
+  selfCheckInAllowed?: boolean | null;
+  selfQuitRidingAllowed?: boolean | null;
 }
 
 /**
@@ -109,6 +114,7 @@ export interface CreateTourRequest {
   endDate: string;
   rideCount: number;
   description?: string;
+  selfQuitRidingAllowed?: boolean;
 }
 
 /** Update tour definition (PUT /v1/tours/{tourId}). */
@@ -277,7 +283,8 @@ export interface CreateEventRequest {
   location: string;
   sequenceEnforced: boolean;
   defaultAllowedTypeCodes: string[];
-  allowSelfService?: boolean;
+  registrationEnabled?: boolean;
+  selfServiceAllowed?: boolean;
   notificationConfig?: {
     completionNotifyEnabled?: boolean;
     completionRuleId?: string;
@@ -294,13 +301,13 @@ export type UpdateEventRequest = Partial<Omit<CreateEventRequest, 'eventId'>>;
 export interface CreateOccurrenceRequest {
   date: string;
   seq: number;
-  selfServiceEnabled?: boolean;
+  selfServiceAllowed?: boolean | null;
   linkedOccurrenceRef?: string;
 }
 
 /** PUT /v1/tours/{tourId}/events/{eventId}/occurrences/{occurrenceId} */
 export interface UpdateOccurrenceRequest {
-  selfServiceEnabled?: boolean;
+  selfServiceAllowed?: boolean | null;
   linkedOccurrenceRef?: string | null;
 }
 
@@ -312,7 +319,7 @@ export interface CancelOccurrenceRequest {
 export interface UpsertActivityOverrideRequest {
   activityId: string;
   enabled?: boolean | null;
-  selfServiceEnabled?: boolean | null;
+  selfServiceAllowed?: boolean | null;
   skipped?: boolean | null;
   allowedTypeCodes?: string[] | null;
   note?: string | null;
@@ -347,14 +354,19 @@ export type DashboardActivityStatus = 'PENDING' | ActivityOutcome;
 
 export interface OccurrenceDashboardResponse {
   occurrence: EventOccurrence;
+  registrationEnabled?: boolean;
+  registeredCount?: number;
   riders: Array<{
     riderId: string;
+    registered?: boolean;
     activities: Array<{ activityId: string; status: DashboardActivityStatus }>;
   }>;
   cancelled: EventActivityRecord[];
 }
 
 export interface OccurrenceProgressResponse {
+  registrationEnabled?: boolean;
+  registeredCount?: number;
   totalRiders: number;
   completedCount: number;
   outstandingMandatoryCount: number;
@@ -374,7 +386,21 @@ export interface RiderEventProgressResponse {
     occurrenceId: string;
     activityId: string;
     status: DashboardActivityStatus;
+    method?: EventRecordMethod;
   }>;
+}
+
+export interface ListRegistrationsResponse {
+  occurrenceId: string;
+  registrationEnabled: boolean;
+  count: number;
+  items: EventRegistration[];
+}
+
+export interface UnregisterResponse {
+  occurrenceId: string;
+  riderId: string;
+  registered: false;
 }
 
 /** GET /v1/tours/{tourId}/events/bootstrap (ETag/304) */

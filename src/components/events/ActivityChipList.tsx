@@ -2,42 +2,49 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
-import { ActivityOverride, EventActivity, EventOccurrence } from '../../types/models';
-import { findActivityOverride, getEffectiveActivityEnabled } from '../../utils/eventActivity';
+import { ActivityOverride, EventActivity, EventDefinition, EventOccurrence } from '../../types/models';
+import {
+  findActivityOverride,
+  getEffectiveActivityEnabled,
+  getEffectiveSelfServiceAllowed,
+} from '../../utils/eventActivity';
 
 export interface ActivityChipListProps {
+  event: Pick<EventDefinition, 'selfServiceAllowed'>;
   activities: EventActivity[];
   /** When given, per-occurrence override badges are shown. */
-  occurrence?: Pick<EventOccurrence, 'activityOverrides' | 'selfServiceEnabled'> | null;
+  occurrence?: Pick<EventOccurrence, 'activityOverrides' | 'selfServiceAllowed'> | null;
 }
 
 /** Badges for overrides that change the effective value on this occurrence only. */
 export function getOverrideBadges(
-  activity: Pick<EventActivity, 'enabled'>,
+  activity: Pick<EventActivity, 'enabled' | 'selfServiceAllowed'>,
   override: ActivityOverride | undefined,
-  occurrence: Pick<EventOccurrence, 'selfServiceEnabled'> | null | undefined,
+  event: Pick<EventDefinition, 'selfServiceAllowed'>,
+  occurrence: Pick<EventOccurrence, 'selfServiceAllowed'> | null | undefined,
 ): string[] {
-  if (!override) return [];
   const badges: string[] = [];
-  if (typeof override.enabled === 'boolean' && override.enabled !== activity.enabled) {
+  if (override && typeof override.enabled === 'boolean' && override.enabled !== activity.enabled) {
     badges.push(override.enabled ? 'Enabled (this day only)' : 'Disabled (this day only)');
   }
-  if (
-    typeof override.selfServiceEnabled === 'boolean'
-    && override.selfServiceEnabled !== Boolean(occurrence?.selfServiceEnabled)
-  ) {
-    badges.push(override.selfServiceEnabled ? 'Self-service (this day only)' : 'No self-service (this day only)');
+  const selfServiceAllowed = getEffectiveSelfServiceAllowed(event, activity, occurrence, override);
+  badges.push(selfServiceAllowed ? 'Self-service allowed' : 'Self-service not allowed');
+  if (typeof override?.selfServiceAllowed === 'boolean') {
+    const inherited = getEffectiveSelfServiceAllowed(event, activity, occurrence);
+    if (override.selfServiceAllowed !== inherited) {
+      badges.push(override.selfServiceAllowed ? 'Allowed (this day only)' : 'Not allowed (this day only)');
+    }
   }
-  if (override.skipped === true) {
+  if (override?.skipped === true) {
     badges.push('Skipped (this day only)');
   }
-  if (Array.isArray(override.allowedTypeCodes)) {
+  if (Array.isArray(override?.allowedTypeCodes)) {
     badges.push('ID types narrowed (this day only)');
   }
   return badges;
 }
 
-export default function ActivityChipList({ activities, occurrence }: ActivityChipListProps) {
+export default function ActivityChipList({ event, activities, occurrence }: ActivityChipListProps) {
   const sorted = [...activities].sort((a, b) => a.sequenceNo - b.sequenceNo);
 
   if (sorted.length === 0) {
@@ -49,7 +56,7 @@ export default function ActivityChipList({ activities, occurrence }: ActivityChi
       {sorted.map((activity) => {
         const override = occurrence ? findActivityOverride(occurrence, activity.activityId) : undefined;
         const enabled = getEffectiveActivityEnabled(activity, override);
-        const badges = getOverrideBadges(activity, override, occurrence);
+        const badges = getOverrideBadges(activity, override, event, occurrence);
         return (
           <View key={activity.activityId} style={[styles.chip, !enabled && styles.chipDisabled]}>
             <View style={styles.chipRow}>

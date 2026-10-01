@@ -1,6 +1,6 @@
 # Using the Tour Management app
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-10-01_
 
 This guide is for organizers and staff using the app during a tour. Your organizer decides which role and tours you can access. If a tile or action is missing, ask an Administrator to check your role and assignment.
 
@@ -33,11 +33,11 @@ Home shows only the tasks available to you: **Ride Day**, **Events**, **Hotels &
 
 ### Plan tours and rides
 
-Open **Define/Update Tour** to create or update a tour and its dated rides. Add stages in riding order, choose any pit stops and float options, and review before saving. Use **Ride status management** to move a ride through its available states; a closed or historical ride is not open for new check-ins. During today's ride, use **Pit Stop management** in the ride menu to open or close an eligible pit stop.
+Open **Define/Update Tour** to create or update a tour and its dated rides. The tour switch controls whether riders may self check-in as Quit Riding by default. Each ride has locked Start and Finish stages; add, edit, move or remove only the Pit Stops between them. Ride and stage Self check-in controls show the resulting Allowed/Not allowed value. Start also has a Self Not Riding switch, which applies only while the ride is Open. If the editor warns that stored Start/Finish stages are missing, duplicated or misplaced, saving is blocked; ask the backend administrator to correct the ride data. Use **Ride status management** to move a ride through its available states; a closed or historical ride is not open for new check-ins. During today's ride, use **Pit Stop management** in the ride menu to open or close an eligible pit stop.
 
 ### Manage events, hotels and riders
 
-Use **Event definitions** to set up activities, then **Events** to manage dated occurrences and view their progress. In **Hotels & Baggage**, maintain hotels, review rooms for a night, adjust a rider's allocation or upload an allocation file. Review all reported file errors if an upload is rejected; no partial allocation should be applied. **Rider exit** records a departure and any applicable baggage disposition. An exited rider remains visible in past progress but cannot be checked in again.
+Use **Event definitions** to set up activities, choose whether registration is required, and configure whether riders may self-serve. Registration is off by default; when off, all riders on the tour count as registered. When registration is enabled, open **Registrations** for an occurrence to search riders and register or unregister them. Changes are online-only and allowed only while the occurrence is planned; afterward the list is read-only. Activity self-service follows the event by default, and can be allowed or disallowed per activity; occurrence settings and per-activity adjustments take precedence. Use **Events** to manage dated occurrences and view their progress. The dashboard shows the registered count and marks riders who are not registered. In **Hotels & Baggage**, maintain hotels, review rooms for a night, adjust a rider's allocation or upload an allocation file. Review all reported file errors if an upload is rejected; no partial allocation should be applied. **Rider exit** records a departure and any applicable baggage disposition. An exited rider remains visible in past progress but cannot be checked in again.
 
 ### Manage people, files and messages
 
@@ -63,7 +63,7 @@ Use the **Ride Day** dashboard to follow current and past ride progress without 
 
 ## Follow a ride on the dashboard
 
-Open **Ride Day → Dashboard**. Each rider tile shows an ID; the legend explains stage colors. The default grid shows the latest known stage. A **Float** badge means the rider will join at a later stage, not that they have arrived; **Not Riding** and **Quit Riding** have distinct colors, and **X** marks a rider who exited the tour. Stage counts include riders who passed that point.
+Open **Ride Day → Dashboard**. Each rider tile shows an ID; the legend explains stage colors. The default grid shows the latest known stage. A **Self** badge marks a latest check-in submitted by the rider. A **Float** badge means the rider will join at a later stage, not that they have arrived; **Not Riding** and **Quit Riding** have distinct colors, and **X** marks a rider who exited the tour. Stage counts include riders who passed that point.
 
 Tap a stage to compare every rider with that stage; tap again to return to the whole ride. Sort by stage or rider ID and zoom to see more rider details where available. Tap a tile for the rider card and check-in history. Choose a past ride to look back; it is read-only. The **Log** tab lists recorded entries and, where allowed, provides a cancellation action.
 
@@ -75,7 +75,7 @@ Tap a stage to compare every rider with that stage; tap again to return to the w
 
 Open **Ride Day → Check-In**, confirm today's ride and stage, choose the available check-in type and scan the rider's code. Review the confirmation before moving on. At Start, organizers may mark a rider **Not Riding** before departure or **Float** to a configured later stage. After departure, eligible staff may record **Quit Riding**. Where a manual option is shown, enter the rider ID when scanning is unavailable. An unfamiliar code, ineligible rider, wrong stage or conflicting status will not be accepted.
 
-To correct an entry, open **Ride Day → Log**, choose the entry and use **Cancel** when available, then confirm. For conflicting Start decisions, follow the **Override or Cancel** prompt; do not repeat the scan until the old decision has been cancelled. These corrections require a connection.
+To correct an entry, open **Ride Day → Log**, choose the entry and use **Cancel** when available, then confirm. The log marks rider-submitted entries as **Self**. **Only staff can cancel Quit Riding; before confirming, make sure the rider is safe and fit to resume.** For conflicting Start decisions, follow the **Override or Cancel** prompt; do not repeat the scan until the old decision has been cancelled. These corrections require a connection.
 
 ```mermaid
 flowchart LR

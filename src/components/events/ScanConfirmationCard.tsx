@@ -10,8 +10,6 @@ export interface ScanConfirmationCardProps {
   riderNameIsAnomaly?: boolean;
   activityName: string;
   bagLabel?: string | null;
-  /** Informational only (D-B) */
-  selfService: boolean;
   overrideNote?: string | null;
   variantOptions: string[];
   selectedVariant: string | null;
@@ -32,7 +30,6 @@ export default function ScanConfirmationCard({
   riderNameIsAnomaly = false,
   activityName,
   bagLabel,
-  selfService,
   overrideNote,
   variantOptions,
   selectedVariant,
@@ -66,9 +63,8 @@ export default function ScanConfirmationCard({
           <Text style={styles.value}>{bagLabel}</Text>
         </View>
       ) : null}
-      {selfService || overrideNote ? (
+      {overrideNote ? (
         <View style={styles.badgeRow}>
-          {selfService ? <Text style={styles.badge}>Self-service</Text> : null}
           {overrideNote ? <Text style={styles.note}>{overrideNote}</Text> : null}
         </View>
       ) : null}

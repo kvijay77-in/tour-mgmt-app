@@ -60,15 +60,41 @@ export function getEffectiveAllowedTypeCodes(
   return base.filter((code) => narrowed.has(code.toUpperCase()));
 }
 
-/** Display only — self-service never changes scan logic. */
-export function getEffectiveSelfService(
-  occurrence: Pick<EventOccurrence, 'selfServiceEnabled'> | null | undefined,
-  override?: ActivityOverride | null,
-): boolean {
-  if (typeof override?.selfServiceEnabled === 'boolean') {
-    return override.selfServiceEnabled;
+export type SelfServiceAllowedSource = 'override' | 'occurrence' | 'activity' | 'event' | 'default';
+
+export interface EffectiveSelfServiceAllowed {
+  allowed: boolean;
+  source: SelfServiceAllowedSource;
+}
+
+export function getEffectiveSelfServiceAllowedWithSource(
+  event: Pick<EventDefinition, 'selfServiceAllowed'>,
+  activity: Pick<EventActivity, 'selfServiceAllowed'>,
+  occurrence?: Pick<EventOccurrence, 'selfServiceAllowed'> | null,
+  override?: Pick<ActivityOverride, 'selfServiceAllowed'> | null,
+): EffectiveSelfServiceAllowed {
+  if (typeof override?.selfServiceAllowed === 'boolean') {
+    return { allowed: override.selfServiceAllowed, source: 'override' };
   }
-  return Boolean(occurrence?.selfServiceEnabled);
+  if (typeof occurrence?.selfServiceAllowed === 'boolean') {
+    return { allowed: occurrence.selfServiceAllowed, source: 'occurrence' };
+  }
+  if (typeof activity.selfServiceAllowed === 'boolean') {
+    return { allowed: activity.selfServiceAllowed, source: 'activity' };
+  }
+  if (typeof event.selfServiceAllowed === 'boolean') {
+    return { allowed: event.selfServiceAllowed, source: 'event' };
+  }
+  return { allowed: false, source: 'default' };
+}
+
+export function getEffectiveSelfServiceAllowed(
+  event: Pick<EventDefinition, 'selfServiceAllowed'>,
+  activity: Pick<EventActivity, 'selfServiceAllowed'>,
+  occurrence?: Pick<EventOccurrence, 'selfServiceAllowed'> | null,
+  override?: Pick<ActivityOverride, 'selfServiceAllowed'> | null,
+): boolean {
+  return getEffectiveSelfServiceAllowedWithSource(event, activity, occurrence, override).allowed;
 }
 
 export function nextActivityId(activities: ReadonlyArray<Pick<EventActivity, 'activityId'>>): string {

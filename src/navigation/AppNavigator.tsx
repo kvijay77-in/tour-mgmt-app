@@ -39,6 +39,7 @@ import EventsHomeScreen from '../screens/events/EventsHomeScreen';
 import EventDefinitionListScreen from '../screens/events/EventDefinitionListScreen';
 import EventDefinitionEditorScreen from '../screens/events/EventDefinitionEditorScreen';
 import OccurrenceManagementScreen from '../screens/events/OccurrenceManagementScreen';
+import OccurrenceRegistrationsScreen from '../screens/events/OccurrenceRegistrationsScreen';
 import EventScanScreen from '../screens/events/EventScanScreen';
 import OccurrenceDashboardScreen from '../screens/events/OccurrenceDashboardScreen';
 import BaggageReconciliationScreen from '../screens/events/BaggageReconciliationScreen';
@@ -133,6 +134,16 @@ function EventDefinitionEditorRoute({ route, navigation }: NativeStackScreenProp
 
 function OccurrenceManagementRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'OccurrenceManagement'>) {
   return <OccurrenceManagementScreen eventId={route.params.eventId} navigation={navigation} />;
+}
+
+function OccurrenceRegistrationsRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'OccurrenceRegistrations'>) {
+  return (
+    <OccurrenceRegistrationsScreen
+      eventId={route.params.eventId}
+      occurrenceId={route.params.occurrenceId}
+      navigation={navigation}
+    />
+  );
 }
 
 function EventScanRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'EventScan'>) {
@@ -328,6 +339,9 @@ function AppStack() {
       )}
       {can(Permission.MANAGE_EVENT_OCCURRENCES) && (
         <Stack.Screen name="OccurrenceManagement" component={OccurrenceManagementRoute} />
+      )}
+      {can(Permission.MANAGE_EVENT_REGISTRATIONS) && (
+        <Stack.Screen name="OccurrenceRegistrations" component={OccurrenceRegistrationsRoute} />
       )}
       {can(Permission.EVENT_SCAN) && <Stack.Screen name="EventScan" component={EventScanRoute} />}
       {can(Permission.VIEW_DASHBOARD) && (
