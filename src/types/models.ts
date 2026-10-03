@@ -69,6 +69,7 @@ export enum CheckInMethod {
   QR_SCAN = 'QR_SCAN',
   MANUAL = 'MANUAL',
   FALLBACK = 'FALLBACK',
+  SELF_SERVICE = 'SELF_SERVICE',
 }
 
 /**
@@ -130,6 +131,9 @@ export interface Tour {
 
   /** Tour description */
   description?: string;
+
+  /** Whether riders may self-check-in as Quit Riding by default */
+  selfQuitRidingAllowed?: boolean;
 
   /** Timestamp when tour tables were provisioned */
   provisionedAt?: string;
@@ -284,6 +288,12 @@ export interface Stage {
   
   /** Stage type */
   type: StageType;
+
+  /** Overrides the ride-level self check-in setting for this stage */
+  selfCheckInAllowed?: boolean;
+
+  /** Whether riders may self-report Not Riding at the Start stage */
+  selfNotRidingAllowed?: boolean;
   
   /** Stage name/label */
   name: string;
@@ -340,6 +350,12 @@ export interface Ride {
 
   /** Optional description */
   description?: string;
+
+  /** Ride-level default for self check-in at stages */
+  selfCheckInAllowed?: boolean;
+
+  /** Ride-level override for the tour's Quit Riding setting */
+  selfQuitRidingAllowed?: boolean;
   
   /** Total distance (in km) */
   totalDistance: number;
@@ -490,7 +506,7 @@ export enum ActivityOutcome {
   FLAGGED = 'FLAGGED',
 }
 
-export type EventRecordMethod = 'QR_SCAN' | 'MANUAL';
+export type EventRecordMethod = 'QR_SCAN' | 'MANUAL' | 'SELF_SERVICE';
 
 export enum BaggageStatus {
   ACTIVE = 'ACTIVE',
@@ -516,6 +532,8 @@ export interface EventActivity {
   restrictToAssignedUsers: boolean;
   variantOptions: string[];
   notes: string;
+  /** Overrides the event-level rider self-service setting */
+  selfServiceAllowed?: boolean;
 }
 
 export interface EventDefinition {
@@ -526,8 +544,10 @@ export interface EventDefinition {
   location: string;
   sequenceEnforced: boolean;
   defaultAllowedTypeCodes: string[];
-  /** Informational only; never changes scan logic */
-  allowSelfService: boolean;
+  /** Whether riders must register for occurrences of this event */
+  registrationEnabled?: boolean;
+  /** Default permission for riders to self-serve event activities */
+  selfServiceAllowed?: boolean;
   notificationConfig?: {
     completionNotifyEnabled?: boolean;
     completionRuleId?: string;
@@ -544,7 +564,7 @@ export interface EventDefinition {
 export interface ActivityOverride {
   activityId: string;
   enabled?: boolean | null;
-  selfServiceEnabled?: boolean | null;
+  selfServiceAllowed?: boolean | null;
   skipped?: boolean | null;
   /** Narrows the activity's effective allowed type codes for this occurrence only */
   allowedTypeCodes?: string[] | null;
@@ -563,7 +583,7 @@ export interface EventOccurrence {
   seq: number;
   status: OccurrenceStatus;
   activityOverrides: ActivityOverride[];
-  selfServiceEnabled: boolean;
+  selfServiceAllowed?: boolean | null;
   linkedOccurrenceRef?: string | null;
   restrictToAssignedUsers?: boolean;
   startedAt?: string | null;
@@ -574,6 +594,16 @@ export interface EventOccurrence {
   createdAt?: string;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+export interface EventRegistration {
+  occurrenceId?: string;
+  riderId: string;
+  eventId?: string;
+  name?: string;
+  registeredAt: string;
+  registeredBy: string;
+  source: 'RIDER' | 'STAFF';
 }
 
 export interface EventActivityRecord {
@@ -687,6 +717,7 @@ export enum Permission {
   // Event engine (backend EVENT_MANAGE, EVENT_OCCURRENCE_MANAGE, EVENT_SCAN, HOTEL_ALLOC_MANAGE, USER_MANAGE, RIDER_EXIT)
   MANAGE_EVENTS = 'MANAGE_EVENTS',
   MANAGE_EVENT_OCCURRENCES = 'MANAGE_EVENT_OCCURRENCES',
+  MANAGE_EVENT_REGISTRATIONS = 'MANAGE_EVENT_REGISTRATIONS',
   EVENT_SCAN = 'EVENT_SCAN',
   MANAGE_HOTEL_ALLOCATIONS = 'MANAGE_HOTEL_ALLOCATIONS',
   MANAGE_TOUR_USERS = 'MANAGE_TOUR_USERS',

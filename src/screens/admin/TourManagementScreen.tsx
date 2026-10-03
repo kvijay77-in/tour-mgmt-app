@@ -4,6 +4,7 @@ import {
   ScrollView,
   SafeAreaView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -13,10 +14,31 @@ import { COLORS } from '../../constants/colors';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { createTour, getTourById, listTours, provisionTour, reprovisionTour, updateTour } from '../../services/api/tourApi';
 import { createRide, listRides, updateRide } from '../../services/api/rideApi';
-import { CreateRideRequest, CreateTourRequest } from '../../types/api';
+import { CreateTourRequest } from '../../types/api';
 import { Ride, RideStatus, StageType, Tour } from '../../types/models';
 import { logger } from '../../utils/logger';
 import ConfirmDialog from '../../components/artifacts/ConfirmDialog';
+import {
+  addPitStop as addRidePitStop,
+  createRideDraft,
+  isRideDirty,
+  movePitStop,
+  removePitStop as removeRidePitStop,
+  ridePayload,
+  toRideDraft,
+  validateRide,
+  RideDraft,
+  StageDraft,
+} from '../../utils/rideEditor';
+import {
+  getSelfQuitRidingSource,
+  getStageSelfCheckInSource,
+  resolveSelfQuitRiding,
+  resolveStageSelfCheckIn,
+  triStateToBoolean,
+  TriState,
+} from '../../utils/rideSelfService';
+import { getEventErrorMessage } from '../../constants/eventMessages';
 
 const TAG = 'TourManagementScreen';
 
@@ -27,39 +49,13 @@ interface TourForm {
   endDate: string;
   rideCount: string;
   description: string;
+  selfQuitRidingAllowed: boolean;
 }
 
 interface TourManagementScreenProps {
   readOnly: boolean;
   onClose: () => void;
 }
-
-interface StageDraft {
-  name: string;
-  location: string;
-  distanceFromStart: string;
-  estimatedOpenTime: string;
-  pitStopDuration: string;
-}
-
-interface RideDraft {
-  rideId: string;
-  date: string;
-  name: string;
-  startLocation: string;
-  finishLocation: string;
-  description?: string;
-  status: RideStatus;
-  startedAt?: string;
-  completedAt?: string;
-  floats?: Ride['floats'];
-  rideNo: number;
-  totalDistance: number;
-  openTime: string;
-  closeTime: string;
-  flagOffTime: string;
-  stages: StageDraft[];
-};
 
 export default function TourManagementScreen({ readOnly, onClose }: TourManagementScreenProps) {
   const [tours, setTours] = useState<Tour[]>([]);
@@ -122,7 +118,7 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
         const loadedRides = await listRides(tourId);
         const nextRides = fillRideDrafts(loadedRides, selectedTour.rideCount);
         setRides(nextRides);
-        setRideBaselines(Object.fromEntries(loadedRides.map((ride) => [ride.rideId, JSON.stringify(ridePayload(ride))])));
+        setRideBaselines(Object.fromEntries(loadedRides.map((ride) => [ride.rideId, JSON.stringify(ridePayload(toRideDraft(ride)))])));
         setActiveRideIndex(0);
         setRidesAvailable(Boolean(selectedTour.provisionedAt));
       } catch (err) {
@@ -258,22 +254,39 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
   const updateStageField = useCallback((stageIndex: number, field: keyof StageDraft, value: string) => {
     setRides((current) => current.map((ride, index) => index === activeRideIndex ? {
       ...ride,
-      stages: ride.stages.map((stage, currentIndex) => currentIndex === stageIndex ? { ...stage, [field]: value } : stage),
+      pitStops: ride.pitStops.map((stage, currentIndex) => currentIndex === stageIndex ? { ...stage, [field]: value } : stage),
+    } : ride));
+  }, [activeRideIndex]);
+
+  const updateStagePolicy = useCallback((stage: 'start' | 'finish', value: TriState) => {
+    setRides((current) => current.map((ride, index) => index === activeRideIndex
+      ? { ...ride, [stage]: { ...ride[stage], selfCheckIn: value } }
+      : ride));
+  }, [activeRideIndex]);
+
+  const updatePitStopPolicy = useCallback((stageIndex: number, value: TriState) => {
+    setRides((current) => current.map((ride, index) => index === activeRideIndex ? {
+      ...ride,
+      pitStops: ride.pitStops.map((stage, currentIndex) => currentIndex === stageIndex ? { ...stage, selfCheckIn: value } : stage),
     } : ride));
   }, [activeRideIndex]);
 
   const addPitStop = useCallback(() => {
     setRides((current) => current.map((ride, index) => index === activeRideIndex ? {
-      ...ride,
-      stages: [...ride.stages, emptyStage()],
+      ...addRidePitStop(ride),
     } : ride));
   }, [activeRideIndex]);
 
   const removePitStop = useCallback((stageIndex: number) => {
     setRides((current) => current.map((ride, index) => index === activeRideIndex ? {
-      ...ride,
-      stages: ride.stages.filter((_stage, currentIndex) => currentIndex !== stageIndex),
+      ...removeRidePitStop(ride, stageIndex),
     } : ride));
+  }, [activeRideIndex]);
+
+  const reorderPitStop = useCallback((stageIndex: number, direction: 'up' | 'down') => {
+    setRides((current) => current.map((ride, index) => index === activeRideIndex
+      ? movePitStop(ride, stageIndex, direction)
+      : ride));
   }, [activeRideIndex]);
 
   const saveRide = useCallback(async (ride: RideDraft): Promise<Ride | null> => {
@@ -291,7 +304,7 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
         : await createRide(form.tourId, payload);
       const nextRide = toRideDraft(savedRide);
       setRides((current) => current.map((item) => item.rideId === ride.rideId ? nextRide : item));
-      setRideBaselines((current) => ({ ...current, [savedRide.rideId]: JSON.stringify(ridePayload(savedRide)) }));
+      setRideBaselines((current) => ({ ...current, [savedRide.rideId]: JSON.stringify(ridePayload(nextRide)) }));
       return savedRide;
     } catch (err) {
       logger.error(TAG, `Failed to save ride ${ride.rideId}`, err);
@@ -304,6 +317,12 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
 
   const saveAll = useCallback(async () => {
     if (readOnly || !tour) return;
+    const invalidRideIndex = rides.findIndex((ride) => ride.layoutIssue !== null);
+    if (invalidRideIndex >= 0) {
+      setActiveRideIndex(invalidRideIndex);
+      setRideError(`Save All stopped at ${rides[invalidRideIndex].rideId}: ${rides[invalidRideIndex].layoutIssue}`);
+      return;
+    }
     const tourValidationError = validateTourForm(form);
     if (tourValidationError) {
       setError(tourValidationError);
@@ -385,6 +404,17 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
           </View>
           <Field label="Ride count" value={form.rideCount} onChangeText={(value) => updateField('rideCount', value)} keyboardType="numeric" disabled={readOnly || isSaving} />
           <Field label="Description (optional)" value={form.description} onChangeText={(value) => updateField('description', value)} disabled={readOnly || isSaving} multiline />
+          <View style={styles.switchRow}>
+            <View style={styles.switchCopy}>
+              <Text style={styles.label}>Riders may self check-in as Quit Riding</Text>
+            </View>
+            <Switch
+              value={form.selfQuitRidingAllowed}
+              onValueChange={(value) => setForm((current) => ({ ...current, selfQuitRidingAllowed: value }))}
+              disabled={readOnly || isSaving}
+              accessibilityLabel="Riders may self check-in as Quit Riding"
+            />
+          </View>
 
           {tour && <View style={styles.statusBox}>
             <Text style={styles.statusText}>Status: {tour.status}</Text>
@@ -439,25 +469,111 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
               <Field label="Flag-off time" value={activeRide.flagOffTime} onChangeText={(value) => updateRideField('flagOffTime', value)} disabled={!canEditActiveRide || isSaving} />
               <Field label="Close time" value={activeRide.closeTime} onChangeText={(value) => updateRideField('closeTime', value)} disabled={!canEditActiveRide || isSaving} />
             </View>
+            <View style={styles.policySection}>
+              <TriStateControl
+                label="Self check-in at stages"
+                value={activeRide.selfCheckIn}
+                choices={['Default', 'Allowed', 'Not allowed']}
+                onChange={(value) => setRides((current) => current.map((ride, index) => index === activeRideIndex ? { ...ride, selfCheckIn: value } : ride))}
+                disabled={!canEditActiveRide || isSaving}
+              />
+              <Text style={styles.hint}>Default removes the saved ride override.</Text>
+              <TriStateControl
+                label="Self Quit Riding"
+                value={activeRide.selfQuitRiding}
+                choices={['Follow tour setting', 'Allowed', 'Not allowed']}
+                onChange={(value) => setRides((current) => current.map((ride, index) => index === activeRideIndex ? { ...ride, selfQuitRiding: value } : ride))}
+                disabled={!canEditActiveRide || isSaving}
+              />
+              <Text style={styles.resultText}>{quitRidingSummary(activeRide.selfQuitRiding, tour?.selfQuitRidingAllowed ?? false)}</Text>
+            </View>
             <View style={styles.statusBox}>
               <Text style={styles.statusText}>Status: {activeRide.status}</Text>
               {activeRide.startedAt && <Text style={styles.statusText}>Started: {activeRide.startedAt}</Text>}
               {activeRide.completedAt && <Text style={styles.statusText}>Completed: {activeRide.completedAt}</Text>}
             </View>
+            {activeRide.layoutIssue && (
+              <Text style={styles.layoutWarning} accessibilityRole="alert">
+                {activeRide.layoutIssue} Saving is blocked; correct the ride data in the backend.
+              </Text>
+            )}
+            <View style={styles.stageCard}>
+              <View style={styles.stageTitleRow}>
+                <Text style={styles.stageTitle}>{activeRide.start.original?.name ?? 'Start'}</Text>
+                <Text style={styles.lockedBadge}>Locked</Text>
+              </View>
+              {activeRide.start.original?.location && <Text style={styles.statusText}>Location: {activeRide.start.original.location}</Text>}
+              <TriStateControl
+                label="Self check-in"
+                value={activeRide.start.selfCheckIn}
+                choices={['Follow ride', 'Allowed', 'Not allowed']}
+                onChange={(value) => updateStagePolicy('start', value)}
+                disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)}
+              />
+              <Text style={styles.resultText}>{stageCheckInSummary(StageType.START, activeRide.start.selfCheckIn, activeRide.selfCheckIn)}</Text>
+              <View style={styles.switchRow}>
+                <Text style={styles.label}>Self Not Riding</Text>
+                <Switch
+                  value={activeRide.start.selfNotRiding}
+                  onValueChange={(value) => setRides((current) => current.map((ride, index) => index === activeRideIndex
+                    ? { ...ride, start: { ...ride.start, selfNotRiding: value } }
+                    : ride))}
+                  disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)}
+                  accessibilityLabel="Self Not Riding"
+                />
+              </View>
+              <Text style={styles.hint}>Applies only while the ride is Open.</Text>
+            </View>
             <View style={styles.stageHeader}>
               <Text style={styles.sectionTitle}>Pit stops</Text>
-              {canEditActiveRide && <TouchableOpacity onPress={addPitStop}><Text style={styles.addText}>+ Add pit stop</Text></TouchableOpacity>}
+              {canEditActiveRide && !activeRide.layoutIssue && <TouchableOpacity onPress={addPitStop}><Text style={styles.addText}>+ Add pit stop</Text></TouchableOpacity>}
             </View>
-            {activeRide.stages.map((stage, index) => <View style={styles.stageRow} key={`${activeRide.rideId}-stage-${index}`}>
-              <Field label="Name" value={stage.name} onChangeText={(value) => updateStageField(index, 'name', value)} disabled={!canEditActiveRide || isSaving} />
-              <Field label="Location" value={stage.location} onChangeText={(value) => updateStageField(index, 'location', value)} disabled={!canEditActiveRide || isSaving} />
-              <Field label="Distance" value={stage.distanceFromStart} onChangeText={(value) => updateStageField(index, 'distanceFromStart', value)} keyboardType="numeric" disabled={!canEditActiveRide || isSaving} />
-              <Field label="Open offset (min)" value={stage.estimatedOpenTime} onChangeText={(value) => updateStageField(index, 'estimatedOpenTime', value)} keyboardType="numeric" disabled={!canEditActiveRide || isSaving} />
-              <Field label="Duration (min)" value={stage.pitStopDuration} onChangeText={(value) => updateStageField(index, 'pitStopDuration', value)} keyboardType="numeric" disabled={!canEditActiveRide || isSaving} />
-              {canEditActiveRide && <TouchableOpacity style={styles.removeButton} onPress={() => removePitStop(index)}><Text style={styles.removeText}>-</Text></TouchableOpacity>}
+            {activeRide.pitStops.map((stage, index) => <View style={styles.stageCard} key={`${activeRide.rideId}-pit-${stage.stageId ?? index}`}>
+              <Text style={styles.stageTitle}>Pit stop {index + 1}</Text>
+              <View style={styles.stageRow}>
+                <Field label="Name" value={stage.name} onChangeText={(value) => updateStageField(index, 'name', value)} disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)} />
+                <Field label="Location" value={stage.location} onChangeText={(value) => updateStageField(index, 'location', value)} disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)} />
+                <Field label="Distance" value={stage.distanceFromStart} onChangeText={(value) => updateStageField(index, 'distanceFromStart', value)} keyboardType="numeric" disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)} />
+                <Field label="Open offset (min)" value={stage.estimatedOpenTime} onChangeText={(value) => updateStageField(index, 'estimatedOpenTime', value)} keyboardType="numeric" disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)} />
+                <Field label="Duration (min)" value={stage.pitStopDuration} onChangeText={(value) => updateStageField(index, 'pitStopDuration', value)} keyboardType="numeric" disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)} />
+              </View>
+              <TriStateControl
+                label="Self check-in"
+                value={stage.selfCheckIn}
+                choices={['Follow ride', 'Allowed', 'Not allowed']}
+                onChange={(value) => updatePitStopPolicy(index, value)}
+                disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)}
+              />
+              <Text style={styles.resultText}>{stageCheckInSummary(StageType.PIT_STOP, stage.selfCheckIn, activeRide.selfCheckIn)}</Text>
+              {canEditActiveRide && !activeRide.layoutIssue && <View style={styles.stageActions}>
+                <TouchableOpacity onPress={() => reorderPitStop(index, 'up')} disabled={index === 0 || isSaving} accessibilityRole="button" accessibilityLabel={`Move pit stop ${index + 1} up`}>
+                  <Text style={[styles.actionLink, (index === 0 || isSaving) && styles.mutedText]}>Move up</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => reorderPitStop(index, 'down')} disabled={index === activeRide.pitStops.length - 1 || isSaving} accessibilityRole="button" accessibilityLabel={`Move pit stop ${index + 1} down`}>
+                  <Text style={[styles.actionLink, (index === activeRide.pitStops.length - 1 || isSaving) && styles.mutedText]}>Move down</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.removeButton} onPress={() => removePitStop(index)} disabled={isSaving}>
+                  <Text style={styles.removeText}>Remove</Text>
+                </TouchableOpacity>
+              </View>}
             </View>)}
+            <View style={styles.stageCard}>
+              <View style={styles.stageTitleRow}>
+                <Text style={styles.stageTitle}>{activeRide.finish.original?.name ?? 'Finish'}</Text>
+                <Text style={styles.lockedBadge}>Locked</Text>
+              </View>
+              {activeRide.finish.original?.location && <Text style={styles.statusText}>Location: {activeRide.finish.original.location}</Text>}
+              <TriStateControl
+                label="Self check-in"
+                value={activeRide.finish.selfCheckIn}
+                choices={['Follow ride', 'Allowed', 'Not allowed']}
+                onChange={(value) => updateStagePolicy('finish', value)}
+                disabled={!canEditActiveRide || isSaving || Boolean(activeRide.layoutIssue)}
+              />
+              <Text style={styles.resultText}>{stageCheckInSummary(StageType.FINISH, activeRide.finish.selfCheckIn, activeRide.selfCheckIn)}</Text>
+            </View>
             {!readOnly && <View style={styles.actions}>
-              <TouchableOpacity style={[styles.actionButton, (!canEditActiveRide || !isRideDirty(activeRide, rideBaselines) || isSaving) && styles.disabledButton]} onPress={() => void saveRide(activeRide)} disabled={!canEditActiveRide || !isRideDirty(activeRide, rideBaselines) || isSaving}>
+              <TouchableOpacity style={[styles.actionButton, (!canEditActiveRide || Boolean(activeRide.layoutIssue) || !isRideDirty(activeRide, rideBaselines[activeRide.rideId]) || isSaving) && styles.disabledButton]} onPress={() => void saveRide(activeRide)} disabled={!canEditActiveRide || Boolean(activeRide.layoutIssue) || !isRideDirty(activeRide, rideBaselines[activeRide.rideId]) || isSaving}>
                 <Text style={styles.actionText}>Save ride</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.actionButton, isSaving && styles.disabledButton]} onPress={() => void saveAll()} disabled={isSaving}>
@@ -482,54 +598,30 @@ export default function TourManagementScreen({ readOnly, onClose }: TourManageme
 }
 
 function emptyForm(): TourForm {
-  return { tourId: '', name: '', startDate: '', endDate: '', rideCount: '1', description: '' };
+  return { tourId: '', name: '', startDate: '', endDate: '', rideCount: '1', description: '', selfQuitRidingAllowed: false };
 }
 
 function formFromTour(tour: Tour): TourForm {
-  return { tourId: tour.tourId, name: tour.name, startDate: tour.startDate, endDate: tour.endDate, rideCount: String(tour.rideCount), description: tour.description ?? '' };
-}
-
-function requestFromForm(form: TourForm): CreateTourRequest {
-  return { tourId: form.tourId.trim(), name: form.name.trim(), startDate: form.startDate.trim(), endDate: form.endDate.trim(), rideCount: Number(form.rideCount), ...(form.description.trim() ? { description: form.description.trim() } : {}) };
-}
-
-function emptyStage(): StageDraft {
-  return { name: '', location: '', distanceFromStart: '', estimatedOpenTime: '', pitStopDuration: '' };
-}
-
-function toRideDraft(ride: Ride): RideDraft {
   return {
-    ...ride,
-    rideNo: ride.rideNo ?? 0,
-    totalDistance: ride.totalDistance ?? 0,
-    openTime: ride.openTime ?? '',
-    closeTime: ride.closeTime ?? '',
-    flagOffTime: ride.flagOffTime ?? '',
-    stages: ride.stages.filter((stage) => stage.type === StageType.PIT_STOP).map((stage) => ({
-      name: stage.name,
-      location: stage.location ?? '',
-      distanceFromStart: stage.distanceFromStart === undefined ? '' : String(stage.distanceFromStart),
-      estimatedOpenTime: stage.estimatedOpenTime === undefined ? '' : String(stage.estimatedOpenTime),
-      pitStopDuration: stage.pitStopDuration === undefined ? '' : String(stage.pitStopDuration),
-    })),
+    tourId: tour.tourId,
+    name: tour.name,
+    startDate: tour.startDate,
+    endDate: tour.endDate,
+    rideCount: String(tour.rideCount),
+    description: tour.description ?? '',
+    selfQuitRidingAllowed: tour.selfQuitRidingAllowed ?? false,
   };
 }
 
-function createRideDraft(rideId: string): RideDraft {
+function requestFromForm(form: TourForm): CreateTourRequest {
   return {
-    rideId,
-    date: '',
-    name: '',
-    startLocation: '',
-    finishLocation: '',
-    description: '',
-    totalDistance: 0,
-    flagOffTime: '',
-    openTime: '',
-    closeTime: '',
-    stages: [],
-    status: RideStatus.PLANNED,
-    rideNo: 0,
+    tourId: form.tourId.trim(),
+    name: form.name.trim(),
+    startDate: form.startDate.trim(),
+    endDate: form.endDate.trim(),
+    rideCount: Number(form.rideCount),
+    selfQuitRidingAllowed: form.selfQuitRidingAllowed,
+    ...(form.description.trim() ? { description: form.description.trim() } : {}),
   };
 }
 
@@ -540,7 +632,7 @@ function nextRideId(usedIds: Set<string>): string {
 }
 
 function fillRideDrafts(loadedRides: Ride[] | RideDraft[], rideCount: number): RideDraft[] {
-  const existing = loadedRides.map((ride) => 'stages' in ride && ride.stages.every((stage) => 'type' in stage) ? toRideDraft(ride as Ride) : ride as RideDraft);
+  const existing = loadedRides.map((ride) => 'pitStops' in ride ? ride : toRideDraft(ride));
   const result = [...existing].sort((a, b) => a.rideId.localeCompare(b.rideId));
   const usedIds = new Set(result.map((ride) => ride.rideId));
   while (result.length < Math.max(1, rideCount)) {
@@ -549,70 +641,6 @@ function fillRideDrafts(loadedRides: Ride[] | RideDraft[], rideCount: number): R
     result.push(createRideDraft(rideId));
   }
   return result;
-}
-
-function ridePayload(ride: Ride | RideDraft): CreateRideRequest {
-  const visibleStages = ride.stages.filter((stage) => !('type' in stage) || stage.type === StageType.PIT_STOP);
-  const pitStops = visibleStages.map((stage, index) => {
-    const draft = stage as StageDraft;
-    return {
-      stageId: `S${String(index + 1).padStart(3, '0')}`,
-      stageNumber: index + 1,
-      type: 'PIT_STOP' as const,
-      name: draft.name,
-      ...(draft.location ? { location: draft.location } : {}),
-      ...(draft.distanceFromStart !== '' && draft.distanceFromStart !== undefined ? { distanceFromStart: Number(draft.distanceFromStart) } : {}),
-      ...(draft.estimatedOpenTime !== '' && draft.estimatedOpenTime !== undefined ? { estimatedOpenTime: Number(draft.estimatedOpenTime) } : {}),
-      ...(draft.pitStopDuration !== '' && draft.pitStopDuration !== undefined ? { pitStopDuration: Number(draft.pitStopDuration) } : {}),
-    };
-  });
-  return {
-    rideId: ride.rideId,
-    date: ride.date,
-    rideNo: ride.rideNo ?? 0,
-    name: ride.name,
-    startLocation: ride.startLocation,
-    finishLocation: ride.finishLocation,
-    totalDistance: ride.totalDistance,
-    flagOffTime: ride.flagOffTime ?? '',
-    openTime: ride.openTime || undefined,
-    closeTime: ride.closeTime || undefined,
-    description: ride.description || undefined,
-    stages: [
-      { stageId: 'S000', stageNumber: 0, type: 'START', name: 'Start' },
-      ...pitStops,
-      { stageId: `S${String(pitStops.length + 1).padStart(3, '0')}`, stageNumber: pitStops.length + 1, type: 'FINISH', name: 'Finish' },
-    ],
-  };
-}
-
-function isRideDirty(ride: RideDraft, baselines: Record<string, string>): boolean {
-  return !baselines[ride.rideId] || JSON.stringify(ridePayload(ride)) !== baselines[ride.rideId];
-}
-
-function validateRide(ride: RideDraft): string | null {
-  if (!ride.name.trim() || !ride.date || !ride.startLocation.trim() || !ride.finishLocation.trim()) return 'Ride name, date, start location, and finish location are required.';
-  if (!isIsoDate(ride.date)) return 'Ride date must use YYYY-MM-DD format.';
-  if (!Number.isInteger(ride.rideNo) || ride.rideNo < 1) return 'Ride number must be a positive integer.';
-  if (!Number.isFinite(ride.totalDistance) || ride.totalDistance <= 0) return 'Ride distance must be greater than zero.';
-  if (!isTime(ride.flagOffTime) || (ride.openTime && !isTime(ride.openTime)) || (ride.closeTime && !isTime(ride.closeTime))) return 'Ride times must use HH:MM format.';
-  for (const stage of ride.stages) {
-    if (!stage.name.trim()) return 'Every pit stop must have a name.';
-    if (!positiveNumber(stage.distanceFromStart) || !nonNegativeInteger(stage.estimatedOpenTime) || !positiveNumber(stage.pitStopDuration)) return 'Pit stop distance must be positive, open offset must be a non-negative integer, and duration must be positive.';
-  }
-  return null;
-}
-
-function isTime(value: string): boolean {
-  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
-}
-
-function positiveNumber(value: string): boolean {
-  return value !== '' && Number.isFinite(Number(value)) && Number(value) > 0;
-}
-
-function nonNegativeInteger(value: string): boolean {
-  return /^\d+$/.test(value) && Number(value) >= 0;
 }
 
 function validateTourForm(form: TourForm): string | null {
@@ -638,6 +666,9 @@ function toFriendlyError(error: unknown): string {
   if (isNetworkError(error)) return 'Unable to reach the server. Check your connection and try again.';
   if (error instanceof ApiError || (error as ApiError)?.name === 'ApiError') {
     const apiError = error as ApiError;
+    if (apiError.errorCode?.toUpperCase() === 'INVALID_STAGE_LAYOUT') {
+      return getEventErrorMessage('INVALID_STAGE_LAYOUT', apiError.message, apiError.statusCode).message;
+    }
     if (apiError.statusCode === 409) return apiError.message || 'The tour conflicts with an existing definition.';
     if (apiError.statusCode === 403) return 'You do not have permission to manage tours.';
     return apiError.message || 'The tour request could not be completed.';
@@ -661,6 +692,59 @@ function Field({ label, value, onChangeText, disabled, keyboardType = 'default',
   </View>;
 }
 
+interface TriStateControlProps {
+  label: string;
+  value: TriState;
+  choices: [string, string, string];
+  onChange: (value: TriState) => void;
+  disabled: boolean;
+}
+
+function TriStateControl({ label, value, choices, onChange, disabled }: TriStateControlProps) {
+  const values: TriState[] = ['default', 'allowed', 'notAllowed'];
+  return (
+    <View style={styles.triStateControl}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.segmentedControl} accessibilityRole="radiogroup">
+        {values.map((option, index) => {
+          const selected = value === option;
+          return (
+            <TouchableOpacity
+              key={option}
+              style={[styles.segment, selected && styles.segmentSelected, disabled && styles.segmentDisabled]}
+              onPress={() => onChange(option)}
+              disabled={disabled}
+              accessibilityRole="radio"
+              accessibilityLabel={choices[index]}
+              accessibilityState={{ selected, disabled }}
+            >
+              <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>{choices[index]}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function stageCheckInSummary(stageType: StageType, stageValue: TriState, rideValue: TriState): string {
+  const stage = { type: stageType, selfCheckInAllowed: triStateToBoolean(stageValue) };
+  const ride = { selfCheckInAllowed: triStateToBoolean(rideValue) };
+  const result = resolveStageSelfCheckIn(stage, ride);
+  const source = getStageSelfCheckInSource(stage, ride);
+  const sourceLabel = source === 'stage' ? 'stage setting' : source === 'ride' ? 'ride setting' : 'default';
+  return `Result: ${result ? 'Allowed' : 'Not allowed'} (${sourceLabel})`;
+}
+
+function quitRidingSummary(rideValue: TriState, tourValue: boolean): string {
+  const ride = { selfQuitRidingAllowed: triStateToBoolean(rideValue) };
+  const tour = { selfQuitRidingAllowed: tourValue };
+  const result = resolveSelfQuitRiding(ride, tour);
+  const source = getSelfQuitRidingSource(ride, tour);
+  const sourceLabel = source === 'ride' ? 'ride setting' : source === 'tour' ? 'tour setting' : 'default';
+  return `Tour setting: ${tourValue ? 'Allowed' : 'Not allowed'}. Result: ${result ? 'Allowed' : 'Not allowed'} (${sourceLabel})`;
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.borderLight },
@@ -675,6 +759,26 @@ const styles = StyleSheet.create({
   newButton: { backgroundColor: COLORS.gray[100], paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: COLORS.primary, fontWeight: '600' },
   fieldRow: { flexDirection: 'row', gap: 12 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 },
+  switchCopy: { flex: 1 },
+  policySection: { marginTop: 16, paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.borderLight, gap: 8 },
+  triStateControl: { gap: 6, marginTop: 8 },
+  segmentedControl: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  segment: { borderWidth: 1, borderColor: COLORS.borderLight, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: COLORS.white },
+  segmentSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  segmentDisabled: { opacity: 0.55 },
+  segmentText: { color: COLORS.textPrimary, fontSize: 13 },
+  segmentTextSelected: { color: COLORS.white, fontWeight: '700' },
+  resultText: { color: COLORS.textSecondary, fontSize: 12, marginTop: 4 },
+  hint: { color: COLORS.textSecondary, fontSize: 12 },
+  layoutWarning: { color: COLORS.danger, backgroundColor: COLORS.danger + '12', padding: 12, marginTop: 12, fontWeight: '600' },
+  stageCard: { borderTopWidth: 1, borderColor: COLORS.borderLight, paddingVertical: 12, gap: 8 },
+  stageTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  stageTitle: { color: COLORS.textPrimary, fontWeight: '700', fontSize: 15 },
+  lockedBadge: { color: COLORS.textSecondary, borderWidth: 1, borderColor: COLORS.borderLight, paddingHorizontal: 8, paddingVertical: 3, fontSize: 11 },
+  stageActions: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 4 },
+  actionLink: { color: COLORS.primary, fontWeight: '600' },
+  mutedText: { color: COLORS.textSecondary, opacity: 0.5 },
   field: { flex: 1, marginBottom: 12, minWidth: 140 },
   label: { color: COLORS.textSecondary, fontSize: 13, marginBottom: 5 },
   input: { borderWidth: 1, borderColor: COLORS.borderLight, paddingHorizontal: 10, paddingVertical: 9, color: COLORS.textPrimary, backgroundColor: COLORS.white },

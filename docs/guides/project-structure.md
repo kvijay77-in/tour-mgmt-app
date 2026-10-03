@@ -1,6 +1,6 @@
 # Project structure
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-10-01_
 
 This is a navigational overview of the current repository, not an inventory of every file.
 
@@ -20,7 +20,7 @@ src/
 │   ├── auth/           Setup, login and password changes
 │   ├── checkin/        Scanner and check-in log
 │   ├── dashboard/      Ride dashboard and ride information
-│   ├── events/         Events, occurrences, hotels, baggage and progress
+│   ├── events/         Events, occurrences, OccurrenceRegistrationsScreen, hotels, baggage and progress
 │   ├── home/           Role-aware module hub
 │   ├── notifications/  Inbox
 │   └── settings/       Sync status and advanced settings
@@ -35,9 +35,11 @@ src/
 │   ├── riderProfile/   Profile configuration
 │   └── sync/           Outbound check-in and event delivery
 ├── types/              Models and navigation types
-└── utils/              Permissions, validation, routing and logger
+└── utils/              Permissions, validation, domain helpers (including eventRegistrations.ts) and logger
 tools/                  EAS env aids and setup-link generator
 docs/                   Requirements, design, guides, user guide, misc
 ```
 
 See [architecture](../design/architecture.md) for responsibilities. The app has no `amplify/` infrastructure directory.
+
+Pure helper tests live under `src/utils/__tests__/` and `src/constants/__tests__/`.

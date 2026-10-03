@@ -12,6 +12,35 @@ interface EventErrorMessage {
 }
 
 export const EVENT_ERROR_MESSAGES: Record<string, EventErrorMessage> = {
+  VALIDATION_ERROR: { message: null, kind: 'error' },
+  INVALID_STAGE_LAYOUT: {
+    message: 'This ride must have one Start stage first and one Finish stage last.',
+    kind: 'error',
+  },
+  TOUR_NOT_ACTIVE: { message: 'This tour is not active.', kind: 'error' },
+  RIDER_NOT_IN_TOUR: { message: 'This rider is not registered in the tour.', kind: 'error' },
+  RIDER_NOT_FOUND: { message: 'Rider not found.', kind: 'error' },
+  RIDE_NOT_FOUND: { message: 'Ride not found.', kind: 'error' },
+  RIDE_NOT_TODAY: { message: 'Self-service is only available for today\'s ride.', kind: 'error' },
+  RIDE_NOT_ACTIVE: { message: 'This ride is not open for self-service.', kind: 'error' },
+  STAGE_NOT_FOUND: { message: 'Stage not found.', kind: 'error' },
+  PIT_STOP_NOT_OPEN: { message: 'This pit stop is not open.', kind: 'error' },
+  SELF_CHECKIN_NOT_ALLOWED: { message: 'Self check-in is not allowed at this stage.', kind: 'error' },
+  NOT_RIDING_NOT_AVAILABLE: { message: 'Self Not Riding is only available while the ride is open.', kind: 'error' },
+  QUIT_RIDING_NOT_AVAILABLE: { message: 'Self Quit Riding is not available for this ride state.', kind: 'error' },
+  RIDER_ALREADY_QUIT: { message: 'This rider has already marked Quit Riding for this ride.', kind: 'error' },
+  QUIT_RIDING_CANCEL_NOT_ALLOWED: { message: 'Only staff can cancel a Quit Riding check-in.', kind: 'error' },
+  NOT_OWN_CHECKIN: { message: 'You can only cancel your own check-ins.', kind: 'error' },
+  NOT_OWN_DATA: { message: 'You can only view your own rider data.', kind: 'error' },
+  NOT_OWN_RECORD: { message: 'You can only cancel your own activity records.', kind: 'error' },
+  REGISTRATION_NOT_ENABLED: { message: 'Registration is not enabled for this event.', kind: 'error' },
+  REGISTRATION_CLOSED: { message: 'Registration is closed — the occurrence has already started or ended.', kind: 'error' },
+  REGISTRATION_NOT_FOUND: { message: 'No registration was found for this rider.', kind: 'error' },
+  RIDER_NOT_REGISTERED_FOR_EVENT: {
+    message: 'Rider {riderId} is not registered for this event occurrence.',
+    kind: 'error',
+  },
+  SELF_SERVICE_NOT_ALLOWED: { message: 'Self-service is not allowed for this activity.', kind: 'error' },
   EVENT_NOT_FOUND: { message: 'Event not found.', kind: 'error' },
   EVENT_ALREADY_EXISTS: { message: 'An event with this ID already exists.', kind: 'error' },
   OCCURRENCE_NOT_FOUND: { message: 'Occurrence not found.', kind: 'error' },
@@ -51,6 +80,18 @@ export const EVENT_GENERIC_MESSAGES = {
   UNEXPECTED: 'An unexpected error occurred. Please try again.',
   REQUEST_FAILED: 'Request failed. Please try again.',
 } as const;
+
+export function formatEventErrorMessage(
+  code: string,
+  values: Record<string, string | number>,
+): string | undefined {
+  const template = EVENT_ERROR_MESSAGES[code.toUpperCase()]?.message;
+  if (!template) return undefined;
+  return template.replace(/\{(\w+)\}/g, (placeholder, key: string) => {
+    const value = values[key];
+    return value === undefined ? placeholder : String(value);
+  });
+}
 
 export const EVENT_VALIDATION_MESSAGES = {
   EVENT_ID_FORMAT: 'Event ID must be EVT- followed by 2–20 uppercase letters or digits (e.g. EVT-BAGLOAD).',
@@ -104,6 +145,17 @@ export const EVENT_DASHBOARD_MESSAGES = {
   OCCURRENCE_GONE: 'This occurrence no longer exists. It may have been removed elsewhere.',
   RIDER_PROGRESS_OFFLINE: 'Offline — showing saved dashboard data and scans on this device only.',
   RIDER_NO_PROGRESS: 'No event activity has been recorded for this rider yet.',
+} as const;
+
+export const REGISTRATION_MESSAGES = {
+  OFFLINE: 'Registration management requires an internet connection.',
+  NOT_ENABLED: 'Registration is not enabled for this event.',
+  READ_ONLY: 'Registration changes are available only while the occurrence is planned.',
+  NO_TOUR: 'No active tour is selected.',
+  NO_REGISTRATIONS: 'No riders are registered for this occurrence.',
+  NO_RIDERS: 'No eligible tour riders are available to register.',
+  REGISTERED: '{rider} registered for this occurrence.',
+  UNREGISTERED: '{rider} unregistered from this occurrence.',
 } as const;
 
 /** Hotel master data and manual allocation copy (FE design §4.7, §4.9). {placeholders} are filled by the screen. */

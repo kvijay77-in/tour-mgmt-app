@@ -47,6 +47,7 @@ import {
 } from './outboundSyncService';
 import { CreateActivityRecordRequest } from '../../types/api';
 import { ActivityOutcome } from '../../types/models';
+import { formatEventErrorMessage } from '../../constants/eventMessages';
 import { logger } from '../../utils/logger';
 
 const TAG = 'EventSync';
@@ -155,7 +156,10 @@ async function processCreate(op: PendingOperation, tourId: string, interactive: 
     await deleteEventRecord(op.localId);
     return { kind: 'dropped', reason: 'rejected', error };
   }
-  return { kind: 'rejected', message: error.message, error };
+  const message = error.code === 'RIDER_NOT_REGISTERED_FOR_EVENT'
+    ? formatEventErrorMessage(error.code, { riderId: payload.request.riderId }) ?? error.message
+    : error.message;
+  return { kind: 'rejected', message, error };
 }
 
 async function processCancel(op: PendingOperation, tourId: string): Promise<HandlerResult> {

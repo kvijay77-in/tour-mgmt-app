@@ -45,7 +45,7 @@ import { AppStackParamList } from '../../types/navigation';
 import {
   findActivityOverride,
   getEffectiveActivityEnabled,
-  getEffectiveSelfService,
+  getEffectiveSelfServiceAllowed,
   isValidDateString,
   listDatesInRange,
   toLocalDateString,
@@ -81,7 +81,7 @@ interface CreateForm {
   date: string;
   toDate: string;
   seq: string;
-  selfServiceEnabled: boolean;
+  selfService: SelfServiceChoice;
   linkedOccurrenceRef: string | null;
 }
 
@@ -93,7 +93,7 @@ interface BulkResult {
 
 interface EditForm {
   occurrence: EventOccurrence;
-  selfServiceEnabled: boolean;
+  selfService: SelfServiceChoice;
   linkedOccurrenceRef: string | null;
 }
 
@@ -103,6 +103,50 @@ interface LinkCandidate {
 }
 
 type FormErrors = Partial<Record<'date' | 'toDate' | 'seq' | 'form', string>>;
+type SelfServiceChoice = 'inherit' | 'allowed' | 'notAllowed';
+
+function toSelfServiceChoice(value: boolean | null | undefined): SelfServiceChoice {
+  if (value === true) return 'allowed';
+  if (value === false) return 'notAllowed';
+  return 'inherit';
+}
+
+function SelfServiceChoiceField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: SelfServiceChoice;
+  disabled: boolean;
+  onChange: (value: SelfServiceChoice) => void;
+}) {
+  const options: Array<{ value: SelfServiceChoice; label: string }> = [
+    { value: 'inherit', label: 'Follow event/activity' },
+    { value: 'allowed', label: 'Allowed' },
+    { value: 'notAllowed', label: 'Not allowed' },
+  ];
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>Self-service</Text>
+      <View style={styles.chips}>
+        {options.map((option) => (
+          <TouchableOpacity
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: value === option.value, disabled }}
+            disabled={disabled}
+            onPress={() => onChange(option.value)}
+            style={[styles.chip, value === option.value && styles.chipSelected]}
+          >
+            <Text style={[styles.chipText, value === option.value && styles.chipTextSelected]}>
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
 
 function sortOccurrences(items: EventOccurrence[]): EventOccurrence[] {
   return [...items].sort((a, b) => (a.date === b.date ? a.seq - b.seq : a.date.localeCompare(b.date)));
@@ -177,6 +221,9 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
   const { user } = useAuth();
   const canScan = user ? hasPermission(user.userRole, Permission.EVENT_SCAN) : false;
   const canViewDashboard = user ? hasPermission(user.userRole, Permission.VIEW_DASHBOARD) : false;
+  const canManageRegistrations = user
+    ? hasPermission(user.userRole, Permission.MANAGE_EVENT_REGISTRATIONS)
+    : false;
   const { isOffline } = useOffline();
   const typeOptions = useIdCodeTypeOptions();
   const tourId = tour?.tourId;
@@ -413,7 +460,7 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
       date: today,
       toDate: today,
       seq: '1',
-      selfServiceEnabled: Boolean(event?.allowSelfService),
+      selfService: 'inherit',
       linkedOccurrenceRef: null,
     });
     setCreateErrors({});
@@ -442,7 +489,9 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
         const body: CreateOccurrenceRequest = {
           date: createForm.date,
           seq,
-          selfServiceEnabled: createForm.selfServiceEnabled,
+          ...(createForm.selfService === 'inherit'
+            ? {}
+            : { selfServiceAllowed: createForm.selfService === 'allowed' }),
           ...(createForm.linkedOccurrenceRef ? { linkedOccurrenceRef: createForm.linkedOccurrenceRef } : {}),
         };
         const outcome = await createOccurrence(tourId, eventId, body);
@@ -464,7 +513,9 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
         const outcome = await createOccurrence(tourId, eventId, {
           date,
           seq,
-          selfServiceEnabled: createForm.selfServiceEnabled,
+          ...(createForm.selfService === 'inherit'
+            ? {}
+            : { selfServiceAllowed: createForm.selfService === 'allowed' }),
         });
         if (outcome.kind === 'success') {
           results.push({ date, ok: true, message: 'Created' });
@@ -492,7 +543,11 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
     if (!editForm || !tourId) return;
     const { occurrence } = editForm;
     const body: UpdateOccurrenceRequest = {};
-    if (editForm.selfServiceEnabled !== Boolean(occurrence.selfServiceEnabled)) body.selfServiceEnabled = editForm.selfServiceEnabled;
+    if (editForm.selfService !== toSelfServiceChoice(occurrence.selfServiceAllowed)) {
+      body.selfServiceAllowed = editForm.selfService === 'inherit'
+        ? null
+        : editForm.selfService === 'allowed';
+    }
     if ((editForm.linkedOccurrenceRef ?? null) !== (occurrence.linkedOccurrenceRef ?? null)) {
       body.linkedOccurrenceRef = editForm.linkedOccurrenceRef;
     }
@@ -529,11 +584,13 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
   const quickToggle = async (
     occurrence: EventOccurrence,
     activity: EventActivity,
-    field: 'enabled' | 'selfServiceEnabled',
+    field: 'enabled' | 'selfServiceAllowed',
     nextValue: boolean,
   ) => {
-    if (!tourId) return;
-    const inherited = field === 'enabled' ? activity.enabled : Boolean(occurrence.selfServiceEnabled);
+    if (!tourId || !event) return;
+    const inherited = field === 'enabled'
+      ? activity.enabled
+      : getEffectiveSelfServiceAllowed(event, activity, occurrence);
     const body: UpsertActivityOverrideRequest = {
       activityId: activity.activityId,
       // Matching the inherited value clears the field instead of pinning it.
@@ -656,15 +713,11 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
           </View>
         </View>
         {createErrors.seq ? <Text style={styles.errorText}>{createErrors.seq}</Text> : null}
-        <View style={styles.toggle}>
-          <Switch
-            accessibilityLabel="Self-service by default"
-            disabled={disabled}
-            onValueChange={(selfServiceEnabled) => update({ selfServiceEnabled })}
-            value={createForm.selfServiceEnabled}
-          />
-          <Text style={styles.toggleLabel}>Self-service by default (informational)</Text>
-        </View>
+        <SelfServiceChoiceField
+          value={createForm.selfService}
+          disabled={disabled}
+          onChange={(selfService) => update({ selfService })}
+        />
         {!isRange && isValidDateString(createForm.date) ? (
           <LinkPicker
             value={createForm.linkedOccurrenceRef}
@@ -714,15 +767,11 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
       <View style={styles.innerPanel}>
         <Text style={styles.panelTitle}>Edit occurrence</Text>
         {editError ? <StatusBanner kind="error" message={editError} /> : null}
-        <View style={styles.toggle}>
-          <Switch
-            accessibilityLabel="Self-service by default"
-            disabled={disabled}
-            onValueChange={(selfServiceEnabled) => setEditForm((current) => (current ? { ...current, selfServiceEnabled } : current))}
-            value={editForm.selfServiceEnabled}
-          />
-          <Text style={styles.toggleLabel}>Self-service by default (informational)</Text>
-        </View>
+        <SelfServiceChoiceField
+          value={editForm.selfService}
+          disabled={disabled}
+          onChange={(selfService) => setEditForm((current) => (current ? { ...current, selfService } : current))}
+        />
         <LinkPicker
           value={editForm.linkedOccurrenceRef}
           candidates={linkCandidates[occurrence.date]}
@@ -755,10 +804,12 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
         {activities.map((activity) => {
           const override = findActivityOverride(occurrence, activity.activityId);
           const enabled = getEffectiveActivityEnabled(activity, override);
-          const selfService = getEffectiveSelfService(occurrence, override);
-          const badges = getOverrideBadges(activity, override, occurrence);
+          const selfService = event
+            ? getEffectiveSelfServiceAllowed(event, activity, occurrence, override)
+            : false;
+          const badges = event ? getOverrideBadges(activity, override, event, occurrence) : [];
           const enabledKey = `${occurrence.occurrenceId}|${activity.activityId}|enabled`;
-          const selfServiceKey = `${occurrence.occurrenceId}|${activity.activityId}|selfServiceEnabled`;
+          const selfServiceKey = `${occurrence.occurrenceId}|${activity.activityId}|selfServiceAllowed`;
           const disabled = closed || actionsDisabled;
           return (
             <View key={activity.activityId} style={[styles.activityRow, isDesktop && styles.activityRowDesktop]}>
@@ -783,7 +834,7 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
                   <Switch
                     accessibilityLabel={`${activity.name} self-service on ${occurrenceLabel(occurrence)}`}
                     disabled={disabled || busyKeys[selfServiceKey]}
-                    onValueChange={(value) => void quickToggle(occurrence, activity, 'selfServiceEnabled', value)}
+                    onValueChange={(value) => void quickToggle(occurrence, activity, 'selfServiceAllowed', value)}
                     value={selfService}
                   />
                   <Text style={styles.toggleLabel}>Self-service</Text>
@@ -819,7 +870,6 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
             <View style={styles.occurrenceTitleRow}>
               <Text style={styles.occurrenceTitle}>{occurrenceLabel(occurrence)}</Text>
               <OccurrenceStatusBadge status={occurrence.status} />
-              {occurrence.selfServiceEnabled ? <Text style={styles.infoBadge}>Self-service</Text> : null}
             </View>
             {occurrence.linkedOccurrenceRef ? (
               <Text style={styles.metaText}>Linked: {occurrence.linkedOccurrenceRef}</Text>
@@ -829,6 +879,21 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
             ) : null}
           </View>
           <View style={styles.occurrenceActions}>
+            {event?.registrationEnabled && canManageRegistrations ? (
+              <TouchableOpacity
+                accessibilityLabel={`Registrations for ${occurrenceLabel(occurrence)}`}
+                accessibilityRole="button"
+                disabled={actionsDisabled}
+                onPress={() => navigation.navigate('OccurrenceRegistrations', {
+                  eventId: occurrence.eventId,
+                  occurrenceId: occurrence.occurrenceId,
+                })}
+                style={[styles.actionButton, actionsDisabled && styles.disabled]}
+              >
+                <MaterialIcons name="people" size={18} color={COLORS.textPrimary} />
+                <Text style={styles.actionText}>Registrations</Text>
+              </TouchableOpacity>
+            ) : null}
             {occurrence.status === OccurrenceStatus.PLANNED ? (
               <TouchableOpacity
                 accessibilityRole="button"
@@ -895,7 +960,7 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
                   setEditError(null);
                   setEditForm(isEditing ? null : {
                     occurrence,
-                    selfServiceEnabled: Boolean(occurrence.selfServiceEnabled),
+                    selfService: toSelfServiceChoice(occurrence.selfServiceAllowed),
                     linkedOccurrenceRef: occurrence.linkedOccurrenceRef ?? null,
                   });
                 }}
@@ -952,7 +1017,7 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
               <Text style={styles.definitionMeta}>
                 {event.eventType} · {event.location} · Sequence {event.sequenceEnforced ? 'enforced' : 'not enforced'}
               </Text>
-              <ActivityChipList activities={activities} />
+              <ActivityChipList event={event} activities={activities} />
             </View>
           ) : null}
 

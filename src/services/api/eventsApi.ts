@@ -15,6 +15,7 @@ import type {
   CreateEventRequest,
   CreateOccurrenceRequest,
   EventBootstrapResponse,
+  ListRegistrationsResponse,
   OccurrenceCompleteResponse,
   OccurrenceDashboardResponse,
   OccurrenceProgressResponse,
@@ -22,6 +23,7 @@ import type {
   RiderEventProgressResponse,
   UpdateEventRequest,
   UpdateOccurrenceRequest,
+  UnregisterResponse,
   UpsertActivityOverrideRequest,
 } from '../../types/api';
 import {
@@ -29,6 +31,7 @@ import {
   EventActivityRecord,
   EventDefinition,
   EventOccurrence,
+  EventRegistration,
   OccurrenceStatus,
 } from '../../types/models';
 import {
@@ -225,6 +228,45 @@ export function updateOccurrence(
 ): Promise<EventApiOutcome<EventOccurrence>> {
   return run<EventOccurrence>((options) =>
     apiClient.put(occurrencePath(tourId, eventId, occurrenceId), body, options),
+  );
+}
+
+export function listOccurrenceRegistrations(
+  tourId: string,
+  eventId: string,
+  occurrenceId: string,
+): Promise<EventApiOutcome<ListRegistrationsResponse>> {
+  return run<ListRegistrationsResponse>((options) =>
+    apiClient.get(`${occurrencePath(tourId, eventId, occurrenceId)}/registrations`, options),
+  );
+}
+
+export function registerRiderForOccurrence(
+  tourId: string,
+  eventId: string,
+  occurrenceId: string,
+  riderId: string,
+): Promise<EventApiOutcome<EventRegistration>> {
+  return run<EventRegistration>((options) =>
+    apiClient.put(
+      `${occurrencePath(tourId, eventId, occurrenceId)}/registrations/${enc(riderId)}`,
+      undefined,
+      options,
+    ),
+  );
+}
+
+export function unregisterRiderFromOccurrence(
+  tourId: string,
+  eventId: string,
+  occurrenceId: string,
+  riderId: string,
+): Promise<EventApiOutcome<UnregisterResponse>> {
+  return run<UnregisterResponse>((options) =>
+    apiClient.delete(
+      `${occurrencePath(tourId, eventId, occurrenceId)}/registrations/${enc(riderId)}`,
+      options,
+    ),
   );
 }
 

@@ -39,6 +39,16 @@ async function addColumnIfMissing(
   await db.execAsync(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
 }
 
+async function dropColumnIfExists(
+  db: SQLite.SQLiteDatabase,
+  table: string,
+  column: string,
+): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
+  if (!columns.some((existing) => existing.name === column)) return;
+  await db.execAsync(`ALTER TABLE ${table} DROP COLUMN ${column};`);
+}
+
 const BASE_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS tour (
     tourId TEXT PRIMARY KEY,
@@ -333,6 +343,17 @@ export const MIGRATIONS: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications_inbox(createdAt DESC);
         CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications_inbox(isRead, createdAt DESC);
       `);
+    },
+  },
+  {
+    version: 5,
+    description: 'Event self-service and registration policy fields',
+    up: async (db) => {
+      await dropColumnIfExists(db, 'events', 'allowSelfService');
+      await dropColumnIfExists(db, 'event_occurrences', 'selfServiceEnabled');
+      await addColumnIfMissing(db, 'events', 'registrationEnabled', 'INTEGER NOT NULL DEFAULT 0');
+      await addColumnIfMissing(db, 'events', 'selfServiceAllowed', 'INTEGER NOT NULL DEFAULT 0');
+      await addColumnIfMissing(db, 'event_occurrences', 'selfServiceAllowed', 'INTEGER');
     },
   },
 ];

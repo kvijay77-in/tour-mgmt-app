@@ -66,6 +66,7 @@ export default function EventsHomeScreen({ navigation }: EventsHomeScreenProps) 
   const role = user?.userRole;
   const canManageEvents = role ? hasPermission(role, Permission.MANAGE_EVENTS) : false;
   const canManageOccurrences = role ? hasPermission(role, Permission.MANAGE_EVENT_OCCURRENCES) : false;
+  const canManageRegistrations = role ? hasPermission(role, Permission.MANAGE_EVENT_REGISTRATIONS) : false;
   const canScan = role ? hasPermission(role, Permission.EVENT_SCAN) : false;
   const canViewDashboard = role ? hasPermission(role, Permission.VIEW_DASHBOARD) : false;
   const isFilteredRole = Boolean(role && role !== UserRole.ADMINISTRATOR && role !== UserRole.SUPER_USER);
@@ -282,7 +283,20 @@ export default function EventsHomeScreen({ navigation }: EventsHomeScreenProps) 
                   <View key={occurrence.occurrenceId} style={styles.occurrenceRow}>
                     <Text style={styles.occurrenceText}>#{occurrence.seq}</Text>
                     <OccurrenceStatusBadge status={occurrence.status} />
-                    {occurrence.selfServiceEnabled ? <Text style={styles.infoBadge}>Self-service</Text> : null}
+                    {event.registrationEnabled && canManageRegistrations ? (
+                      <TouchableOpacity
+                        accessibilityLabel={`Registrations for ${event.eventName} #${occurrence.seq}`}
+                        accessibilityRole="button"
+                        disabled={isOffline}
+                        onPress={() => navigation.navigate('OccurrenceRegistrations', {
+                          eventId: event.eventId,
+                          occurrenceId: occurrence.occurrenceId,
+                        })}
+                        style={[styles.cardAction, styles.rowAction, isOffline && styles.disabled]}
+                      >
+                        <Text style={styles.cardActionText}>Registrations</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     {canViewDashboard && occurrence.status !== OccurrenceStatus.PLANNED ? (
                       <TouchableOpacity
                         accessibilityLabel={`Dashboard for ${event.eventName} #${occurrence.seq}`}
@@ -367,6 +381,7 @@ const styles = StyleSheet.create({
   },
   cardActionText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
   rowAction: { marginLeft: 'auto' },
+  disabled: { opacity: 0.5 },
   iconButton: { padding: 6 },
   noOccurrences: { color: COLORS.textSecondary, fontSize: 13, marginTop: 10 },
   occurrenceRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 10 },

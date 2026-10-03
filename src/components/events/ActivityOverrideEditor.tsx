@@ -16,7 +16,7 @@ import { EVENT_VALIDATION_MESSAGES } from '../../constants/eventMessages';
 import { UpsertActivityOverrideRequest } from '../../types/api';
 import { IdCodeTypeConfig } from '../../types/config';
 import { EventActivity, EventDefinition, EventOccurrence } from '../../types/models';
-import { findActivityOverride } from '../../utils/eventActivity';
+import { findActivityOverride, getEffectiveSelfServiceAllowed } from '../../utils/eventActivity';
 import StatusBanner from './StatusBanner';
 import TypeCodeMultiSelect, { formatTypeCodeNames } from './TypeCodeMultiSelect';
 
@@ -56,13 +56,25 @@ interface TriStateFieldProps {
   inheritedValue: boolean;
   disabled: boolean;
   onChange: (value: TriState) => void;
+  inheritLabel?: string;
+  onLabel?: string;
+  offLabel?: string;
 }
 
-function TriStateField({ label, value, inheritedValue, disabled, onChange }: TriStateFieldProps) {
+function TriStateField({
+  label,
+  value,
+  inheritedValue,
+  disabled,
+  onChange,
+  inheritLabel = `Inherit (${inheritedValue ? 'On' : 'Off'})`,
+  onLabel = 'On',
+  offLabel = 'Off',
+}: TriStateFieldProps) {
   const options: Array<{ key: TriState; text: string }> = [
-    { key: 'inherit', text: `Inherit (${inheritedValue ? 'On' : 'Off'})` },
-    { key: 'on', text: 'On' },
-    { key: 'off', text: 'Off' },
+    { key: 'inherit', text: inheritLabel },
+    { key: 'on', text: onLabel },
+    { key: 'off', text: offLabel },
   ];
   return (
     <View style={styles.field}>
@@ -113,7 +125,7 @@ export default function ActivityOverrideEditor({
     if (!visible || !activity) return;
     const override = findActivityOverride(occurrence, activity.activityId);
     setEnabled(toTriState(override?.enabled));
-    setSelfService(toTriState(override?.selfServiceEnabled));
+    setSelfService(toTriState(override?.selfServiceAllowed));
     setSkipped(toTriState(override?.skipped));
     setNarrowTypes(Array.isArray(override?.allowedTypeCodes));
     setTypeCodes(override?.allowedTypeCodes ?? []);
@@ -136,7 +148,7 @@ export default function ActivityOverrideEditor({
     onSave({
       activityId: activity.activityId,
       enabled: fromTriState(enabled),
-      selfServiceEnabled: fromTriState(selfService),
+      selfServiceAllowed: fromTriState(selfService),
       skipped: fromTriState(skipped),
       allowedTypeCodes: narrowTypes ? typeCodes : null,
       note: note.trim() || null,
@@ -168,11 +180,14 @@ export default function ActivityOverrideEditor({
           onChange={setEnabled}
         />
         <TriStateField
-          label="Self-service (informational)"
+          label="Self-service"
           value={selfService}
-          inheritedValue={Boolean(occurrence.selfServiceEnabled)}
+          inheritedValue={getEffectiveSelfServiceAllowed(event, activity, occurrence)}
           disabled={fieldsDisabled}
           onChange={setSelfService}
+          inheritLabel="Follow event/activity"
+          onLabel="Allowed"
+          offLabel="Not allowed"
         />
         <TriStateField
           label="Skipped"

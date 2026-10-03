@@ -39,6 +39,7 @@ import {
   EVENT_ERROR_MESSAGES,
   EVENT_SCAN_MESSAGES,
   EventMessageKind,
+  formatEventErrorMessage,
 } from '../../constants/eventMessages';
 import { useAuth } from '../../context/AuthContext';
 import { useEventSession } from '../../context/EventSessionContext';
@@ -99,7 +100,6 @@ import {
   findActivityOverride,
   getEffectiveActivityEnabled,
   getEffectiveAllowedTypeCodes,
-  getEffectiveSelfService,
   isActivityAvailableToUser,
 } from '../../utils/eventActivity';
 import { logger } from '../../utils/logger';
@@ -445,7 +445,9 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
     const { error } = result;
     const message = error.code === 'SCAN_TYPE_NOT_ALLOWED' && typeCode
       ? formatTypeNotAllowedMessage(typeCode, allowedTypeCodes, typeMap)
-      : error.message;
+      : error.code === 'RIDER_NOT_REGISTERED_FOR_EVENT'
+        ? formatEventErrorMessage(error.code, { riderId: scan.riderId }) ?? error.message
+        : error.message;
     void playFailure(error.kind === 'error' ? 'error' : 'warning');
     setLastResult(null);
     setBanner({ kind: error.kind, message });
@@ -916,7 +918,6 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
             riderName={pendingDisplay?.name ?? ''}
             riderNameIsAnomaly={pendingDisplay?.isAnomaly}
             selectedVariant={selectedVariant}
-            selfService={getEffectiveSelfService(occurrence, override)}
             variantOptions={variantOptions}
           />
         ) : (

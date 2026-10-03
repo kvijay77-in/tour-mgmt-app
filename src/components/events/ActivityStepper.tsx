@@ -25,7 +25,7 @@ const ICONS: Record<ActivityStepStatus, IconName> = {
 };
 
 export interface ActivityStepperProps {
-  steps: ActivityStep[];
+  steps: Array<ActivityStep & { isSelf?: boolean }>;
 }
 
 /** Vertical stepper, one node per activity in sequence order. */
@@ -38,7 +38,7 @@ export default function ActivityStepper({ steps }: ActivityStepperProps) {
         return (
           <View
             accessible
-            accessibilityLabel={`${step.name}, ${label}${step.mandatory ? ', mandatory' : ''}`}
+            accessibilityLabel={`${step.name}, ${label}${step.isSelf ? ', self' : ''}${step.mandatory ? ', mandatory' : ''}`}
             key={step.activityId}
             style={styles.step}
           >
@@ -49,6 +49,7 @@ export default function ActivityStepper({ steps }: ActivityStepperProps) {
             <View style={styles.body}>
               <Text style={styles.name}>
                 {step.name}
+                {step.isSelf ? <Text style={styles.selfLabel}> · Self</Text> : null}
                 {step.mandatory ? <Text style={styles.mandatory}> · Mandatory</Text> : null}
               </Text>
               <Text style={[styles.status, { color }]}>{label}</Text>
@@ -67,5 +68,6 @@ const styles = StyleSheet.create({
   body: { flex: 1, paddingBottom: 12 },
   name: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
   mandatory: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '400' },
+  selfLabel: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
   status: { fontSize: 12, marginTop: 2 },
 });

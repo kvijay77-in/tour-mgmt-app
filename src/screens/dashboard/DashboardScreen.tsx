@@ -32,6 +32,7 @@ import {
   Ride,
   Rider,
   CheckIn,
+  CheckInMethod,
   RiderStatus,
   CheckInStatus,
   RideStatus,
@@ -830,6 +831,11 @@ export default function DashboardScreen() {
                     <Text style={styles.skippedBadgeMark}>!</Text>
                   </View>
                 )}
+                {riderStatus.lastCheckIn?.method === CheckInMethod.SELF_SERVICE && (
+                  <View style={styles.selfServiceBadge} pointerEvents="none" accessibilityLabel="Self check-in">
+                    <Text style={styles.selfServiceBadgeText}>Self</Text>
+                  </View>
+                )}
                 {showFloatBadge && (
                   <View style={styles.floatBadge} pointerEvents="none">
                     {/* <MaterialIcons name="airport-shuttle" size={16} color={COLORS.white} /> */}
@@ -1114,6 +1120,23 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: COLORS.white,
+  },
+  selfServiceBadge: {
+    position: 'absolute',
+    bottom: -3,
+    right: -3,
+    zIndex: 4,
+    elevation: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    backgroundColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: COLORS.white,
+  },
+  selfServiceBadgeText: {
+    color: COLORS.white,
+    fontSize: 8,
+    fontWeight: '700',
   },
   riderIconContent: {
     flex: 1,

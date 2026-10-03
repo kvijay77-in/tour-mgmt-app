@@ -76,6 +76,8 @@ function formatDateTime(value?: string | null): string {
 function sameProgress(a: OccurrenceProgressResponse | null, b: OccurrenceProgressResponse): boolean {
   return Boolean(a)
     && a?.totalRiders === b.totalRiders
+    && a?.registrationEnabled === b.registrationEnabled
+    && a?.registeredCount === b.registeredCount
     && a.completedCount === b.completedCount
     && a.outstandingMandatoryCount === b.outstandingMandatoryCount
     && a.optedOutCount === b.optedOutCount
@@ -88,6 +90,9 @@ function countsFromDashboard(
   mandatoryIds: ReadonlySet<string>,
 ): OccurrenceProgressResponse {
   const counts: OccurrenceProgressResponse = {
+    registrationEnabled: dashboard.registrationEnabled,
+    registeredCount: dashboard.registeredCount
+      ?? dashboard.riders.filter((rider) => rider.registered === true).length,
     totalRiders: dashboard.riders.length,
     completedCount: 0,
     outstandingMandatoryCount: 0,
@@ -272,6 +277,11 @@ export default function OccurrenceDashboardScreen({ eventId, occurrenceId, navig
   const activityNames = new Map((event?.activities ?? []).map((activity) => [activity.activityId, activity.name]));
   const mandatoryIds = new Set((event?.activities ?? []).filter((a) => a.mandatory).map((a) => a.activityId));
   const counts = progress ?? (dashboard ? countsFromDashboard(dashboard, mandatoryIds) : null);
+  const registrationEnabled = dashboard?.registrationEnabled
+    ?? progress?.registrationEnabled
+    ?? event?.registrationEnabled
+    ?? false;
+  const registeredCount = counts?.registeredCount ?? dashboard?.registeredCount;
   const hasRecords = Boolean(counts && counts.completedCount + counts.optedOutCount + counts.flaggedCount > 0);
 
   const outstandingRiders: OutstandingRider[] = (dashboard?.riders ?? [])
@@ -418,6 +428,7 @@ export default function OccurrenceDashboardScreen({ eventId, occurrenceId, navig
           <>
             <View style={styles.tiles}>
               {renderTile('Total riders', counts?.totalRiders)}
+              {registrationEnabled ? renderTile('Registered riders', registeredCount) : null}
               {renderTile('Completed', counts?.completedCount)}
               {renderTile(
                 'Outstanding mandatory',
@@ -430,6 +441,30 @@ export default function OccurrenceDashboardScreen({ eventId, occurrenceId, navig
             </View>
 
             {renderReconciliationTile()}
+
+            {registrationEnabled ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Registration status</Text>
+                {[...dashboard.riders]
+                  .sort((a, b) => a.riderId.localeCompare(b.riderId, undefined, { numeric: true }))
+                  .map((rider) => (
+                    <TouchableOpacity
+                      accessibilityLabel={`View progress for ${getRiderDisplayName(rider.riderId).name} ${rider.riderId}${rider.registered === false ? ', not registered' : ''}`}
+                      accessibilityRole="button"
+                      key={rider.riderId}
+                      onPress={() => openRider(rider.riderId)}
+                      style={styles.row}
+                    >
+                      <Text style={styles.rowTitle}>
+                        {getRiderDisplayName(rider.riderId).name} · {rider.riderId}
+                      </Text>
+                      {rider.registered === false ? (
+                        <Text style={styles.notRegistered}>Not registered</Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+              </View>
+            ) : null}
 
             {!hasRecords ? <StatusBanner kind="info" message={EVENT_DASHBOARD_MESSAGES.NO_RECORDS} /> : null}
 
@@ -472,6 +507,7 @@ export default function OccurrenceDashboardScreen({ eventId, occurrenceId, navig
                     <View style={styles.flex}>
                       <Text style={styles.rowTitle}>
                         {record.activityName} · {getRiderDisplayName(record.riderId).name} ({record.riderId})
+                        {record.method === 'SELF_SERVICE' ? <Text style={styles.selfLabel}> · Self</Text> : null}
                       </Text>
                       <Text style={styles.metaText}>
                         Cancelled {formatDateTime(record.cancelledAt)} by {getAppUserDisplayName(record.cancelledBy)}
@@ -568,4 +604,6 @@ const styles = StyleSheet.create({
   },
   rowTitle: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
   metaText: { color: COLORS.textSecondary, fontSize: 13, marginTop: 2 },
+  notRegistered: { color: COLORS.warning, fontSize: 12, fontWeight: '700' },
+  selfLabel: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
 });
