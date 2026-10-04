@@ -1,6 +1,6 @@
 # Configuration and setup links
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-10-04_
 
 The repository root [`.env.example`](../../.env.example) lists local development fallback variables for organizer setup, authentication, the tour-data-api HTTP endpoint, optional mock data, logging and scan format. Copy it to an ignored `.env` for local development only. Store builds take backend and Firebase configuration from the EAS `preview` (Test) or `production` environment; do not commit populated environment files. `EXPO_PUBLIC_*` values are embedded in the app and **must never contain secrets**.
 
@@ -8,4 +8,4 @@ The repository root [`.env.example`](../../.env.example) lists local development
 
 [`tools/EAS.env`](../../tools/EAS.env) is an empty template; `tools/push-eas-env.sh` can upload string variables to a selected EAS environment from a private local file. Keep Test and Production values separate, and add `GOOGLE_SERVICES_JSON` through EAS as a file variable rather than the string helper. [`app.config.ts`](../../app.config.ts) resolves the variant identifiers and name from `APP_VARIANT`; [`eas.json`](../../eas.json) defines the profiles. Follow the [variant design](../design/app-variants-and-environments.md) and [EAS build guide](eas-build-and-release.md) before a store build.
 
-Backend authentication, API and storage resources are owned by [tour-data-api](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/guides/deployment.md); this repository creates no AWS infrastructure.
+Web hosting configuration is separate from EAS mobile configuration. Create an ignored `tools/web-deployment.<env>.json` from [`tools/web-deployment.example.json`](../../tools/web-deployment.example.json); it contains account/stack names, confirmed backend output labels, CSP, owner-confirmed API/artifact CORS preflight URLs and approved GitHub reviewer IDs, never credentials. The command resolves public backend values from the configured stack outputs and stores validated public build values and generated infrastructure identities in the matching GitHub Environment. Builds disable dotenv loading and receive only explicit public values; AWS credentials are never passed into source-build subprocesses. See the [web deployment guide](web-deployment.md). App-owned SAM templates create only private S3/CloudFront hosting and scoped deployment identities; backend authentication, API and storage resources remain owned by [tour-data-api](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/guides/deployment.md).

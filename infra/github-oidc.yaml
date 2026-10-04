@@ -1,0 +1,159 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: GitHub Actions OIDC role limited to publishing one Tour Management web site.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+    Description: Selects the matching protected GitHub Environment subject.
+  GitHubOwner:
+    Type: String
+    Default: kvijay77-in
+    MinLength: 1
+    Description: GitHub repository owner.
+  GitHubRepository:
+    Type: String
+    Default: tour-mgmt-app
+    MinLength: 1
+    Description: GitHub repository name.
+  Project:
+    Type: String
+    Default: tour-mgmt-app
+    MinLength: 1
+  Owner:
+    Type: String
+    MinLength: 1
+    Description: Team or owner responsible for this role.
+  BucketName:
+    Type: String
+    MinLength: 3
+    Description: Exact BucketName output from infra/web.yaml; no name-prefix assumptions are used.
+  DistributionId:
+    Type: String
+    MinLength: 1
+    Description: Exact DistributionId output from infra/web.yaml.
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: Existing account provider ARN, if present; leave empty only when no provider exists in this account.
+  PublisherPermissionsBoundaryArn:
+    Type: String
+    MinLength: 1
+    Description: Bootstrap-owned boundary restricting this publisher role to the approved site's bucket and distribution.
+  LocalDeploymentPrincipalArn:
+    Type: String
+    MinLength: 1
+    Description: Approved local deployment role; trusted only by the Dev publisher role.
+
+Conditions:
+  UseExistingOidcProvider: !Not [!Equals [!Ref ExistingOidcProviderArn, ""]]
+  IsDev: !Equals [!Ref Environment, dev]
+  CreateOidcProvider: !Not [!Condition UseExistingOidcProvider]
+
+Resources:
+  GitHubActionsOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  WebPublisherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Project}-web-publisher-${Environment}"
+      Description: !Sub "Publishes only the ${Environment} static web site from the matching GitHub Environment."
+      MaxSessionDuration: 3600
+      PermissionsBoundary: !Ref PublisherPermissionsBoundaryArn
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - UseExistingOidcProvider
+                - !Ref ExistingOidcProviderArn
+                - !Ref GitHubActionsOidcProvider
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub
+                  - "repo:${GitHubOwner}/${GitHubRepository}:environment:${EnvironmentName}"
+                  - EnvironmentName: !If [IsDev, web-dev, web-prod]
+          - !If
+            - IsDev
+            - Effect: Allow
+              Principal:
+                AWS: !Ref LocalDeploymentPrincipalArn
+              Action: sts:AssumeRole
+            - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: PublishOneStaticWebSite
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: InspectExactBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${BucketName}"
+              - Sid: ReadAndWriteObjectsInExactBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${BucketName}/*"
+              - Sid: ManageOnlyTheDeploymentLease
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${BucketName}/.web-deploy-lock"
+              - Sid: InvalidateAndInspectExactDistribution
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetInvalidation
+                Resource: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DistributionId}"
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  PublisherRoleArn:
+    Description: Role ARN for the matching GitHub Environment.
+    Value: !GetAtt WebPublisherRole.Arn
+  OidcProviderArn:
+    Description: Existing or newly created account-level GitHub Actions OIDC provider ARN.
+    Value: !If
+      - UseExistingOidcProvider
+      - !Ref ExistingOidcProviderArn
+      - !Ref GitHubActionsOidcProvider
+  GitHubEnvironmentSubject:
+    Description: Exact GitHub Environment subject permitted to assume this role.
+    Value: !Sub
+      - "repo:${GitHubOwner}/${GitHubRepository}:environment:${EnvironmentName}"
+      - EnvironmentName: !If [IsDev, web-dev, web-prod]

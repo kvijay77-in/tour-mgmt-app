@@ -1,6 +1,6 @@
 # Project structure
 
-_Last updated: 2026-10-01_
+_Last updated: 2026-10-04_
 
 This is a navigational overview of the current repository, not an inventory of every file.
 
@@ -9,6 +9,8 @@ App.tsx                 Application entry point
 app.config.ts           Variant-specific Expo configuration
 app.json                Static Expo configuration
 eas.json                EAS build profiles
+Makefile                Thin web deployment command targets
+samconfig.toml          SAM Dev/Production deployment defaults
 src/
 ├── components/         Shared UI (including the Test ribbon), dashboard, events, artifacts and rider profile
 ├── config/             App configuration and review routing
@@ -36,10 +38,13 @@ src/
 │   └── sync/           Outbound check-in and event delivery
 ├── types/              Models and navigation types
 └── utils/              Permissions, validation, domain helpers (including eventRegistrations.ts) and logger
-tools/                  EAS env aids and setup-link generator
+tools/                  EAS aids; web deploy CLI/release/export helpers, focused tests and placeholder config
+infra/                  SAM hosting, publisher and bootstrap CloudFormation templates
+.github/workflows/      Protected web deploy, rollback and audited lease-recovery workflows
+.web-releases/          Ignored bounded local Dev release artifacts and manifests
 docs/                   Requirements, design, guides, user guide, misc
 ```
 
-See [architecture](../design/architecture.md) for responsibilities. The app has no `amplify/` infrastructure directory.
+See [architecture](../design/architecture.md) for responsibilities and the [web deployment guide](web-deployment.md) for command usage. The root Makefile delegates to `tools/web-deploy.sh`/`tools/web-deploy.mjs`; `samconfig.toml` supplies environment defaults. `tools/web-export-check.mjs` validates and hashes exports, while `tools/web-release.mjs` owns release manifests, coordination and HTTP checks. `tools/web-deployment.example.json` is the placeholder-only contract and `tools/web-deployment-toolchain.json` pins Node/SAM/AWS CLI versions. Populated per-environment JSON files and `.web-releases/` are ignored. `infra/` contains only app-owned web hosting, publisher and bootstrap resources, not backend infrastructure. The `.github/workflows/` web release jobs use trusted `main` deployment code and separate build, infrastructure and publisher identities.
 
 Pure helper tests live under `src/utils/__tests__/` and `src/constants/__tests__/`.

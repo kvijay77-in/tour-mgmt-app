@@ -1,0 +1,86 @@
+name: Recover stale web deployment lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment whose stale lease will be recovered
+        required: true
+        type: choice
+        options: [dev, prod]
+      expected_owner:
+        description: Exact owner string reported by web-status/lock inspection
+        required: true
+        type: string
+      reason:
+        description: Auditable explanation for recovery (minimum 20 characters)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: web-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment == 'prod' && 'web-prod' || 'web-dev' }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    env:
+      DEPLOY_ENV: ${{ inputs.environment }}
+      LOCK_OWNER: ${{ inputs.expected_owner }}
+      RECOVERY_REASON: ${{ inputs.reason }}
+      AWS_EXPECTED_ACCOUNT_ID: ${{ vars.AWS_EXPECTED_ACCOUNT_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_BACKEND_PROJECT: ${{ vars.AWS_BACKEND_PROJECT }}
+      AWS_BACKEND_STACK_NAME: ${{ vars.AWS_BACKEND_STACK_NAME }}
+      AWS_BACKEND_REGION: ${{ vars.AWS_BACKEND_REGION }}
+      AWS_BACKEND_API_OUTPUT_KEY: ${{ vars.AWS_BACKEND_API_OUTPUT_KEY }}
+      AWS_BOOTSTRAP_STACK_NAME: ${{ vars.AWS_BOOTSTRAP_STACK_NAME }}
+      AWS_HOSTING_STACK_NAME: ${{ vars.AWS_HOSTING_STACK_NAME }}
+      AWS_PUBLISHER_STACK_NAME: ${{ vars.AWS_PUBLISHER_STACK_NAME }}
+      AWS_PROJECT: ${{ vars.AWS_PROJECT }}
+      AWS_OWNER: ${{ vars.AWS_OWNER }}
+      AWS_LOCAL_DEPLOYMENT_PRINCIPAL_ARN: ${{ vars.AWS_LOCAL_DEPLOYMENT_PRINCIPAL_ARN }}
+      AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+      AWS_PUBLISHER_ROLE_ARN: ${{ vars.AWS_PUBLISHER_ROLE_ARN }}
+      WEB_GITHUB_OWNER: ${{ vars.WEB_GITHUB_OWNER }}
+      WEB_GITHUB_REPOSITORY: ${{ vars.WEB_GITHUB_REPOSITORY }}
+      WEB_CSP_MODE: ${{ vars.WEB_CSP_MODE }}
+      WEB_CONTENT_SECURITY_POLICY: ${{ vars.WEB_CONTENT_SECURITY_POLICY }}
+      WEB_PRODUCTION_REVIEWERS: ${{ vars.WEB_PRODUCTION_REVIEWERS }}
+      EXPO_PUBLIC_LOG_LEVEL: ${{ vars.EXPO_PUBLIC_LOG_LEVEL }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out trusted main recovery code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.21.0
+      - name: Assume exact publisher role
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          role-to-assume: ${{ vars.AWS_PUBLISHER_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 3600
+          role-session-name: web-${{ inputs.environment }}-lock-recovery
+      - name: Recover only the explicitly confirmed stale lease
+        run: >-
+          node tools/web-deploy.mjs recover-lock
+          --env "$DEPLOY_ENV"
+          --config-env-vars
+          --bucket-name "$AWS_S3_BUCKET"
+          --publisher-role-arn "$AWS_PUBLISHER_ROLE_ARN"
+          --expected-owner "$LOCK_OWNER"
+          --reason "$RECOVERY_REASON"

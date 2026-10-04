@@ -34,6 +34,11 @@ yarn-error.*
 .env*.local
 .env
 
+# Web deployment configuration contains account-specific values
+/tools/web-deployment.*.json
+!/tools/web-deployment.example.json
+/.web-releases/
+
 # typescript
 *.tsbuildinfo
 

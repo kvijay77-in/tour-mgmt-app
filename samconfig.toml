@@ -1,0 +1,13 @@
+version = 0.1
+
+[dev.deploy.parameters]
+region = "ap-south-1"
+confirm_changeset = false
+fail_on_empty_changeset = false
+capabilities = "CAPABILITY_NAMED_IAM"
+
+[prod.deploy.parameters]
+region = "ap-south-1"
+confirm_changeset = false
+fail_on_empty_changeset = false
+capabilities = "CAPABILITY_NAMED_IAM"

@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "environment": "dev",
+  "expectedAccountId": "000000000000",
+  "hostingRegion": "ap-south-1",
+  "backendRegion": "<approved-backend-region>",
+  "backendProject": "<confirmed-backend-project-tag>",
+  "backendStackName": "<approved-backend-stack-name>",
+  "project": "tour-mgmt-app",
+  "owner": "<approved-owner-tag>",
+  "localDeploymentPrincipalArn": "arn:aws:iam::000000000000:role/<approved-owner-role>",
+  "github": {
+    "owner": "<github-owner>",
+    "repository": "tour-mgmt-app",
+    "productionReviewers": []
+  },
+  "stackNames": {
+    "bootstrap": "tour-mgmt-web-deploy-dev",
+    "hosting": "tour-mgmt-web-dev",
+    "publisher": "tour-mgmt-web-publisher-dev"
+  },
+  "csp": {
+    "mode": "REPORT_ONLY",
+    "contentSecurityPolicy": "<reviewed-policy-for-export-and-approved-service-origins>"
+  },
+  "public": {
+    "logLevel": "info"
+  },
+  "readiness": {
+    "apiUrl": "<confirmed-api-route-for-browser-cors-preflight>",
+    "artifactUrl": "<confirmed-private-artifact-bucket-url-for-put-preflight>"
+  },
+  "backend": {
+    "outputKeys": {
+      "apiBaseUrl": "<confirmed-output-key-including-stage>"
+    },
+    "publicOverrides": {
+      "userPoolId": null,
+      "userPoolWebClientId": null,
+      "identityPoolId": null
+    }
+  }
+}
