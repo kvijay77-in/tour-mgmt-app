@@ -34,10 +34,23 @@ Parameters:
       - ENFORCE
     Default: REPORT_ONLY
     Description: Use report-only during Dev evaluation; enforce only after compatibility review.
+  GitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^arn:aws[a-z-]*:iam::[0-9]{12}:oidc-provider/token\.actions\.githubusercontent\.com$'
+    Description: Existing account GitHub OIDC provider ARN; leave empty to skip the publisher role.
+  GitHubOidcSubject:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^repo:.+'
+    Description: Exact GitHub OIDC subject allowed to assume the publisher role; leave empty to skip the role.
 
 Conditions:
   EnforceCsp: !Equals [!Ref CspMode, ENFORCE]
   HasWebBucketName: !Not [!Equals [!Ref WebBucketName, ""]]
+  CreatePublisherRole: !And
+    - !Not [!Equals [!Ref GitHubOidcProviderArn, ""]]
+    - !Not [!Equals [!Ref GitHubOidcSubject, ""]]
 
 Resources:
   WebBucket:
@@ -204,25 +217,60 @@ Resources:
             Condition:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
-          - Sid: DenyCloudFrontReadDeploymentLease
-            Effect: Deny
+
+  WebPublisherRole:
+    Type: AWS::IAM::Role
+    Condition: CreatePublisherRole
+    Properties:
+      Description: Data-plane-only role that publishes the web build to this stack's bucket and distribution.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
             Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub "${WebBucket.Arn}/.web-deploy-lock"
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
             Condition:
               StringEquals:
-                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Ref GitHubOidcSubject
+      Policies:
+        - PolicyName: PublishWebBuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt WebBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "${WebBucket.Arn}/*"
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Ref AWS::StackId
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
 
 Outputs:
   BucketName:
-    Description: Actual private bucket name for the publisher role and deployment configuration.
+    Description: Actual private bucket name, read by the publish script at runtime.
     Value: !Ref WebBucket
   BucketArn:
     Description: Actual bucket ARN.
     Value: !GetAtt WebBucket.Arn
   DistributionId:
-    Description: CloudFront distribution ID for the publisher role and deployment configuration.
+    Description: CloudFront distribution ID, read by the publish script at runtime.
     Value: !Ref WebDistribution
   CloudFrontDomainName:
     Description: Default CloudFront DNS name.
@@ -230,3 +278,7 @@ Outputs:
   SiteUrl:
     Description: Public HTTPS origin to provide to the backend team for CORS configuration.
     Value: !Sub "https://${WebDistribution.DomainName}"
+  PublisherRoleArn:
+    Condition: CreatePublisherRole
+    Description: Publisher role ARN for CI.
+    Value: !GetAtt WebPublisherRole.Arn

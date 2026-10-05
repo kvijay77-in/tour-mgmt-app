@@ -1,9 +1,9 @@
 # Design index
 
-_Last updated: 2026-10-04_
+_Last updated: 2026-10-05_
 
 - [Architecture](architecture.md) and [data integration/offline](data-integration-and-offline.md)
-- [Web build and deployment](web-deployment.md) — SAM-managed hosting, isolated release automation, shared deployment leases and exact-artifact recovery
+- [Web build and deployment](web-deployment.md) — S3 + CloudFront hosting, publisher role, stages and rollback
 - [Dashboard](dashboard.md), [tour setup](tour-setup.md) and [events](events.md)
 - [Artifacts](artifacts.md), [notifications](notifications.md) and [rider profile](rider-profile.md)
 - [Organization setup and app distribution](app-distribution.md)

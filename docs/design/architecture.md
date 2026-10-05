@@ -1,12 +1,12 @@
 # Application architecture
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-10-05_
 
 This repository is the Expo/React Native management client for mobile and web. `App.tsx` and the navigators assemble authentication, the home hub, Ride Day, Events, Hotels & Baggage and Administration screens. EAS builds the same code as two store variants: Test (`com.tourmgmt.app.dev`, `tour-mgmt-app-dev`) and Production (`com.tourmgmt.app`, `tour-mgmt-app`). The Test variant is built from EAS `preview` values and connects to Dev; Production uses EAS `production` values, with the existing app-reviewer route to Dev. Web hosting and publication are separate from mobile delivery; see [web build and deployment](web-deployment.md) and [app variants and environments](app-variants-and-environments.md).
 
 This repository owns the static web hosting and publication infrastructure, but not the application's backend infrastructure. [tour-data-api](https://github.com/kvijay77-in/tour-data-api) owns authentication, API, data and storage resources; the client obtains a session through Amplify Auth and makes HTTP requests through `src/services/api/apiClient.ts`. It never directly manages the backend data stores.
 
-Web resources are reconciled independently through SAM: the app-owned bootstrap stack creates scoped infrastructure/execution identities and a publisher permissions boundary; the existing hosting and publisher stacks retain their CloudFormation identities. Trusted `main` workflows build an environment-specific, checksummed static artifact without deployment credentials, reconcile hosting with a scoped infrastructure role, then publish only the validated artifact with the publisher role. A shared conditional S3 lease serializes local Dev and Actions mutations. Backend public values and the hosting `SiteUrl` are read through stack outputs, not cross-stack exports or app-triggered backend deployment; browser CORS preflight gates full publication. See the [web deployment design](web-deployment.md) and [operator guide](../guides/web-deployment.md).
+The web app is hosted as a private S3 bucket behind CloudFront, published by one shared script; see the [web deployment design](web-deployment.md) and [guide](../guides/web-deployment.md).
 
 ```mermaid
 flowchart LR

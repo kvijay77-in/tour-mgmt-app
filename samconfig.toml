@@ -2,12 +2,18 @@ version = 0.1
 
 [dev.deploy.parameters]
 region = "ap-south-1"
-confirm_changeset = false
+template_file = "infra/web.yaml"
+stack_name = "tour-mgmt-web-dev"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
 fail_on_empty_changeset = false
-capabilities = "CAPABILITY_NAMED_IAM"
+tags = "Project=\"tour-mgmt-app\" Environment=\"dev\""
 
 [prod.deploy.parameters]
 region = "ap-south-1"
-confirm_changeset = false
+template_file = "infra/web.yaml"
+stack_name = "tour-mgmt-web-prod"
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
 fail_on_empty_changeset = false
-capabilities = "CAPABILITY_NAMED_IAM"
+tags = "Project=\"tour-mgmt-app\" Environment=\"prod\""
