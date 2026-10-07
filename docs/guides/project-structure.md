@@ -8,6 +8,7 @@ This is a navigational overview of the current repository, not an inventory of e
 App.tsx                 Application entry point
 app.config.ts           Variant-specific Expo configuration
 app.json                Static Expo configuration
+metro.config.js         Expo Metro defaults; excludes deployment-only .env.web.* files from bundling
 eas.json                EAS build profiles
 samconfig.toml          SAM Dev/Production deployment defaults
 src/

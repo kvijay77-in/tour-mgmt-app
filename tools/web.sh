@@ -97,7 +97,7 @@ for k in "${BUILD_KEYS[@]}"; do
   [[ -n "$(cfg "$k")" ]] && BUILD_ENV+=("$k=$(cfg "$k")")
 done
 for v in TMPDIR XDG_CACHE_HOME npm_config_cache; do [[ -n "${!v:-}" ]] && BUILD_ENV+=("$v=${!v}"); done
-env -i "${BUILD_ENV[@]}" npx expo export --platform web --output-dir "$OUT_DIR"
+env -i "${BUILD_ENV[@]}" npx expo export --clear --platform web --output-dir "$OUT_DIR"
 
 [[ "$(find "$OUT_DIR" -maxdepth 1 -name index.html | wc -l)" -eq 1 ]] || { echo "Export must contain exactly one root index.html" >&2; exit 1; }
 [[ -z "$(find "$OUT_DIR" -name '*.map' -print -quit)" ]] || { echo "Export contains source maps" >&2; exit 1; }
