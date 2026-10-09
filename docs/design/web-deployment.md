@@ -22,7 +22,7 @@ flowchart LR
 ## Stages
 
 1. Private repo: admin deploys Dev hosting; a developer publishes Dev with the script.
-2. Private repo: Dev publishes from CI on push to `develop` (subject `repo:<owner>/<repo>:ref:refs/heads/develop`); Prod is published manually from a clean checkout whose HEAD is an ancestor of `origin/main`.
+2. Private repo (Dev implemented in `.github/workflows/web-dev.yml`): Dev publishes from CI on push to `develop` (subject `repo:<owner>/<repo>:ref:refs/heads/develop`); Prod is published manually from a clean checkout whose HEAD is an ancestor of `origin/main`.
 3. Public repo: GitHub Environments `web-dev`/`web-prod` with required reviewers and branch protection; Prod through CI with an environment-based subject.
 
 ## Caching

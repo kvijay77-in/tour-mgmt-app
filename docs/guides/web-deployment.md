@@ -48,6 +48,22 @@ Bucket, distribution and `SiteUrl` are read from the stack outputs at runtime.
 - `make web-publish ENV=dev DRY_RUN=1` builds and runs `aws s3 sync --dryrun`; nothing is written.
 - Rollback: check out the older commit or tag and publish again.
 
+## Dev CI
+
+`.github/workflows/web-dev.yml` runs `tools/web.sh publish --env dev` on push to `develop` (path-filtered) and on manual dispatch. It assumes the publisher role through OIDC; no secrets are used. Dispatch from any branch other than `develop` fails at the role trust check by design.
+
+Setup: set `WEB_GITHUB_OIDC_PROVIDER_ARN` (the account's existing GitHub provider; if none exists, an admin creates it once with URL `https://token.actions.githubusercontent.com` and audience `sts.amazonaws.com`) and `WEB_GITHUB_OIDC_SUBJECT=repo:<owner>/<repo>:ref:refs/heads/develop` in `.env.web.dev.local`, run `make web-infra ENV=dev`, and note the `PublisherRoleArn` output.
+
+Repository variables (Settings > Secrets and variables > Actions > Variables):
+
+| Variable | Purpose |
+| --- | --- |
+| `WEB_DEV_ROLE_ARN` | `PublisherRoleArn` of the Dev stack |
+| `WEB_AWS_REGION`, `WEB_AWS_ACCOUNT_ID`, `WEB_STACK_NAME` | Target account, region and stack |
+| `APP_VARIANT`, `EXPO_PUBLIC_*` build keys | Same names as in `.env.web.example` |
+
+Each run installs, lints, tests and exports, so watch the monthly Actions minutes. Rollback: re-run the workflow for an older `develop` commit (or republish locally in an emergency). Avoid manual Dev publishing otherwise; the last writer wins.
+
 ## Prod (manual)
 
 Release owner only, with Prod SSO: clean worktree on a commit that is an ancestor of `origin/main`, then `make web-publish ENV=prod AWS_PROFILE=<prod>`. The script refuses Prod in CI, dirty worktrees and non-`main` commits.
