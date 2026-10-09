@@ -32,7 +32,7 @@ Bucket, distribution and `SiteUrl` are read from the stack outputs at runtime.
 1. Create `.env.web.dev.local` from the example.
 2. Admin: `make web-infra ENV=dev AWS_PROFILE=<dev-admin>` (review the change set).
 3. Developer: `make web-publish ENV=dev AWS_PROFILE=<dev>`.
-4. Give the printed `SiteUrl` to the tour-data-api backend once for CORS.
+4. Give the printed `SiteUrl` to the tour-data-api backend once for CORS, and again whenever it changes.
 
 ### Verified results (Dev, 2026-10-05)
 
@@ -61,4 +61,5 @@ Start with `WEB_CSP_MODE=REPORT_ONLY`; once no violations are seen, set `ENFORCE
 - *Wrong AWS account*: profile does not match `WEB_AWS_ACCOUNT_ID`.
 - *Missing stack outputs*: stack name/region wrong or hosting stack not deployed.
 - *AccessDenied*: the S3 error means `ListBucket`/`PutObject`/`GetObject`; invalidation means `cloudfront:CreateInvalidation`; stack outputs means `cloudformation:DescribeStacks`.
+- *CORS error in the browser*: after a hosting stack rebuild the CloudFront domain changes; send the new `SiteUrl` to the backend team so they update the origin list and redeploy.
 - *Smoke check fails on sha*: usually an old cached `index.html`; wait for the invalidation and retry.

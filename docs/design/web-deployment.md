@@ -35,7 +35,13 @@ The response headers policy sends `Content-Security-Policy-Report-Only` by defau
 
 ## Backend CORS contract
 
-`tour-data-api` reads `SiteUrl` from stack `tour-mgmt-web-<env>` (tags `Project=tour-mgmt-app`, `Environment=<env>`, region `ap-south-1`) at backend deploy time. Stack names, region, tags and the https `SiteUrl` output must not change. Rerun the backend deploy only when the origin changes.
+`SiteUrl` is handed to `tour-data-api` manually, once per environment; the backend does not read this stack. The backend allowlists it in its SAM parameter `ManagementWebAllowedOrigins`:
+
+- Dev allows `SiteUrl` and `http://localhost:8081`; Prod allows the Prod `SiteUrl` only (https, no localhost). Any other origin must be requested from the backend team.
+- The backend redeploys only when the origin changes (hosting stack recreated, custom domain added). Normal publishes need no backend change.
+- Management API: allowed headers `Authorization`, `Content-Type`, `If-None-Match`; methods `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`; `ETag` exposed (conditional event reads return `304`).
+- Artifacts bucket: browser `PUT` to presigned URLs (artifact and hotel CSV uploads) allowed from listed origins with the `Content-Type` header only.
+- Prod order: deploy hosting stack, hand over `SiteUrl`, wait for the backend Prod deploy, then publish.
 
 ## Rollback
 
