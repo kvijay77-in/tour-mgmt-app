@@ -1,10 +1,12 @@
 # Application architecture
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-10-05_
 
-This repository is the Expo/React Native management client for mobile and web. `App.tsx` and the navigators assemble authentication, the home hub, Ride Day, Events, Hotels & Baggage and Administration screens. EAS builds the same code as two store variants: Test (`com.tourmgmt.app.dev`, `tour-mgmt-app-dev`) and Production (`com.tourmgmt.app`, `tour-mgmt-app`). The Test variant is built from EAS `preview` values and connects to Dev; Production uses EAS `production` values, with the existing app-reviewer route to Dev. See [app variants and environments](app-variants-and-environments.md).
+This repository is the Expo/React Native management client for mobile and web. `App.tsx` and the navigators assemble authentication, the home hub, Ride Day, Events, Hotels & Baggage and Administration screens. EAS builds the same code as two store variants: Test (`com.tourmgmt.app.dev`, `tour-mgmt-app-dev`) and Production (`com.tourmgmt.app`, `tour-mgmt-app`). The Test variant is built from EAS `preview` values and connects to Dev; Production uses EAS `production` values, with the existing app-reviewer route to Dev. Web hosting and publication are separate from mobile delivery; see [web build and deployment](web-deployment.md) and [app variants and environments](app-variants-and-environments.md).
 
-The app has **no infrastructure of its own**. [tour-data-api](https://github.com/kvijay77-in/tour-data-api) owns authentication, API, data and storage resources; the client obtains a session through Amplify Auth and makes HTTP requests through `src/services/api/apiClient.ts`. It never directly manages the backend data stores.
+This repository owns the static web hosting and publication infrastructure, but not the application's backend infrastructure. [tour-data-api](https://github.com/kvijay77-in/tour-data-api) owns authentication, API, data and storage resources; the client obtains a session through Amplify Auth and makes HTTP requests through `src/services/api/apiClient.ts`. It never directly manages the backend data stores.
+
+The web app is hosted as a private S3 bucket behind CloudFront, published by one shared script; see the [web deployment design](web-deployment.md) and [guide](../guides/web-deployment.md).
 
 ```mermaid
 flowchart LR

@@ -1,0 +1,284 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Private CloudFront and S3 hosting for the Tour Management web application.
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues:
+      - dev
+      - prod
+    Description: Hosting environment.
+  Owner:
+    Type: String
+    MinLength: 1
+    Description: Team or owner responsible for this stack.
+  Project:
+    Type: String
+    Default: tour-mgmt-app
+    MinLength: 1
+    Description: Project tag applied to supported resources.
+  WebBucketName:
+    Type: String
+    Default: ""
+    Description: Optional stable bucket name for new stacks; leave empty to retain an existing bucket identity.
+  ContentSecurityPolicy:
+    Type: String
+    MinLength: 1
+    MaxLength: 1783
+    Description: CSP value reviewed against the exported application and its actual backend/file origins.
+  CspMode:
+    Type: String
+    AllowedValues:
+      - REPORT_ONLY
+      - ENFORCE
+    Default: REPORT_ONLY
+    Description: Use report-only during Dev evaluation; enforce only after compatibility review.
+  GitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^arn:aws[a-z-]*:iam::[0-9]{12}:oidc-provider/token\.actions\.githubusercontent\.com$'
+    Description: Existing account GitHub OIDC provider ARN; leave empty to skip the publisher role.
+  GitHubOidcSubject:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^repo:.+'
+    Description: Exact GitHub OIDC subject allowed to assume the publisher role; leave empty to skip the role.
+
+Conditions:
+  EnforceCsp: !Equals [!Ref CspMode, ENFORCE]
+  HasWebBucketName: !Not [!Equals [!Ref WebBucketName, ""]]
+  CreatePublisherRole: !And
+    - !Not [!Equals [!Ref GitHubOidcProviderArn, ""]]
+    - !Not [!Equals [!Ref GitHubOidcSubject, ""]]
+
+Resources:
+  WebBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If [HasWebBucketName, !Ref WebBucketName, !Ref AWS::NoValue]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireNoncurrentObjectVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  WebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${Project}-${Environment}-web-oac"
+        Description: Restricts web bucket reads to the matching CloudFront distribution.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  WebCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${Project}-${Environment}-web-cache"
+        Comment: Zero minimum and default TTL; object Cache-Control controls caching.
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 31536000
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  WebResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${Project}-${Environment}-web-security"
+        Comment: HTTPS and browser security headers for the static web application.
+        SecurityHeadersConfig:
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: !If
+                - EnforceCsp
+                - Content-Security-Policy
+                - Content-Security-Policy-Report-Only
+              Value: !Ref ContentSecurityPolicy
+              Override: true
+
+  WebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "${Project} ${Environment} management web application"
+        DefaultRootObject: index.html
+        PriceClass: PriceClass_200
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - Id: !Sub "S3-${WebBucket}"
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            OriginAccessControlId: !Ref WebOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        DefaultCacheBehavior:
+          TargetOriginId: !Sub "S3-${WebBucket}"
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: !Ref WebCachePolicy
+          ResponseHeadersPolicyId: !Ref WebResponseHeadersPolicy
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: TLSv1.2_2021
+        Restrictions:
+          GeoRestriction:
+            RestrictionType: none
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  WebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt WebBucket.Arn
+              - !Sub "${WebBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: AllowReadFromMatchingCloudFrontDistribution
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+
+  WebPublisherRole:
+    Type: AWS::IAM::Role
+    Condition: CreatePublisherRole
+    Properties:
+      Description: Data-plane-only role that publishes the web build to this stack's bucket and distribution.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref GitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Ref GitHubOidcSubject
+      Policies:
+        - PolicyName: PublishWebBuild
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt WebBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub "${WebBucket.Arn}/*"
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
+              - Effect: Allow
+                Action: cloudformation:DescribeStacks
+                Resource: !Ref AWS::StackId
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Owner
+          Value: !Ref Owner
+
+Outputs:
+  BucketName:
+    Description: Actual private bucket name, read by the publish script at runtime.
+    Value: !Ref WebBucket
+  BucketArn:
+    Description: Actual bucket ARN.
+    Value: !GetAtt WebBucket.Arn
+  DistributionId:
+    Description: CloudFront distribution ID, read by the publish script at runtime.
+    Value: !Ref WebDistribution
+  CloudFrontDomainName:
+    Description: Default CloudFront DNS name.
+    Value: !GetAtt WebDistribution.DomainName
+  SiteUrl:
+    Description: Public HTTPS origin to provide to the backend team for CORS configuration.
+    Value: !Sub "https://${WebDistribution.DomainName}"
+  PublisherRoleArn:
+    Condition: CreatePublisherRole
+    Description: Publisher role ARN for CI.
+    Value: !GetAtt WebPublisherRole.Arn

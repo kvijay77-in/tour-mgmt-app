@@ -1,6 +1,6 @@
 # Project structure
 
-_Last updated: 2026-10-01_
+_Last updated: 2026-10-05_
 
 This is a navigational overview of the current repository, not an inventory of every file.
 
@@ -8,7 +8,9 @@ This is a navigational overview of the current repository, not an inventory of e
 App.tsx                 Application entry point
 app.config.ts           Variant-specific Expo configuration
 app.json                Static Expo configuration
+metro.config.js         Expo Metro defaults; excludes deployment-only .env.web.* files from bundling
 eas.json                EAS build profiles
+samconfig.toml          SAM Dev/Production deployment defaults
 src/
 ├── components/         Shared UI (including the Test ribbon), dashboard, events, artifacts and rider profile
 ├── config/             App configuration and review routing
@@ -36,10 +38,13 @@ src/
 │   └── sync/           Outbound check-in and event delivery
 ├── types/              Models and navigation types
 └── utils/              Permissions, validation, domain helpers (including eventRegistrations.ts) and logger
-tools/                  EAS env aids and setup-link generator
+tools/                  EAS aids, setup-link generator, web.sh (web infra deploy and publish)
+infra/                  SAM hosting template (infra/web.yaml)
+Makefile                web-infra / web-publish targets
+.env.web.example        Web deployment config template
 docs/                   Requirements, design, guides, user guide, misc
 ```
 
-See [architecture](../design/architecture.md) for responsibilities. The app has no `amplify/` infrastructure directory.
+See [architecture](../design/architecture.md) for responsibilities and the [web deployment design](../design/web-deployment.md) for hosting. `samconfig.toml` supplies SAM deploy defaults for `infra/web.yaml`.
 
 Pure helper tests live under `src/utils/__tests__/` and `src/constants/__tests__/`.
