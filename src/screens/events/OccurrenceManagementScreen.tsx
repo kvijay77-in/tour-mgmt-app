@@ -382,7 +382,7 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
     let outstanding: number | null = null;
     try {
       const outcome = await getOccurrenceProgress(tourId, eventId, occurrence.occurrenceId);
-      if (outcome.kind === 'success') outstanding = outcome.data.data?.outstandingMandatoryCount ?? null;
+      if (outcome.kind === 'success') outstanding = outcome.data.data?.summary?.outstandingMandatoryCount ?? null;
       else logger.warn(TAG, 'Progress unavailable before complete', { code: outcome.error.code });
     } catch (err) {
       logger.warn(TAG, 'Progress fetch failed before complete', err);
@@ -918,9 +918,10 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
               <TouchableOpacity
                 accessibilityLabel={`Scan for ${occurrenceLabel(occurrence)}`}
                 accessibilityRole="button"
-                onPress={() => navigation.navigate('EventScan', {
+                onPress={() => navigation.navigate('EventOccurrence', {
                   eventId: occurrence.eventId,
                   occurrenceId: occurrence.occurrenceId,
+                  initialTab: 'Scan',
                 })}
                 style={styles.actionButton}
               >
@@ -932,7 +933,7 @@ export default function OccurrenceManagementScreen({ eventId, navigation }: Occu
               <TouchableOpacity
                 accessibilityLabel={`Dashboard for ${occurrenceLabel(occurrence)}`}
                 accessibilityRole="button"
-                onPress={() => navigation.navigate('OccurrenceDashboard', {
+                onPress={() => navigation.navigate('EventOccurrence', {
                   eventId: occurrence.eventId,
                   occurrenceId: occurrence.occurrenceId,
                 })}

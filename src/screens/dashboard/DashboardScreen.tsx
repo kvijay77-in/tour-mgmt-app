@@ -26,7 +26,7 @@ import {
 import { subscribeDashboardCheckInEvent, subscribeDashboardCancelEvent, subscribeDashboardRefreshEvent } from '../../services/dashboard/dashboardEvents';
 import { ApiError, isNetworkError } from '../../services/api/apiClient';
 import { logger } from '../../utils/logger';
-import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn, shouldShowFloatBadge } from '../../utils/riderStatus';
+import { buildRiderStatuses, getRiderFloatDefinition, isExitedTourRider, resolveStageForCheckIn, shouldShowFloatBadge } from '../../utils/riderStatus';
 import RiderCardModal from '../../components/dashboard/RiderCardModal';
 import {
   Ride,
@@ -36,7 +36,6 @@ import {
   RiderStatus,
   CheckInStatus,
   RideStatus,
-  TourRiderStatus,
   isCancelledCheckIn,
 } from '../../types/models';
 import { COLORS, CHECK_IN_STATUS_COLORS, getStageColor, STAGE_VIEW_COLORS } from '../../constants/colors';
@@ -55,10 +54,6 @@ function compareRiderIdsNatural(a: string, b: string): number {
     numeric: true,
     sensitivity: 'base',
   });
-}
-
-function isExitedTourRider(status?: string): boolean {
-  return typeof status === 'string' && status.trim().toUpperCase() === TourRiderStatus.EXITED;
 }
 
 function resolveTodayRideFromList(rides: Ride[]): Ride | null {

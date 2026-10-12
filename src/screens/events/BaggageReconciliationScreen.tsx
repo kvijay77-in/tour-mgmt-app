@@ -130,7 +130,7 @@ export default function BaggageReconciliationScreen({ eventId, occurrenceId, nav
   );
 
   const occurrence = snapshot?.dashboard?.occurrence ?? null;
-  const title = snapshot?.event?.eventName ?? 'Baggage reconciliation';
+  const title = snapshot?.dashboard?.event?.eventName ?? 'Baggage reconciliation';
   const subtitle = occurrence ? `${occurrence.date} #${occurrence.seq} · Reconciliation` : 'Reconciliation';
 
   if (notFound) {

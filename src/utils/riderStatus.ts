@@ -5,7 +5,11 @@
  */
 
 import { logger } from './logger';
-import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, Rider, RiderStatus, Stage } from '../types/models';
+import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, Rider, RiderStatus, Stage, TourRiderStatus } from '../types/models';
+
+export function isExitedTourRider(status?: string): boolean {
+  return typeof status === 'string' && status.trim().toUpperCase() === TourRiderStatus.EXITED;
+}
 
 export interface RiderFloatBadge {
   floatNo: number;

@@ -40,8 +40,7 @@ import EventDefinitionListScreen from '../screens/events/EventDefinitionListScre
 import EventDefinitionEditorScreen from '../screens/events/EventDefinitionEditorScreen';
 import OccurrenceManagementScreen from '../screens/events/OccurrenceManagementScreen';
 import OccurrenceRegistrationsScreen from '../screens/events/OccurrenceRegistrationsScreen';
-import EventScanScreen from '../screens/events/EventScanScreen';
-import OccurrenceDashboardScreen from '../screens/events/OccurrenceDashboardScreen';
+import EventOccurrenceTabNavigator from './EventOccurrenceTabNavigator';
 import BaggageReconciliationScreen from '../screens/events/BaggageReconciliationScreen';
 import RiderProgressScreen from '../screens/events/RiderProgressScreen';
 import HotelManagementScreen from '../screens/events/HotelManagementScreen';
@@ -146,21 +145,12 @@ function OccurrenceRegistrationsRoute({ route, navigation }: NativeStackScreenPr
   );
 }
 
-function EventScanRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'EventScan'>) {
+function EventOccurrenceRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'EventOccurrence'>) {
   return (
-    <EventScanScreen
+    <EventOccurrenceTabNavigator
       eventId={route.params.eventId}
       occurrenceId={route.params.occurrenceId}
-      navigation={navigation}
-    />
-  );
-}
-
-function OccurrenceDashboardRoute({ route, navigation }: NativeStackScreenProps<AppStackParamList, 'OccurrenceDashboard'>) {
-  return (
-    <OccurrenceDashboardScreen
-      eventId={route.params.eventId}
-      occurrenceId={route.params.occurrenceId}
+      initialTab={route.params.initialTab}
       navigation={navigation}
     />
   );
@@ -343,9 +333,8 @@ function AppStack() {
       {can(Permission.MANAGE_EVENT_REGISTRATIONS) && (
         <Stack.Screen name="OccurrenceRegistrations" component={OccurrenceRegistrationsRoute} />
       )}
-      {can(Permission.EVENT_SCAN) && <Stack.Screen name="EventScan" component={EventScanRoute} />}
-      {can(Permission.VIEW_DASHBOARD) && (
-        <Stack.Screen name="OccurrenceDashboard" component={OccurrenceDashboardRoute} />
+      {(can(Permission.EVENT_SCAN) || can(Permission.VIEW_DASHBOARD)) && (
+        <Stack.Screen name="EventOccurrence" component={EventOccurrenceRoute} />
       )}
       {can(Permission.VIEW_DASHBOARD) && (
         <Stack.Screen name="BaggageReconciliation" component={BaggageReconciliationRoute} />

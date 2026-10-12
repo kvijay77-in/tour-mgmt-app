@@ -15,7 +15,7 @@ export const ACTIVITY_STEP_LABELS: Record<ActivityStepStatus, string> = {
   QUEUED: 'Saved on this device',
 };
 
-const ICONS: Record<ActivityStepStatus, IconName> = {
+export const ACTIVITY_STEP_ICONS: Record<ActivityStepStatus, IconName> = {
   PENDING: 'radio-button-unchecked',
   COMPLETED: 'check-circle',
   OPTED_OUT: 'remove-circle-outline',
@@ -25,7 +25,7 @@ const ICONS: Record<ActivityStepStatus, IconName> = {
 };
 
 export interface ActivityStepperProps {
-  steps: Array<ActivityStep & { isSelf?: boolean }>;
+  steps: Array<ActivityStep & { isSelf?: boolean; meta?: string }>;
 }
 
 /** Vertical stepper, one node per activity in sequence order. */
@@ -43,7 +43,7 @@ export default function ActivityStepper({ steps }: ActivityStepperProps) {
             style={styles.step}
           >
             <View style={styles.rail}>
-              <MaterialIcons name={ICONS[step.status]} size={22} color={color} />
+              <MaterialIcons name={ACTIVITY_STEP_ICONS[step.status]} size={22} color={color} />
               {index < steps.length - 1 ? <View style={styles.connector} /> : null}
             </View>
             <View style={styles.body}>
@@ -53,6 +53,7 @@ export default function ActivityStepper({ steps }: ActivityStepperProps) {
                 {step.mandatory ? <Text style={styles.mandatory}> · Mandatory</Text> : null}
               </Text>
               <Text style={[styles.status, { color }]}>{label}</Text>
+              {step.meta ? <Text style={styles.meta}>{step.meta}</Text> : null}
             </View>
           </View>
         );
@@ -70,4 +71,5 @@ const styles = StyleSheet.create({
   mandatory: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '400' },
   selfLabel: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
   status: { fontSize: 12, marginTop: 2 },
+  meta: { color: COLORS.textSecondary, fontSize: 12, marginTop: 2 },
 });

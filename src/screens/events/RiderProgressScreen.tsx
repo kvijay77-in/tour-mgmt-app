@@ -183,7 +183,7 @@ export default function RiderProgressScreen({ riderId, eventId, occurrenceId, na
         Object.fromEntries(riderRow.activities.map((activity) => [activity.activityId, activity.status])),
       );
     }
-    const snapshotEvent = stored?.snapshot.event;
+    const snapshotEvent = stored?.snapshot.dashboard?.event;
     return {
       events: snapshotEvent && !events.some((event) => event.eventId === snapshotEvent.eventId)
         ? [...events, snapshotEvent]

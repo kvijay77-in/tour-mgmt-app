@@ -13,11 +13,11 @@ import { getRiderProfileAttributeDownloadUrl } from '../../services/api/riderApi
 import { loadEnabledRiderProfileDefinitions } from '../../services/riderProfile/riderProfileConfigService';
 import { useAuth } from '../../context/AuthContext';
 import { useOffline } from '../../context/OfflineContext';
-import { buildRiderStatuses, getRiderFloatDefinition, resolveStageForCheckIn } from '../../utils/riderStatus';
+import { buildRiderStatuses, getRiderFloatDefinition, isExitedTourRider, resolveStageForCheckIn } from '../../utils/riderStatus';
 import { canEditAdminOnlyRiderProfileAttributes } from '../../utils/riderProfilePermissions';
 import { orderDefinitionsIntoSections } from '../../utils/riderProfileDefinitions';
 import { logger } from '../../utils/logger';
-import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage, TourRiderStatus } from '../../types/models';
+import { CheckIn, CheckInStatus, isCancelledCheckIn, Ride, RiderDetailsData, RiderStatus, Stage } from '../../types/models';
 import { COLORS, getStageColor } from '../../constants/colors';
 import { navigationRef } from '../../navigation/navigationRef';
 import { OrderedRiderProfileSection, RiderProfileLovDefinition } from '../../types/riderProfile';
@@ -92,10 +92,6 @@ function hasRegularCheckInAfterStage(ride: Ride, riderStatus: RiderStatus, stage
       && matchedStage.stageNumber > targetStage.stageNumber
       && !ci.isNotRiding && !ci.isQuitRiding && !isCancelledCheckIn(ci);
   });
-}
-
-function isExitedTourRider(status?: string): boolean {
-  return typeof status === 'string' && status.trim().toUpperCase() === TourRiderStatus.EXITED;
 }
 
 function getPathValue(source: Record<string, unknown>, path: string): unknown {

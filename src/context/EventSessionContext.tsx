@@ -1,7 +1,7 @@
 /**
  * Event Session Context — shared state for event scanning.
  *
- * - Selected event / occurrence / activity (EventScanScreen).
+ * - Selected event / occurrence / activity (EventScanTab).
  * - This device's recent records for the selected occurrence and the failed /
  *   unsynced record counts, reloaded on sync changes.
  * - The caller's own tour assignment (my_tour_assignment cache).
@@ -21,17 +21,14 @@ import {
 } from '../services/events/eventBootstrapService';
 import { subscribeEventBatchSynced, subscribeEventSync } from '../services/sync/eventSyncService';
 import {
-  getEventRecordsByOccurrence,
   getFailedEventRecordCount,
   getUnsyncedEventRecordCount,
-  LocalEventActivityRecord,
 } from '../services/database/eventRecordStore';
 import { getMyTourAssignment } from '../services/database/eventStore';
 import { TourUserAssignment } from '../types/models';
 import { logger } from '../utils/logger';
 
 const TAG = 'EventSessionContext';
-const RECENT_RECORDS_LIMIT = 10;
 const FOREGROUND_REFRESH_AFTER_MS = 5 * 60_000;
 
 interface EventSessionContextValue {
@@ -41,8 +38,6 @@ interface EventSessionContextValue {
   setSelection: (eventId: string, occurrenceId: string, activityId?: string | null) => void;
   setSelectedActivityId: (activityId: string | null) => void;
   clearSelection: () => void;
-  /** This device's records for the selected occurrence, newest first */
-  recentRecords: LocalEventActivityRecord[];
   /** Records the server rejected during background sync, all occurrences */
   failedCount: number;
   /** Records not yet sent, all occurrences */
@@ -65,7 +60,6 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [selectedOccurrenceId, setSelectedOccurrenceId] = useState<string | null>(null);
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
-  const [recentRecords, setRecentRecords] = useState<LocalEventActivityRecord[]>([]);
   const [failedCount, setFailedCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
   const [myAssignment, setMyAssignment] = useState<TourUserAssignment | null | undefined>(undefined);
@@ -108,20 +102,16 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
 
   const refreshRecords = useCallback(async () => {
     try {
-      const [recent, failed, count] = await Promise.all([
-        selectedOccurrenceId
-          ? getEventRecordsByOccurrence(selectedOccurrenceId, RECENT_RECORDS_LIMIT)
-          : Promise.resolve([] as LocalEventActivityRecord[]),
+      const [failed, count] = await Promise.all([
         getFailedEventRecordCount(),
         getUnsyncedEventRecordCount(),
       ]);
-      setRecentRecords(recent);
       setFailedCount(failed);
       setPendingCount(count);
     } catch (error) {
       logger.warn(TAG, 'Reading local event records failed', error);
     }
-  }, [selectedOccurrenceId]);
+  }, []);
 
   // Tour change: reset session state and read the cached assignment.
   useEffect(() => {
@@ -188,7 +178,6 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
     setSelection,
     setSelectedActivityId,
     clearSelection,
-    recentRecords,
     failedCount,
     pendingCount,
     refreshRecords,
@@ -201,7 +190,6 @@ export function EventSessionProvider({ children }: { children: React.ReactNode }
     selectedActivityId,
     setSelection,
     clearSelection,
-    recentRecords,
     failedCount,
     pendingCount,
     refreshRecords,
