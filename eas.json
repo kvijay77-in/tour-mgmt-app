@@ -82,7 +82,7 @@
       },
       "android": {
         "track": "internal",
-        "releaseStatus": "completed"
+        "releaseStatus": "draft"
       }
     },
     "production": {
@@ -91,7 +91,7 @@
       },
       "android": {
         "track": "alpha",
-        "releaseStatus": "completed"
+        "releaseStatus": "draft"
       }
     }
   }
