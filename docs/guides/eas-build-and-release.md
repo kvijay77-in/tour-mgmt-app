@@ -72,6 +72,12 @@ Run `npx eas-cli@latest credentials` and select each platform/profile/app as pro
 - Upload each Firebase file as an EAS **file** environment variable named `GOOGLE_SERVICES_JSON`: Test file in `preview`, Production file in `production`. Set the variable visibility to secret. The app config uses the supplied file only when the variable exists. The repository ignores `google-services*.json`.
 - Configure Firebase Cloud Messaging v1 credentials for Expo Push Service using the matching project. Do not mix the Test and Production Firebase projects.
 
+`google-services.json` files should be uploaded as EAS **file** environment variables and kept secret.
+
+```sh
+npx eas-cli@latest env:set --name GOOGLE_SERVICES_JSON --value ./google-services.json **--environment preview** --visibility secret
+```
+
 ## 5. Configure EAS environments
 
 Set variables separately for the EAS environments `preview` (Test) and `production`. Do not use the same populated variable file for both environments when the backend values differ. `EXPO_PUBLIC_*` variables are bundled into the app; treat them as public configuration, never as secrets. Protect service-account credentials and Firebase files as secret EAS variables.
