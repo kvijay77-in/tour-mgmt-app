@@ -78,20 +78,20 @@
   "submit": {
     "test": {
       "ios": {
-        "ascAppId": "<ASC_APP_ID_DEV>"
+        "ascAppId": "6822635381"
       },
       "android": {
         "track": "internal",
-        "releaseStatus": "completed"
+        "releaseStatus": "draft"
       }
     },
     "production": {
       "ios": {
-        "ascAppId": "<ASC_APP_ID_PROD>"
+        "ascAppId": "<ASC_APP_ID_DEV>"
       },
       "android": {
         "track": "alpha",
-        "releaseStatus": "completed"
+        "releaseStatus": "draft"
       }
     }
   }

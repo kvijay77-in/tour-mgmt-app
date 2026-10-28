@@ -1,10 +1,7 @@
 /**
- * Events hub — "Scan" list of today's ACTIVE occurrences (EVENT_SCAN; PS_x/Hotel
- * Staff filtered by their assignment, D-O) and, for other roles, the event list
- * with today's occurrences and entry points to definition/occurrence management.
+ * Events hub — today's occurrences grouped by event (PS_x/Hotel Staff filtered by
+ * their assignment, D-O) plus a compact Manage section for admins.
  * Online data comes from the API; offline it is read from the bootstrap cache.
- *
- * See docs/Event-Engine-Design.md § Screens.
  */
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -70,7 +67,6 @@ export default function EventsHomeScreen({ navigation }: EventsHomeScreenProps) 
   const canScan = role ? hasPermission(role, Permission.EVENT_SCAN) : false;
   const canViewDashboard = role ? hasPermission(role, Permission.VIEW_DASHBOARD) : false;
   const isFilteredRole = Boolean(role && role !== UserRole.ADMINISTRATOR && role !== UserRole.SUPER_USER);
-  const showOverview = !(canScan && isFilteredRole);
   const today = toLocalDateString();
   const tourId = tour?.tourId;
 
@@ -141,19 +137,24 @@ export default function EventsHomeScreen({ navigation }: EventsHomeScreenProps) 
   );
 
   const goHome = () => navigation.dispatch(navigateToModuleAction({ route: 'Home', params: undefined }));
-  const openDashboard = (occurrence: EventOccurrence) => navigation.navigate('OccurrenceDashboard', {
-    eventId: occurrence.eventId,
-    occurrenceId: occurrence.occurrenceId,
-  });
 
-  const scanRows = canScan
-    ? events.flatMap((event) => (todayByEvent[event.eventId] ?? [])
-      .filter((occurrence) => occurrence.status === OccurrenceStatus.ACTIVE)
-      .filter((occurrence) => !isFilteredRole || event.activities.some((activity) =>
-        getEffectiveActivityEnabled(activity, findActivityOverride(occurrence, activity.activityId))
-        && isActivityAvailableToUser(role ?? null, myAssignment ?? null, event, occurrence, activity)))
-      .map((occurrence) => ({ event, occurrence })))
-    : [];
+  const hasTab = (occurrence: EventOccurrence) => {
+    if (occurrence.status !== OccurrenceStatus.ACTIVE && occurrence.status !== OccurrenceStatus.COMPLETED) return false;
+    return canViewDashboard || canScan;
+  };
+
+  const groups = events
+    .map((event) => ({
+      event,
+      occurrences: (todayByEvent[event.eventId] ?? []).filter((occurrence) => canViewDashboard
+        || !isFilteredRole
+        || event.activities.some((activity) =>
+          getEffectiveActivityEnabled(activity, findActivityOverride(occurrence, activity.activityId))
+          && isActivityAvailableToUser(role ?? null, myAssignment ?? null, event, occurrence, activity))),
+    }))
+    .filter((group) => group.occurrences.length > 0);
+
+  const showManage = !isOffline && (canManageEvents || canManageOccurrences || canManageRegistrations);
 
   return (
     <View style={styles.container}>
@@ -192,127 +193,96 @@ export default function EventsHomeScreen({ navigation }: EventsHomeScreenProps) 
           />
         ) : null}
 
-        {canScan ? (
-          <View style={styles.scanSection}>
-            <Text style={styles.sectionTitle}>Scan · active now</Text>
-            {!isLoading && scanRows.length === 0 ? (
-              <Text style={styles.noOccurrences}>
-                {isFilteredRole ? EVENT_SCAN_MESSAGES.NOT_ASSIGNED_TODAY : EVENT_SCAN_MESSAGES.NO_ACTIVE_OCCURRENCES}
-              </Text>
-            ) : null}
-            {scanRows.map(({ event, occurrence }) => (
-              <TouchableOpacity
-                accessibilityLabel={`Scan for ${event.eventName} #${occurrence.seq}`}
-                accessibilityRole="button"
-                key={occurrence.occurrenceId}
-                onPress={() => navigation.navigate('EventScan', {
-                  eventId: event.eventId,
-                  occurrenceId: occurrence.occurrenceId,
-                })}
-                style={styles.scanRow}
-              >
-                <MaterialIcons name="qr-code-scanner" size={22} color={COLORS.primary} />
-                <View style={styles.cardTitleWrap}>
-                  <Text style={styles.cardTitle}>{event.eventName}</Text>
-                  <Text style={styles.cardMeta}>#{occurrence.seq} · {event.location}</Text>
-                </View>
-                {canViewDashboard && !showOverview ? (
-                  <TouchableOpacity
-                    accessibilityLabel={`Dashboard for ${event.eventName} #${occurrence.seq}`}
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={() => openDashboard(occurrence)}
-                    style={styles.iconButton}
-                  >
-                    <MaterialIcons name="insights" size={22} color={COLORS.primary} />
-                  </TouchableOpacity>
-                ) : null}
-                <MaterialIcons name="chevron-right" size={22} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            ))}
-          </View>
-        ) : null}
-
-        {canManageEvents && !isOffline ? (
-          <TouchableOpacity
-            accessibilityRole="button"
-            onPress={() => navigation.navigate('EventDefinitionList')}
-            style={styles.manageButton}
-          >
-            <MaterialIcons name="event-note" size={20} color={COLORS.primary} />
-            <Text style={styles.manageText}>Manage definitions</Text>
-          </TouchableOpacity>
-        ) : null}
-
         {isLoading ? <ActivityIndicator color={COLORS.primary} style={styles.loader} /> : null}
 
-        {showOverview ? <Text style={styles.sectionTitle}>Today · {today}</Text> : null}
+        <Text style={styles.sectionTitle}>Today · {today}</Text>
 
-        {showOverview && !isLoading && tourId && !banner && events.length === 0 ? (
+        {!isLoading && tourId && !banner && groups.length === 0 ? (
           <Text style={styles.empty}>
-            {isOffline ? 'No events are saved on this device yet.' : 'No events are defined for this tour yet.'}
+            {isFilteredRole && canScan ? EVENT_SCAN_MESSAGES.NOT_ASSIGNED_TODAY : 'No events today.'}
           </Text>
         ) : null}
 
-        {showOverview && events.map((event) => {
-          const occurrences = todayByEvent[event.eventId] ?? [];
-          return (
-            <View key={event.eventId} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={styles.cardTitleWrap}>
-                  <Text style={styles.cardTitle}>{event.eventName}</Text>
-                  <Text style={styles.cardMeta}>
-                    {event.eventType} · {event.location} · {event.activities.length} activities
-                  </Text>
+        {groups.map(({ event, occurrences }) => (
+          <View key={event.eventId} style={styles.card}>
+            <Text style={styles.cardTitle}>{event.eventName}</Text>
+            <Text style={styles.cardMeta}>{event.location}</Text>
+            {occurrences.map((occurrence) => {
+              const enabled = hasTab(occurrence);
+              return (
+                <TouchableOpacity
+                  accessibilityLabel={`${event.eventName} #${occurrence.seq}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !enabled }}
+                  disabled={!enabled}
+                  key={occurrence.occurrenceId}
+                  onPress={() => navigation.navigate('EventOccurrence', {
+                    eventId: event.eventId,
+                    occurrenceId: occurrence.occurrenceId,
+                  })}
+                  style={[styles.occurrenceRow, !enabled && styles.disabled]}
+                >
+                  <Text style={styles.occurrenceText}>#{occurrence.seq}</Text>
+                  <OccurrenceStatusBadge status={occurrence.status} />
+                  {enabled ? (
+                    <MaterialIcons name="chevron-right" size={22} color={COLORS.textSecondary} style={styles.chevron} />
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+
+        {showManage ? (
+          <View style={styles.manageSection}>
+            <Text style={styles.sectionTitle}>Manage</Text>
+            {canManageEvents ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={() => navigation.navigate('EventDefinitionList')}
+                style={styles.manageButton}
+              >
+                <MaterialIcons name="event-note" size={20} color={COLORS.primary} />
+                <Text style={styles.manageText}>Manage definitions</Text>
+              </TouchableOpacity>
+            ) : null}
+            {events.map((event) => {
+              const registrable = canManageRegistrations && event.registrationEnabled
+                ? (todayByEvent[event.eventId] ?? [])
+                : [];
+              if (!canManageOccurrences && registrable.length === 0) return null;
+              return (
+                <View key={event.eventId} style={styles.manageRow}>
+                  <Text style={styles.manageEventName}>{event.eventName}</Text>
+                  {canManageOccurrences ? (
+                    <TouchableOpacity
+                      accessibilityLabel={`Manage occurrences for ${event.eventName}`}
+                      accessibilityRole="button"
+                      onPress={() => navigation.navigate('OccurrenceManagement', { eventId: event.eventId })}
+                      style={styles.cardAction}
+                    >
+                      <Text style={styles.cardActionText}>Occurrences</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {registrable.map((occurrence) => (
+                    <TouchableOpacity
+                      accessibilityLabel={`Registrations for ${event.eventName} #${occurrence.seq}`}
+                      accessibilityRole="button"
+                      key={occurrence.occurrenceId}
+                      onPress={() => navigation.navigate('OccurrenceRegistrations', {
+                        eventId: event.eventId,
+                        occurrenceId: occurrence.occurrenceId,
+                      })}
+                      style={styles.cardAction}
+                    >
+                      <Text style={styles.cardActionText}>Registrations #{occurrence.seq}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-                {canManageOccurrences && !isOffline ? (
-                  <TouchableOpacity
-                    accessibilityLabel={`Manage occurrences for ${event.eventName}`}
-                    accessibilityRole="button"
-                    onPress={() => navigation.navigate('OccurrenceManagement', { eventId: event.eventId })}
-                    style={styles.cardAction}
-                  >
-                    <Text style={styles.cardActionText}>Occurrences</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-              {occurrences.length === 0 ? (
-                <Text style={styles.noOccurrences}>No occurrences today.</Text>
-              ) : (
-                occurrences.map((occurrence) => (
-                  <View key={occurrence.occurrenceId} style={styles.occurrenceRow}>
-                    <Text style={styles.occurrenceText}>#{occurrence.seq}</Text>
-                    <OccurrenceStatusBadge status={occurrence.status} />
-                    {event.registrationEnabled && canManageRegistrations ? (
-                      <TouchableOpacity
-                        accessibilityLabel={`Registrations for ${event.eventName} #${occurrence.seq}`}
-                        accessibilityRole="button"
-                        disabled={isOffline}
-                        onPress={() => navigation.navigate('OccurrenceRegistrations', {
-                          eventId: event.eventId,
-                          occurrenceId: occurrence.occurrenceId,
-                        })}
-                        style={[styles.cardAction, styles.rowAction, isOffline && styles.disabled]}
-                      >
-                        <Text style={styles.cardActionText}>Registrations</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                    {canViewDashboard && occurrence.status !== OccurrenceStatus.PLANNED ? (
-                      <TouchableOpacity
-                        accessibilityLabel={`Dashboard for ${event.eventName} #${occurrence.seq}`}
-                        accessibilityRole="button"
-                        onPress={() => openDashboard(occurrence)}
-                        style={[styles.cardAction, styles.rowAction]}
-                      >
-                        <Text style={styles.cardActionText}>Dashboard</Text>
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                ))
-              )}
-            </View>
-          );
-        })}
+              );
+            })}
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -336,20 +306,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   manageText: { color: COLORS.primary, fontSize: 14, fontWeight: '600' },
-  scanSection: { marginBottom: 16 },
-  scanRow: {
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderColor: COLORS.primary,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 8,
-    minHeight: 56,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
   sectionTitle: {
     color: COLORS.textSecondary,
     fontSize: 13,
@@ -367,8 +323,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 14,
   },
-  cardHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
-  cardTitleWrap: { flex: 1, minWidth: 0 },
   cardTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' },
   cardMeta: { color: COLORS.textSecondary, fontSize: 13, marginTop: 2 },
   cardAction: {
@@ -380,19 +334,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   cardActionText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
-  rowAction: { marginLeft: 'auto' },
   disabled: { opacity: 0.5 },
-  iconButton: { padding: 6 },
-  noOccurrences: { color: COLORS.textSecondary, fontSize: 13, marginTop: 10 },
-  occurrenceRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 10 },
+  occurrenceRow: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 44, marginTop: 6 },
   occurrenceText: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
-  infoBadge: {
-    backgroundColor: COLORS.gray[200],
-    borderRadius: 10,
-    color: COLORS.textPrimary,
-    fontSize: 11,
-    overflow: 'hidden',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
+  chevron: { marginLeft: 'auto' },
+  manageSection: { marginTop: 8 },
+  manageRow: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  manageEventName: { color: COLORS.textPrimary, flexBasis: '100%', fontSize: 14, fontWeight: '600' },
 });

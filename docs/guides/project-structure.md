@@ -12,11 +12,11 @@ metro.config.js         Expo Metro defaults; excludes deployment-only .env.web.*
 eas.json                EAS build profiles
 samconfig.toml          SAM Dev/Production deployment defaults
 src/
-├── components/         Shared UI (including the Test ribbon), dashboard, events, artifacts and rider profile
+├── components/         Shared UI (including the Test ribbon), dashboard, events (progress strip, filter dropdown, rider pop-up), artifacts and rider profile
 ├── config/             App configuration and review routing
 ├── constants/          Colors, roles, stages, layout and ID codes
-├── context/            Auth, app config, tours, rides, events, offline, notifications
-├── navigation/         Auth/root/app navigators and Home module registry
+├── context/            Auth, app config, tours, rides, events (including OccurrenceDashboardContext), offline, notifications
+├── navigation/         Auth/root/app navigators, event occurrence tab navigator and Home module registry
 ├── screens/
 │   ├── admin/          Tours, ride status, users, artifacts, notifications, exit
 │   ├── auth/           Setup, login and password changes
@@ -37,7 +37,7 @@ src/
 │   ├── riderProfile/   Profile configuration
 │   └── sync/           Outbound check-in and event delivery
 ├── types/              Models and navigation types
-└── utils/              Permissions, validation, domain helpers (including eventRegistrations.ts) and logger
+└── utils/              Permissions, validation, domain helpers (including eventRegistrations.ts, eventProgress.ts) and logger
 tools/                  EAS aids, setup-link generator, web.sh (web infra deploy and publish)
 infra/                  SAM hosting template (infra/web.yaml)
 Makefile                web-infra / web-publish targets
