@@ -1,8 +1,8 @@
 # EAS build and release guide
 
-_Last updated: 2026-09-30_
+_Last updated: 2026-11-18_
 
-Use this guide to configure, build, submit and verify the Test and Production versions of tour-mgmt-app. The apps have separate store records and identifiers; the Test build is Dev-only. See the [app variants design](../design/app-variants-and-environments.md) for rationale and compliance decisions.
+Use this guide to configure, build, submit and verify the Test and Production versions of tour-mgmt-app. The apps have separate store records and identifiers; the Test build is Dev-only. See the [app variants design](../design/app-variants-and-environments.md) for rationale and compliance decisions. Store builds normally run from the [deployment workflow](deployment-workflow.md): `develop` builds Test (profile `test`, EAS environment `preview`) and `main` builds Production (profile `production`, EAS environment `production`).
 
 ## 1. Prerequisites
 
@@ -45,7 +45,7 @@ Create a separate iOS app record for each bundle identifier:
 - Production: `com.tourmgmt.app`
 - Test: `com.tourmgmt.app.dev`
 
-Set the names to match the variant table. Enable the Push Notifications capability for each app ID. Record the numeric App Store Connect app ID and set `submit.test.ios.ascAppId` / `submit.production.ios.ascAppId` in `eas.json` to `<ASC_APP_ID_DEV>` and `<ASC_APP_ID_PROD>` respectively. Configure manual release / developer-controlled release timing rather than automatically releasing on approval.
+Set the names to match the variant table. Enable the Push Notifications capability for each app ID. Record the numeric App Store Connect app ID of each record in `eas.json`. `submit.test.ios.ascAppId` is set; `submit.production.ios.ascAppId` keeps the placeholder `<ASC_APP_ID_PROD>` until the Production record exists. Configure manual release / developer-controlled release timing rather than automatically releasing on approval.
 
 ### Google Play Console
 
@@ -80,44 +80,30 @@ npx eas-cli@latest env:set --name GOOGLE_SERVICES_JSON --value ./google-services
 
 ## 5. Configure EAS environments
 
-Set variables separately for the EAS environments `preview` (Test) and `production`. Do not use the same populated variable file for both environments when the backend values differ. `EXPO_PUBLIC_*` variables are bundled into the app; treat them as public configuration, never as secrets. Protect service-account credentials and Firebase files as secret EAS variables.
+The Test app uses the EAS environment `preview` and Production uses `production`. The EAS free plan has no custom environment names, so the Test environment cannot be renamed to `test`. `EXPO_PUBLIC_*` variables are bundled into the app; treat them as public configuration, never as secrets.
 
-| Variable | `preview` (Test) | `production` |
-| --- | --- | --- |
-| `EXPO_PUBLIC_AWS_REGION` | Dev | Prod |
-| `EXPO_PUBLIC_AWS_USER_POOL_ID` | Dev | Prod |
-| `EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID` | Dev | Prod |
-| `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` | Dev, if used | Prod, if used |
-| `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` | Dev API | Prod API |
-| `EXPO_PUBLIC_REVIEW_USERNAME` | Not set | Reviewer email |
-| `EXPO_PUBLIC_REVIEW_AWS_REGION` | Not set | Dev |
-| `EXPO_PUBLIC_REVIEW_AWS_USER_POOL_ID` | Not set | Dev |
-| `EXPO_PUBLIC_REVIEW_AWS_USER_POOL_WEB_CLIENT_ID` | Not set | Dev |
-| `EXPO_PUBLIC_REVIEW_AWS_IDENTITY_POOL_ID` | Not set | Dev, if used |
-| `EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL` | Not set | Dev API |
-| `GOOGLE_SERVICES_JSON` (file, secret) | Test Firebase file | Production Firebase file |
+The backend values are not set by hand any more. Before every build, the [deployment workflow](deployment-workflow.md#eas-environment-sync) reads them from the tour-data-api SSM handover. It then updates the environment, writing only values that changed.
 
-Create the string variables in the EAS dashboard or with the CLI. `env:create` is available but deprecated in the current CLI; use `env:set` for new variables. Select the correct environment, visibility and variable type:
+| Variable | `preview` (Test) | `production` | Managed by |
+| --- | --- | --- | --- |
+| `EXPO_PUBLIC_AWS_REGION`, `_AWS_USER_POOL_ID`, `_AWS_USER_POOL_WEB_CLIENT_ID`, `_TOUR_DATA_API_BASE_URL` | Dev | Prod | Workflow (SSM) |
+| `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` | Dev, if published | Prod, if published | Workflow (SSM); removed while the backend has none |
+| `EXPO_PUBLIC_REVIEW_AWS_REGION`, `_USER_POOL_ID`, `_USER_POOL_WEB_CLIENT_ID`, `_TOUR_DATA_API_BASE_URL` | Not set | Dev | Workflow (SSM) |
+| `EXPO_PUBLIC_REVIEW_AWS_IDENTITY_POOL_ID` | Not set | Dev, if published | Workflow (SSM) |
+| `EXPO_PUBLIC_REVIEW_USERNAME` | Not set | Reviewer login | Workflow (GitHub variable `REVIEW_USERNAME`) |
+| `EXPO_PUBLIC_SETUP_HMAC_KEY` | As needed | As needed | By hand; the workflow does not touch it |
+| `GOOGLE_SERVICES_JSON` (file, secret) | Test Firebase file | Production Firebase file | By hand (section 4) |
 
-```sh
-npx eas-cli@latest env:create
-npx eas-cli@latest env:set
-npx eas-cli@latest env:list --environment preview
-npx eas-cli@latest env:list --environment production
-npx eas-cli@latest env:pull --environment preview
-npx eas-cli@latest env:pull --environment production
-```
+Each variable must belong to one environment only. A variable linked to both `preview` and `production` takes the same value in both, and writing it changes both. The workflow splits such variables automatically; when you add a variable by hand, select a single environment.
 
-`env:pull` writes local environment files; keep those files private and untracked. For bulk string-variable updates, `tools/push-eas-env.sh` can target one environment at a time using a separate local input file:
+Inspect the environments with:
 
 ```sh
-./tools/push-eas-env.sh --file /secure/path/test.env --dry-run preview
-./tools/push-eas-env.sh --file /secure/path/production.env --dry-run production
-./tools/push-eas-env.sh --file /secure/path/test.env preview
-./tools/push-eas-env.sh --file /secure/path/production.env production
+npx eas-cli@latest env:list preview --format long
+npx eas-cli@latest env:list production --format long
 ```
 
-Do not use the script to upload Firebase/service-account files. `tools/EAS.env` is an empty template; do not populate and commit it. The build profiles own `APP_VARIANT`, mock-data mode, log level, API debug logging and QR dev-format flags.
+`env:pull` writes local environment files; keep those files private and untracked. The build profiles own `APP_VARIANT`, mock-data mode, log level, API debug logging and QR dev-format flags.
 
 ## 6. `eas.json` profile reference
 
@@ -125,35 +111,30 @@ Do not use the script to upload Firebase/service-account files. `tools/EAS.env` 
 | --- | --- | --- | --- |
 | `development` | Internal | Existing | Development client; unchanged |
 | `localpreview` | Internal APK | Preview values | Existing Android local-preview workflow, Test app identity |
-| `test` | Store | `preview` / `test` | Test app, auto-increment, EAS Submit targets internal testing |
+| `test` | Store | `preview` / `test` | Test app, auto-increment, EAS Submit targets internal testing (`completed`) |
 | `adhoc` | Internal | Inherits `test` | Emergency iOS ad hoc only |
-| `production` | Store | `production` / `production` | Production app, auto-increment, EAS Submit targets alpha |
+| `production` | Store | `production` / `production` | Production app, auto-increment, EAS Submit targets alpha (`draft`) |
 
 Confirm the EAS `preview` and `production` variables are populated before starting either store profile. Never override `APP_VARIANT` when invoking a store build.
 
 ## 7. Build and submit
 
-Run checks first:
+Run the [deployment workflow](deployment-workflow.md) with `target=mobile` (or `all`):
+
+- on `develop` for the Test app (TestFlight and the Play internal track, rolled out to internal testers);
+- on `main` for Production (TestFlight and the Play alpha track as a draft).
+
+The workflow runs lint, typecheck and tests, syncs the EAS environment, then starts `eas build --auto-submit --no-wait`. It does not wait for the build; follow the build and submission in the EAS dashboard.
+
+For a brand-new Android listing, run the first build with `platform=android` and `submit` off, then upload the AAB manually in Play Console. Once the listing is initialized and Play App Signing is active, later runs can submit. Review build logs and generated metadata before each release; EAS Submit does not replace human review of the target app and release track.
+
+Building from a terminal is still possible for emergencies. It does not sync the EAS environment, so first check it with the [dry run](deployment-workflow.md#eas-environment-sync):
 
 ```sh
-npm run lint
-npm run typecheck
-npm test
-```
-
-Build and submit the Test variant to TestFlight / Play internal track:
-
-```sh
+npm run lint && npm run typecheck && npm test
 npx eas-cli@latest build -p all --profile test --auto-submit
-```
-
-Build and submit Production:
-
-```sh
 npx eas-cli@latest build -p all --profile production --auto-submit
 ```
-
-For a brand-new Android listing, omit Android from auto-submit, then manually upload the first AAB in Play Console. Once the listing is initialized and Play App Signing is active, later submissions can use the Android submit profile. Review build logs and generated metadata before each submission; EAS Submit does not replace human review of the target app and release track.
 
 ### Emergency iOS ad hoc
 

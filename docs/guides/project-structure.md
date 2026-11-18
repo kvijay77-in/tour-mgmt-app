@@ -1,6 +1,6 @@
 # Project structure
 
-_Last updated: 2026-10-05_
+_Last updated: 2026-11-18_
 
 This is a navigational overview of the current repository, not an inventory of every file.
 
@@ -38,9 +38,10 @@ src/
 │   └── sync/           Outbound check-in and event delivery
 ├── types/              Models and navigation types
 └── utils/              Permissions, validation, domain helpers (including eventRegistrations.ts, eventProgress.ts) and logger
-tools/                  EAS aids, setup-link generator, web.sh (web infra deploy and publish)
+tools/                  backend-config.mjs (EAS/web backend values), setup-link generator, web.sh (web infra deploy and publish)
 infra/                  SAM hosting template (infra/web.yaml)
 Makefile                web-infra / web-publish targets
+.github/workflows/      deploy.yml (manual mobile and web build/deploy; see deployment-workflow.md)
 .env.web.example        Web deployment config template
 docs/                   Requirements, design, guides, user guide, misc
 ```

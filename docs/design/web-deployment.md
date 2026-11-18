@@ -1,6 +1,6 @@
 # Web build and deployment design
 
-_Last updated: 2026-10-05_
+_Last updated: 2026-11-18_
 
 The web app is a static `expo export` served from a private S3 bucket through CloudFront. Backend resources (Cognito, API, data, file storage) belong to [tour-data-api](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/guides/deployment.md), not this repository.
 
@@ -17,13 +17,17 @@ flowchart LR
 - **Hosting stack** `tour-mgmt-web-<env>` (`infra/web.yaml`): deployed by a human account admin with `sam deploy --config-env <env>`. Rare; changes are reviewed in the change set. The bucket is retained on deletion and versioned; noncurrent versions expire after 30 days.
 - **Publisher role** (optional, in the same template): created only when a GitHub OIDC provider ARN and an exact subject are supplied. Data-plane only: list/put/get on the bucket, `cloudfront:CreateInvalidation` on the distribution, `cloudformation:DescribeStacks` on its own stack. Trust is limited to audience `sts.amazonaws.com` and the exact subject.
 - **Developers** publish with their own SSO profile holding the same five actions.
-- Dev and Prod use separate AWS accounts in `ap-south-1`. Until the repository is public, Prod is gated by AWS account access (only the release owner has it); no GitHub-trusted Prod role exists.
+- Dev and Prod use separate AWS accounts in `ap-south-1`. Prod CI publishing uses a GitHub-trusted Prod publisher role limited to `main`; until branch protection exists, anyone who can push to `main` can publish Prod.
 
 ## Stages
 
 1. Private repo: admin deploys Dev hosting; a developer publishes Dev with the script.
-2. Private repo (Dev implemented in `.github/workflows/web-dev.yml`): Dev publishes from CI on push to `develop` (subject `repo:<owner>/<repo>:ref:refs/heads/develop`); Prod is published manually from a clean checkout whose HEAD is an ancestor of `origin/main`.
-3. Public repo: GitHub Environments `web-dev`/`web-prod` with required reviewers and branch protection; Prod through CI with an environment-based subject.
+2. Private repo, manual CI (implemented in `.github/workflows/deploy.yml`, see the [deployment workflow guide](../guides/deployment-workflow.md)):
+   - The workflow publishes Dev from `develop` and Prod from `main` when started manually.
+   - The publisher role trusts only the branch subject `repo:kvijay77-in/tour-mgmt-app:ref:refs/heads/<branch>`.
+   - Build values come from the tour-data-api SSM handover.
+   - Prod stays blocked until the Prod hosting stack and its publisher role exist.
+3. Later: branch protection on `develop` and `main`, and optional push or pull-request triggers. Deployment jobs keep branch subjects (no GitHub Environments), because the backend config-read roles trust branches only.
 
 ## Caching
 

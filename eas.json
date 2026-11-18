@@ -82,12 +82,12 @@
       },
       "android": {
         "track": "internal",
-        "releaseStatus": "draft"
+        "releaseStatus": "completed"
       }
     },
     "production": {
       "ios": {
-        "ascAppId": "<ASC_APP_ID_DEV>"
+        "ascAppId": "<ASC_APP_ID_PROD>"
       },
       "android": {
         "track": "alpha",
