@@ -23,3 +23,7 @@ The mobile app caches tour, ride, rider, check-in, event and related lookup reco
 SQLite schema v5 migrates cached event definitions and occurrences to registration and self-service policy fields. It drops the obsolete informational columns without changing the shipped v1 migration; cached event/activity JSON and occurrence records remain available after upgrade. Event policy administration remains online-only, while cached reads continue to work offline.
 
 The dashboard fetches ride/roster data separately from lightweight progress via `dashboardApi.ts`; rider popup details are loaded on demand. `dashboardEvents.ts` coordinates refresh triggers to avoid duplicate requests. The mobile cache is not a second authority: backend responses and authorization determine confirmed state.
+
+The event dashboard snapshot (`event_dashboard_snapshots`) stores `{ tourId, dashboard, reconciliation }`: the full dashboard payload (event, occurrence, riders, records, cancelled, summary) with later progress responses merged into it. Snapshots saved in the earlier format (no `summary`) are ignored and shown as not saved offline.
+
+For EventOccurrence tabs, local event records remain write-local-first in `event_activity_records`. The Activity Log tab is the primary surface for device records: it merges server records with local queued/failed entries, supports retry/remove/cancel actions where allowed, and falls back to device-only entries when the user cannot load dashboard data.

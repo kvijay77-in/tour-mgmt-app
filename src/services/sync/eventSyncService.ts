@@ -1,7 +1,7 @@
 /**
  * Event sync — outbound handlers for event operations (activity record
  * create/cancel) on the shared outbound sync engine (outboundSyncService.ts),
- * plus the write-local-first queue helpers used by EventScanScreen.
+ * plus the write-local-first queue helpers used by EventScanTab.
  *
  * - Interactive "send now" (scan/cancel while online) goes through the engine
  *   queue, which first flushes older queued event operations so the server

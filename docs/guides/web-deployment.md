@@ -52,7 +52,45 @@ Bucket, distribution and `SiteUrl` are read from the stack outputs at runtime.
 
 `.github/workflows/web-dev.yml` runs `tools/web.sh publish --env dev` on push to `develop` (path-filtered) and on manual dispatch. It assumes the publisher role through OIDC; no secrets are used. Dispatch from any branch other than `develop` fails at the role trust check by design.
 
-Setup: set `WEB_GITHUB_OIDC_PROVIDER_ARN` (the account's existing GitHub provider; if none exists, an admin creates it once with URL `https://token.actions.githubusercontent.com` and audience `sts.amazonaws.com`) and `WEB_GITHUB_OIDC_SUBJECT=repo:<owner>/<repo>:ref:refs/heads/develop` in `.env.web.dev.local`, run `make web-infra ENV=dev`, and note the `PublisherRoleArn` output.
+### Setup
+
+1. **Find or create the GitHub OIDC provider** (Dev account, admin profile):
+
+   ```bash
+   aws iam list-open-id-connect-providers --profile <dev-admin>
+   ```
+
+   Use the ARN ending in `oidc-provider/token.actions.githubusercontent.com`. If none exists, create it once:
+
+   ```bash
+   aws iam create-open-id-connect-provider --profile <dev-admin> \
+     --url https://token.actions.githubusercontent.com \
+     --client-id-list sts.amazonaws.com
+   ```
+
+2. **Enable the publisher role.** Add to `.env.web.dev.local`:
+
+   ```
+   WEB_GITHUB_OIDC_PROVIDER_ARN=arn:aws:iam::<dev-account-id>:oidc-provider/token.actions.githubusercontent.com
+   WEB_GITHUB_OIDC_SUBJECT=repo:<owner>/<repo>:ref:refs/heads/develop
+   ```
+
+   Redeploy and review the change set (it should only add `WebPublisherRole`):
+
+   ```bash
+   make web-infra ENV=dev AWS_PROFILE=<dev-admin>
+   ```
+
+   Note the `PublisherRoleArn` output. If it is not printed:
+
+   ```bash
+   aws cloudformation describe-stacks --stack-name tour-mgmt-web-dev --region ap-south-1 \
+     --query "Stacks[0].Outputs[?OutputKey=='PublisherRoleArn'].OutputValue" --output text
+   ```
+
+3. **Set the repository variables** (below), via the GitHub UI or `gh variable set NAME --body VALUE`. No secrets are needed. Never add `EXPO_PUBLIC_SETUP_HMAC_KEY` or `EXPO_PUBLIC_REVIEW_*`.
+4. **Verify.** Ensure `develop` exists and contains the workflow, then run it once from Actions > Run workflow on `develop`. Check the run succeeds and the smoke check passes.
+5. **Stop manual Dev publishing** except in emergencies.
 
 Repository variables (Settings > Secrets and variables > Actions > Variables):
 
@@ -60,7 +98,8 @@ Repository variables (Settings > Secrets and variables > Actions > Variables):
 | --- | --- |
 | `WEB_DEV_ROLE_ARN` | `PublisherRoleArn` of the Dev stack |
 | `WEB_AWS_REGION`, `WEB_AWS_ACCOUNT_ID`, `WEB_STACK_NAME` | Target account, region and stack |
-| `APP_VARIANT`, `EXPO_PUBLIC_*` build keys | Same names as in `.env.web.example` |
+| `APP_VARIANT` | `test` for Dev |
+| `EXPO_PUBLIC_ENVIRONMENT`, `EXPO_PUBLIC_LOG_LEVEL`, `EXPO_PUBLIC_AWS_REGION`, `EXPO_PUBLIC_AWS_USER_POOL_ID`, `EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID`, `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` (optional), `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` | Same values as in `.env.web.dev.local` (mock data and QR dev format are forced to `false` by the script) |
 
 Each run installs, lints, tests and exports, so watch the monthly Actions minutes. Rollback: re-run the workflow for an older `develop` commit (or republish locally in an emergency). Avoid manual Dev publishing otherwise; the last writer wins.
 
@@ -79,3 +118,52 @@ Start with `WEB_CSP_MODE=REPORT_ONLY`; once no violations are seen, set `ENFORCE
 - *AccessDenied*: the S3 error means `ListBucket`/`PutObject`/`GetObject`; invalidation means `cloudfront:CreateInvalidation`; stack outputs means `cloudformation:DescribeStacks`.
 - *CORS error in the browser*: after a hosting stack rebuild the CloudFront domain changes; send the new `SiteUrl` to the backend team so they update the origin list and redeploy.
 - *Smoke check fails on sha*: usually an old cached `index.html`; wait for the invalidation and retry.
+
+## To-do: Phase 5 - Production manual publishing
+
+_Blocked until the Production AWS account is ready and the app is ready to go live. Do not start earlier._
+
+**Prerequisites**
+
+- Prod AWS account and SSO profile exist; release owner and an account admin identified.
+- Prod tour-data-api backend is deployed and the Prod Cognito pool, identity pool (if used) and API base URL are known.
+- Backend team is ready to receive the Prod `SiteUrl` (Prod CORS allows `SiteUrl` only).
+
+**Steps**
+
+1. Create `.env.web.prod.local` from [.env.web.example](../../.env.web.example): set `WEB_AWS_ACCOUNT_ID` (Prod account), `WEB_AWS_REGION`, `WEB_OWNER`, `APP_VARIANT=production`, `EXPO_PUBLIC_ENVIRONMENT=prod` and the Prod `EXPO_PUBLIC_*` build values. Leave `WEB_GITHUB_OIDC_PROVIDER_ARN` and `WEB_GITHUB_OIDC_SUBJECT` empty (no GitHub-trusted Prod role while the repo is private). Keep `WEB_CSP_MODE=REPORT_ONLY`. Never add `EXPO_PUBLIC_SETUP_HMAC_KEY` or `EXPO_PUBLIC_REVIEW_*`.
+2. Admin deploys hosting: `make web-infra ENV=prod AWS_PROFILE=<prod-admin>`; review the change set before confirming. Record the printed `SiteUrl`.
+3. Send the Prod `SiteUrl` to the tour-data-api team and wait for confirmation that the Prod backend is deployed with it in `ManagementWebAllowedOrigins`. Order: hosting stack, `SiteUrl` handoff, backend Prod deploy, publish.
+4. Release owner: check out `main` (clean worktree, HEAD must be an ancestor of `origin/main`), then run `make web-publish ENV=prod DRY_RUN=1 AWS_PROFILE=<prod>` followed by `make web-publish ENV=prod AWS_PROFILE=<prod>`.
+5. Verify as in "Verified results (Dev)": HTTPS 200, http redirects to https, direct S3 URL denied, security headers and CSP report-only present, hashed JS immutable, `index.html` `no-cache`, `x-amz-meta-source-sha` matches the commit.
+6. QA accepts login and dashboard flows against the Prod backend; check browser console for CSP violations.
+7. Once QA confirms no CSP violations, set `WEB_CSP_MODE=ENFORCE` and rerun `make web-infra ENV=prod`.
+8. Update this guide: record the verified Prod results (date, checks passed, deviations), the release owner responsibilities and the Prod rollback (check out the older commit or tag on `main` history and publish again). Update the "Prod (manual)" section if anything differs.
+
+**Done when**: Prod site is live over HTTPS, QA has accepted it, CSP is enforced and this guide records the verified results.
+
+## To-do: Phase 6 - Public repository and full CI (Stage 3)
+
+_Blocked until Phase 5 is complete, the first Production release has happened and the owner decides to make the repo public. GitHub Free private repos do not support Environments, required reviewers or branch protection; these become available when the repo is public._
+
+**Steps**
+
+1. Pre-public checklist:
+   - Scan the full git history for secrets (for example gitleaks; use only a tool the owner approves).
+   - Confirm no account IDs, ARNs, user pool IDs or URLs are hardcoded in tracked files.
+   - Set Actions to require approval for outside collaborators; ensure no workflow deploys on `pull_request`.
+2. GitHub settings (after making the repo public):
+   - Create Environments `web-dev` (deployment branch `develop`) and `web-prod` (required reviewers, deployment branch `main`).
+   - Add branch protection or rulesets on `main` and `develop`.
+   - Move the repository variables into the matching environment variables (`WEB_DEV_ROLE_ARN`, `WEB_AWS_*`, `WEB_STACK_NAME`, `APP_VARIANT`, `EXPO_PUBLIC_*`). Prod values live only in `web-prod`.
+3. AWS trust updates (admin, per account):
+   - Dev: set `WEB_GITHUB_OIDC_SUBJECT=repo:<owner>/<repo>:environment:web-dev` in `.env.web.dev.local`.
+   - Prod: set `WEB_GITHUB_OIDC_PROVIDER_ARN` (Prod account's GitHub OIDC provider; create once if missing) and `WEB_GITHUB_OIDC_SUBJECT=repo:<owner>/<repo>:environment:web-prod` in `.env.web.prod.local`.
+   - Run `make web-infra ENV=dev` and `make web-infra ENV=prod`; review that the change sets only change `WebPublisherRole`. Record each `PublisherRoleArn` and store it as `WEB_DEV_ROLE_ARN` / `WEB_PROD_ROLE_ARN` in the matching environment.
+4. Workflow and script changes:
+   - Rename `.github/workflows/web-dev.yml` to `web-deploy.yml`; add a `develop` push job (`environment: web-dev`) and a `main` push job (`environment: web-prod`), both with `id-token: write`, pinned action SHAs and the same publish command.
+   - In [tools/web.sh](../../tools/web.sh), replace the "refuse Prod in CI" guard with: Prod in CI only when `GITHUB_REF` is `refs/heads/main`. Keep the clean worktree and ancestor-of-`origin/main` checks for local Prod publishing.
+5. Verify: run one approved deployment per environment and check the smoke test passes; confirm a run from a non-`main` branch cannot assume the Prod role.
+6. Update this guide and the [web deployment design](../design/web-deployment.md): mark Stage 3 implemented, document Environment and approval setup and the new trust subjects, and rewrite the Dev CI and Prod sections accordingly.
+
+**Done when**: Dev and Prod both deploy through CI with environment protection, local Prod publishing remains as an emergency path, and the docs reflect Stage 3.

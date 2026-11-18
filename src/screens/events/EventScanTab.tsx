@@ -1,5 +1,6 @@
 /**
- * EventScanScreen — record event activity scans for one occurrence (FE design §4.3).
+ * EventScanTab — Scan tab of the event occurrence dashboard (FE design §4.3). Event and
+ * occurrence come from OccurrenceDashboardContext.
  *
  * Modelled on CheckInScreen without changing it:
  * 1. Activity picker (effective-enabled activities the user may scan, D-O) + camera
@@ -16,7 +17,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -30,7 +30,6 @@ import {
 } from 'react-native';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import { useIsFocused } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS, QR_SCANNER_COLORS } from '../../constants/colors';
 import { DESKTOP_MIN_WIDTH } from '../../constants/layout';
@@ -44,24 +43,16 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useEventSession } from '../../context/EventSessionContext';
 import { useNameDirectory } from '../../context/NameDirectoryContext';
+import { useOccurrenceDashboard } from '../../context/OccurrenceDashboardContext';
 import { useOffline } from '../../context/OfflineContext';
 import { useTour } from '../../context/TourContext';
-import { describeUnexpectedEventError, getEvent, getOccurrence } from '../../services/api/eventsApi';
+import { describeUnexpectedEventError } from '../../services/api/eventsApi';
 import { getRiderById as fetchTourRider, getRiderProfileDietaryPreference } from '../../services/api/riderApi';
 import { getIdCodeTypeMap } from '../../services/database/appConfigStore';
 import {
   findActiveEventRecord,
-  getFailedEventRecords,
-  LocalEventActivityRecord,
 } from '../../services/database/eventRecordStore';
-import { retryFailedOperations } from '../../services/sync/outboundSyncService';
-import {
-  getEventById,
-  getOccurrenceById,
-  getRiderBaggageStatus,
-  upsertEvent,
-  upsertOccurrence,
-} from '../../services/database/eventStore';
+import { getRiderBaggageStatus } from '../../services/database/eventStore';
 import {
   getRiderById as getCachedRider,
   setRiderDietaryPreference,
@@ -72,13 +63,10 @@ import { OFFLINE_CACHE_ENABLED } from '../../services/offline/offlineDataService
 import { playFailure, playScanTick, playSuccess } from '../../services/feedback/feedbackService';
 import { formatTypeNotAllowedMessage, resolveScannedRiderId } from '../../services/idcode/idCodeService';
 import {
-  cancelEventRecordOnline,
-  discardUnsyncedEventRecord,
   EventOperationResult,
   NewEventScan,
   processEventOperationNow,
   queueEventRecord,
-  queueEventRecordCancel,
   sendEventRecordOnline,
   toRecordTimestamp,
 } from '../../services/sync/eventSyncService';
@@ -88,14 +76,11 @@ import {
   BaggageStatus,
   DietaryPreference,
   EventActivity,
-  EventDefinition,
-  EventOccurrence,
   EventRecordMethod,
   OccurrenceStatus,
   Permission,
   UserRole,
 } from '../../types/models';
-import { AppStackParamList } from '../../types/navigation';
 import {
   findActivityOverride,
   getEffectiveActivityEnabled,
@@ -104,22 +89,10 @@ import {
 } from '../../utils/eventActivity';
 import { logger } from '../../utils/logger';
 import { hasPermission } from '../../utils/permissions';
-import ConfirmDialog from '../../components/artifacts/ConfirmDialog';
-import EventScreenHeader from '../../components/events/EventScreenHeader';
-import OccurrenceStatusBadge from '../../components/events/OccurrenceStatusBadge';
-import OfflineBanner from '../../components/common/OfflineBanner';
 import ScanConfirmationCard from '../../components/events/ScanConfirmationCard';
 import StatusBanner, { StatusBannerAction } from '../../components/events/StatusBanner';
 
-const TAG = 'EventScanScreen';
-const SYNC_ISSUES_LIMIT = 50;
-
-interface EventScanScreenProps {
-  eventId: string;
-  occurrenceId: string;
-  navigation: NativeStackNavigationProp<AppStackParamList, 'EventScan'>;
-}
-
+const TAG = 'EventScanTab';
 interface PendingScan {
   riderId: string;
   method: EventRecordMethod;
@@ -132,8 +105,6 @@ interface Banner {
   message: string;
   secondaryAction?: StatusBannerAction;
 }
-
-type LoadState = 'loading' | 'ready' | 'notFound' | 'unavailable';
 
 function fill(template: string, values: Record<string, string>): string {
   return Object.entries(values).reduce((text, [key, value]) => text.replace(`{${key}}`, value), template);
@@ -178,27 +149,18 @@ async function loadDietaryPreference(
   }
 }
 
-function recordBadge(record: LocalEventActivityRecord): { label: string; color: string } {
-  if (record.isCancelled) return { label: 'Cancelled', color: COLORS.gray[500] };
-  if (record.syncStatus === 'PENDING') return { label: 'Queued', color: COLORS.warning };
-  if (record.isFlagged) return { label: 'Flagged', color: COLORS.danger };
-  return { label: 'Synced', color: COLORS.success };
-}
-
-export default function EventScanScreen({ eventId, occurrenceId, navigation }: EventScanScreenProps) {
+export default function EventScanTab() {
   const { user } = useAuth();
   const { tour } = useTour();
+  const { eventId, occurrenceId, event, occurrence, refreshProgressSoon } = useOccurrenceDashboard();
   const { isOffline } = useOffline();
   const { riderNamesById, getRiderDisplayName } = useNameDirectory();
   const {
     setSelection,
     selectedActivityId,
     setSelectedActivityId,
-    recentRecords,
-    failedCount,
+    pendingCount,
     myAssignment,
-    cacheVersion,
-    refreshBootstrap,
   } = useEventSession();
   const [permission, requestPermission] = useCameraPermissions();
   const isFocused = useIsFocused();
@@ -208,10 +170,6 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   const role = user?.userRole ?? null;
   const canManualEntry = role ? hasPermission(role, Permission.MANUAL_CHECKIN) : false;
 
-  const [event, setEvent] = useState<EventDefinition | null>(null);
-  const [occurrence, setOccurrence] = useState<EventOccurrence | null>(null);
-  const [loadState, setLoadState] = useState<LoadState>('loading');
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [typeMap, setTypeMap] = useState<Record<string, IdCodeTypeConfig>>({});
   const [scanPauseSeconds, setScanPauseSeconds] = useState(3);
 
@@ -228,12 +186,6 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   const [manualTypeCode, setManualTypeCode] = useState<string | null>(null);
   const [manualError, setManualError] = useState<string | null>(null);
 
-  const [cancelTarget, setCancelTarget] = useState<LocalEventActivityRecord | null>(null);
-  const [cancelReason, setCancelReason] = useState('');
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [issues, setIssues] = useState<LocalEventActivityRecord[]>([]);
-  const [showSessionInfo, setShowSessionInfo] = useState(false);
-
   const processingRef = useRef(false);
   const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const variantTouchedRef = useRef(false);
@@ -242,19 +194,6 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   useEffect(() => {
     setSelection(eventId, occurrenceId, null);
   }, [eventId, occurrenceId, setSelection]);
-
-  // Sync issues of this occurrence only (reloaded when records or the failed count change).
-  useEffect(() => {
-    let active = true;
-    getFailedEventRecords(occurrenceId, SYNC_ISSUES_LIMIT)
-      .then((records) => {
-        if (active) setIssues(records);
-      })
-      .catch((error) => logger.warn(TAG, 'Reading sync issues failed', error));
-    return () => {
-      active = false;
-    };
-  }, [occurrenceId, recentRecords, failedCount]);
 
   useEffect(() => {
     let active = true;
@@ -271,92 +210,6 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
       if (cooldownTimerRef.current) clearTimeout(cooldownTimerRef.current);
     };
   }, []);
-
-  // ---------------------------------------------------------------------------
-  // Load event + occurrence (API when online, SQLite cache otherwise)
-  // ---------------------------------------------------------------------------
-
-  const load = useCallback(async () => {
-    const [cachedEvent, cachedOccurrence] = await Promise.all([
-      getEventById(eventId).catch(() => null),
-      getOccurrenceById(occurrenceId).catch(() => null),
-    ]);
-
-    let nextEvent = cachedEvent;
-    let nextOccurrence = cachedOccurrence;
-    let notFound = false;
-
-    if (tourId && !isOffline) {
-      try {
-        const [eventOutcome, occurrenceOutcome] = await Promise.all([
-          getEvent(tourId, eventId),
-          getOccurrence(tourId, eventId, occurrenceId),
-        ]);
-        if (eventOutcome.kind === 'success') {
-          nextEvent = eventOutcome.data;
-          await upsertEvent(eventOutcome.data);
-        } else if (eventOutcome.error.status === 404) {
-          notFound = true;
-        }
-        if (occurrenceOutcome.kind === 'success') {
-          nextOccurrence = occurrenceOutcome.data;
-          await upsertOccurrence(occurrenceOutcome.data);
-        } else if (occurrenceOutcome.error.status === 404) {
-          notFound = true;
-        }
-        if (!notFound) {
-          const failed = eventOutcome.kind === 'error'
-            ? eventOutcome.error
-            : occurrenceOutcome.kind === 'error' ? occurrenceOutcome.error : null;
-          if (failed) setBanner({ kind: failed.kind, message: failed.message });
-        }
-      } catch (error) {
-        logger.warn(TAG, 'Loading occurrence online failed; using cache', error);
-        if (!cachedEvent || !cachedOccurrence) {
-          setBanner({ kind: 'error', message: describeUnexpectedEventError(error) });
-        }
-      }
-    }
-
-    if (notFound) {
-      setLoadState('notFound');
-      return;
-    }
-    setEvent(nextEvent);
-    setOccurrence(nextOccurrence);
-    setLoadState(nextEvent && nextOccurrence ? 'ready' : 'unavailable');
-  }, [eventId, occurrenceId, tourId, isOffline]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // A bootstrap rewrite may carry a newer occurrence state (e.g. started elsewhere).
-  useEffect(() => {
-    if (cacheVersion === 0) return;
-    let active = true;
-    void Promise.all([getEventById(eventId), getOccurrenceById(occurrenceId)])
-      .then(([cachedEvent, cachedOccurrence]) => {
-        if (!active) return;
-        if (cachedEvent) setEvent(cachedEvent);
-        if (cachedOccurrence) setOccurrence(cachedOccurrence);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [cacheVersion, eventId, occurrenceId]);
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    setBanner(null);
-    try {
-      await refreshBootstrap();
-      await load();
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
 
   // ---------------------------------------------------------------------------
   // Activity selection
@@ -389,7 +242,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   const variantOptions = useMemo(() => activity?.variantOptions ?? [], [activity]);
   const requiresVariant = variantOptions.length > 0;
   const isActive = occurrence?.status === OccurrenceStatus.ACTIVE;
-  const canScan = loadState === 'ready' && isActive && Boolean(activity);
+  const canScan = isActive && Boolean(activity);
 
   // ---------------------------------------------------------------------------
   // Scan flow
@@ -480,6 +333,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
         result = await sendEventRecordOnline(tourId, scanRecord);
       }
       renderResult(result, scan, scan.typeCode);
+      refreshProgressSoon();
       resetPending();
       releaseScanner(true);
     } catch (error) {
@@ -492,7 +346,7 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
     } finally {
       setIsSubmitting(false);
     }
-  }, [event, occurrence, activity, tourId, isOffline, user?.userId, renderResult, resetPending, releaseScanner]);
+  }, [event, occurrence, activity, tourId, isOffline, user?.userId, renderResult, resetPending, releaseScanner, refreshProgressSoon]);
 
   const handleResolved = useCallback(async (scan: PendingScan) => {
     if (!occurrence || !activity || !tourId) return;
@@ -620,104 +474,9 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
   };
 
   // ---------------------------------------------------------------------------
-  // Cancel / dismiss
-  // ---------------------------------------------------------------------------
-
-  const confirmCancel = async () => {
-    const record = cancelTarget;
-    if (!record || !tourId) return;
-    setIsCancelling(true);
-    try {
-      if (!OFFLINE_CACHE_ENABLED) {
-        const result = await cancelEventRecordOnline(tourId, record, cancelReason);
-        setBanner(result.status === 'rejected' || result.status === 'duplicate'
-          ? { kind: result.error.kind, message: result.error.message }
-          : { kind: 'info', message: EVENT_SCAN_MESSAGES.SCAN_CANCELLED });
-        return;
-      }
-      if (record.syncStatus !== 'SYNCED') {
-        const removed = await discardUnsyncedEventRecord(record.localId);
-        setBanner({ kind: 'info', message: removed ? EVENT_SCAN_MESSAGES.UNSENT_REMOVED : EVENT_SCAN_MESSAGES.ALREADY_SENT });
-        return;
-      }
-      const opLocalId = await queueEventRecordCancel(record, user?.userId ?? null, cancelReason);
-      if (!opLocalId) return;
-      if (isOffline) {
-        setBanner({ kind: 'info', message: EVENT_SCAN_MESSAGES.CANCEL_QUEUED });
-        return;
-      }
-      const result = await processEventOperationNow(opLocalId);
-      if (result.status === 'rejected' || result.status === 'duplicate') {
-        setBanner({ kind: result.error.kind, message: result.error.message });
-      } else if (result.status === 'queued') {
-        setBanner({ kind: 'info', message: EVENT_SCAN_MESSAGES.CANCEL_QUEUED });
-      } else {
-        setBanner({ kind: 'info', message: EVENT_SCAN_MESSAGES.SCAN_CANCELLED });
-      }
-    } catch (error) {
-      logger.error(TAG, 'Cancelling scan failed', error);
-      setBanner({ kind: 'error', message: describeUnexpectedEventError(error) });
-    } finally {
-      setIsCancelling(false);
-      setCancelTarget(null);
-      setCancelReason('');
-    }
-  };
-
-  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
-  const header = (
-    <EventScreenHeader
-      title={event?.eventName ?? 'Event scan'}
-      subtitle={occurrence ? `${occurrence.date} · #${occurrence.seq}` : undefined}
-      onBack={() => navigation.goBack()}
-      right={(
-        <TouchableOpacity
-          accessibilityLabel="Refresh occurrence"
-          accessibilityRole="button"
-          disabled={isOffline || isRefreshing}
-          onPress={() => void handleRefresh()}
-          style={styles.headerButton}
-        >
-          {isRefreshing
-            ? <ActivityIndicator color={COLORS.white} size="small" />
-            : <MaterialIcons name="refresh" size={24} color={COLORS.white} />}
-        </TouchableOpacity>
-      )}
-    />
-  );
-
-  if (loadState === 'loading') {
-    return (
-      <View style={styles.container}>
-        {header}
-        <ActivityIndicator color={COLORS.primary} style={styles.loader} />
-      </View>
-    );
-  }
-
-  if (loadState === 'notFound' || loadState === 'unavailable') {
-    return (
-      <View style={styles.container}>
-        {header}
-        <View style={styles.centered}>
-          <MaterialIcons name={loadState === 'notFound' ? 'event-busy' : 'cloud-off'} size={40} color={COLORS.gray[400]} />
-          <Text style={styles.centeredText}>
-            {loadState === 'notFound'
-              ? EVENT_ERROR_MESSAGES.OCCURRENCE_NOT_FOUND.message
-              : EVENT_SCAN_MESSAGES.NOT_AVAILABLE_OFFLINE}
-          </Text>
-          <TouchableOpacity accessibilityRole="button" onPress={() => navigation.goBack()} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Back to events</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  const recent = recentRecords.filter((record) => record.syncStatus !== 'FAILED');
   const pendingDisplay = pendingScan ? getRiderDisplayName(pendingScan.riderId) : null;
   const scannerActive = canScan && !pendingScan && !banner && !showManualEntry && isFocused;
 
@@ -844,18 +603,10 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
-      {header}
       <ScrollView
         contentContainerStyle={[styles.content, isDesktop && styles.contentDesktop]}
         keyboardShouldPersistTaps="handled"
       >
-        <OfflineBanner />
-
-        <View style={styles.occurrenceRow}>
-          {occurrence ? <OccurrenceStatusBadge status={occurrence.status} /> : null}
-          {event?.location ? <Text style={styles.meta}>{event.location}</Text> : null}
-        </View>
-
         {availableActivities.length === 0 ? (
           <StatusBanner
             kind="info"
@@ -898,6 +649,9 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
         {lastResult && !banner ? (
           <StatusBanner kind="info" message={lastResult} onDismiss={() => setLastResult(null)} />
         ) : null}
+        {pendingCount > 0 ? (
+          <StatusBanner kind="info" message={`Queued on this device: ${pendingCount}`} />
+        ) : null}
 
         {pendingScan && activity ? (
           <ScanConfirmationCard
@@ -938,143 +692,15 @@ export default function EventScanScreen({ eventId, occurrenceId, navigation }: E
           </View>
         ) : null}
 
-        {issues.length > 0 ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Sync issues</Text>
-            {issues.map((record) => (
-              <View key={record.localId} style={styles.issueRow}>
-                <View style={styles.recordBody}>
-                  <Text style={styles.recordTitle} numberOfLines={1}>
-                    {riderLabel(record.riderId)} · {record.activityName}
-                  </Text>
-                  <Text style={styles.issueText}>{record.syncError}</Text>
-                </View>
-                {!isOffline ? (
-                  <TouchableOpacity
-                    accessibilityLabel={`Retry failed scan for ${record.riderId}`}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      retryFailedOperations([record.localId]).catch((error) =>
-                        logger.warn(TAG, 'Retrying failed scan failed', error),
-                      );
-                    }}
-                    style={styles.smallButton}
-                  >
-                    <Text style={styles.retryButtonText}>Retry</Text>
-                  </TouchableOpacity>
-                ) : null}
-                <TouchableOpacity
-                  accessibilityLabel={`Dismiss failed scan for ${record.riderId}`}
-                  accessibilityRole="button"
-                  onPress={() => setCancelTarget(record)}
-                  style={styles.smallButton}
-                >
-                  <Text style={styles.smallButtonText}>Dismiss</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent scans on this device</Text>
-            {!OFFLINE_CACHE_ENABLED ? (
-              <TouchableOpacity
-                accessibilityLabel="About recent scans on web"
-                accessibilityRole="button"
-                accessibilityState={{ expanded: showSessionInfo }}
-                hitSlop={12}
-                onPress={() => setShowSessionInfo((shown) => !shown)}
-                style={styles.infoButton}
-              >
-                <MaterialIcons name="info-outline" size={16} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          {showSessionInfo ? (
-            <StatusBanner
-              kind="info"
-              message={EVENT_SCAN_MESSAGES.WEB_SESSION_ONLY}
-              onDismiss={() => setShowSessionInfo(false)}
-            />
-          ) : null}
-          {recent.length === 0 ? <Text style={styles.hint}>No scans yet.</Text> : null}
-          {recent.map((record) => {
-            const badge = recordBadge(record);
-            const details = [
-              record.outcome === ActivityOutcome.OPTED_OUT ? 'Opted out' : record.bagLabel,
-              record.variantSelected,
-              new Date(record.timestamp).toLocaleTimeString(),
-            ].filter(Boolean).join(' · ');
-            return (
-              <View key={record.localId} style={styles.recordRow}>
-                <View style={styles.recordBody}>
-                  <Text style={styles.recordTitle} numberOfLines={1}>
-                    {riderLabel(record.riderId)} · {record.activityName}
-                  </Text>
-                  <Text style={styles.recordMeta}>{details}</Text>
-                </View>
-                <Text style={[styles.recordBadge, { borderColor: badge.color, color: badge.color }]}>{badge.label}</Text>
-                {!record.isCancelled ? (
-                  <TouchableOpacity
-                    accessibilityLabel={`Cancel scan for ${record.riderId}`}
-                    accessibilityRole="button"
-                    onPress={() => setCancelTarget(record)}
-                    style={styles.smallButton}
-                  >
-                    <MaterialIcons name="undo" size={18} color={COLORS.danger} />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
       </ScrollView>
-
-      <ConfirmDialog
-        cancelLabel="Back"
-        confirmLabel={cancelTarget?.syncStatus === 'SYNCED' ? 'Cancel scan' : 'Remove'}
-        isSubmitting={isCancelling}
-        message={cancelTarget
-          ? cancelTarget.syncStatus === 'SYNCED'
-            ? `Cancel ${cancelTarget.activityName} for ${riderLabel(cancelTarget.riderId)}? The record is kept on the server and marked cancelled.`
-            : `Remove the unsent ${cancelTarget.activityName} scan for ${riderLabel(cancelTarget.riderId)} from this device?`
-          : ''}
-        onCancel={() => {
-          setCancelTarget(null);
-          setCancelReason('');
-        }}
-        onConfirm={() => void confirmCancel()}
-        title={cancelTarget?.syncStatus === 'SYNCED' ? 'Cancel scan' : 'Remove scan'}
-        visible={Boolean(cancelTarget)}
-      >
-        {cancelTarget?.syncStatus === 'SYNCED' ? (
-          <TextInput
-            accessibilityLabel="Cancel reason (optional)"
-            maxLength={200}
-            onChangeText={setCancelReason}
-            placeholder="Reason (optional)"
-            placeholderTextColor={COLORS.textDisabled}
-            style={styles.input}
-            value={cancelReason}
-          />
-        ) : null}
-      </ConfirmDialog>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { backgroundColor: COLORS.background, flex: 1 },
-  headerButton: { padding: 4 },
-  loader: { marginVertical: 32 },
-  centered: { alignItems: 'center', flex: 1, gap: 12, justifyContent: 'center', padding: 24 },
-  centeredText: { color: COLORS.textSecondary, fontSize: 14, textAlign: 'center' },
   content: { padding: 12, paddingBottom: 32 },
   contentDesktop: { alignSelf: 'center', maxWidth: 720, width: '100%' },
-  occurrenceRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginBottom: 10 },
-  meta: { color: COLORS.textSecondary, fontSize: 13 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   chip: {
     backgroundColor: COLORS.surface,
@@ -1148,51 +774,6 @@ const styles = StyleSheet.create({
   linkText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
   autoRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   autoLabel: { color: COLORS.textSecondary, flex: 1, fontSize: 13, fontWeight: '600' },
-  section: { marginTop: 8 },
-  sectionHeader: { alignItems: 'center', flexDirection: 'row', gap: 4 },
-  infoButton: { marginBottom: 6, padding: 2 },
-  sectionTitle: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  recordRow: {
-    alignItems: 'center',
-    borderBottomColor: COLORS.gray[100],
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    paddingVertical: 8,
-  },
-  issueRow: {
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderColor: COLORS.danger,
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 6,
-    padding: 8,
-  },
-  recordBody: { flex: 1, minWidth: 0 },
-  recordTitle: { color: COLORS.textPrimary, fontSize: 13, fontWeight: '600' },
-  recordMeta: { color: COLORS.textSecondary, fontSize: 12, marginTop: 2 },
-  issueText: { color: COLORS.danger, fontSize: 12, marginTop: 2 },
-  recordBadge: {
-    borderRadius: 10,
-    borderWidth: 1,
-    fontSize: 11,
-    fontWeight: '600',
-    overflow: 'hidden',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  smallButton: { alignItems: 'center', justifyContent: 'center', minHeight: 40, minWidth: 40, paddingHorizontal: 8 },
-  smallButtonText: { color: COLORS.danger, fontSize: 13, fontWeight: '600' },
-  retryButtonText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: COLORS.primary,

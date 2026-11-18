@@ -46,10 +46,8 @@ export type AppStackParamList = {
   EventDefinitionEditor: { eventId?: string; mode?: 'view' | 'edit' } | undefined;
   OccurrenceManagement: { eventId: string };
   OccurrenceRegistrations: { eventId: string; occurrenceId: string };
-  // Event engine Phase 4
-  EventScan: { eventId: string; occurrenceId: string };
-  // Event engine Phase 5
-  OccurrenceDashboard: { eventId: string; occurrenceId: string };
+  // Event engine Phase 4/5: tabbed occurrence dashboard (Progress | Scan | Log)
+  EventOccurrence: { eventId: string; occurrenceId: string; initialTab?: EventOccurrenceTab };
   BaggageReconciliation: { eventId: string; occurrenceId: string };
   /** eventId/occurrenceId focus the view (dashboard drill-down) */
   RiderProgress: { riderId: string; eventId?: string; occurrenceId?: string };
@@ -73,3 +71,7 @@ export type MainTabParamList = {
   CheckIn: undefined;
   Log: undefined;
 };
+
+export type EventOccurrenceTab = 'Progress' | 'Scan' | 'Log';
+
+export type EventOccurrenceTabParamList = Record<EventOccurrenceTab, undefined>;

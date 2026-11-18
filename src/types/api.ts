@@ -352,26 +352,55 @@ export interface CancelActivityRecordRequest {
 
 export type DashboardActivityStatus = 'PENDING' | ActivityOutcome;
 
-export interface OccurrenceDashboardResponse {
-  occurrence: EventOccurrence;
-  registrationEnabled?: boolean;
-  registeredCount?: number;
-  riders: Array<{
-    riderId: string;
-    registered?: boolean;
-    activities: Array<{ activityId: string; status: DashboardActivityStatus }>;
-  }>;
-  cancelled: EventActivityRecord[];
+export interface EventDashboardRider {
+  riderId: string;
+  profileId?: string;
+  /** TourRiderStatus, e.g. REGISTERED / EXITED */
+  status?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  emergencyContact?: { name?: string; phone?: string; relation?: string | null } | null;
+  photoS3Key?: string | null;
+  registered?: boolean;
+  activities: Array<{ activityId: string; status: DashboardActivityStatus }>;
 }
 
-export interface OccurrenceProgressResponse {
+export interface EventDashboardActivitySummary {
+  activityId: string;
+  completed: number;
+  optedOut: number;
+  flagged: number;
+  pending: number;
+}
+
+export interface EventDashboardSummary {
+  totalRiders: number;
   registrationEnabled?: boolean;
   registeredCount?: number;
-  totalRiders: number;
   completedCount: number;
   outstandingMandatoryCount: number;
   optedOutCount: number;
   flaggedCount: number;
+  activities: EventDashboardActivitySummary[];
+}
+
+export interface OccurrenceDashboardResponse {
+  event: EventDefinition;
+  occurrence: EventOccurrence;
+  riders: EventDashboardRider[];
+  records: EventActivityRecord[];
+  cancelled: EventActivityRecord[];
+  summary: EventDashboardSummary;
+}
+
+export interface OccurrenceProgressResponse {
+  eventId: string;
+  occurrenceId: string;
+  records: EventActivityRecord[];
+  cancelled: EventActivityRecord[];
+  summary: EventDashboardSummary;
+  dataVersion?: string | number;
 }
 
 export interface ReconciliationResponse {

@@ -3,7 +3,7 @@
  * reads with ETag/304 reuse, plus the last-known snapshot per occurrence in
  * SQLite (event_dashboard_snapshots) for offline and "stale data" display.
  *
- * See docs/Event-Engine-Design.md § OccurrenceDashboardScreen.
+ * See docs/design/events.md.
  */
 
 import {
@@ -20,7 +20,6 @@ import {
   OccurrenceProgressResponse,
   ReconciliationResponse,
 } from '../../types/api';
-import { EventDefinition } from '../../types/models';
 import { logger } from '../../utils/logger';
 
 const TAG = 'EventDashboardService';
@@ -28,9 +27,8 @@ const TAG = 'EventDashboardService';
 export interface OccurrenceDashboardSnapshot {
   /** Occurrence IDs are only unique within a tour */
   tourId: string;
-  event: EventDefinition | null;
+  /** Full dashboard payload (event, occurrence, riders, records, summary) with progress merged in */
   dashboard: OccurrenceDashboardResponse | null;
-  progress: OccurrenceProgressResponse | null;
   reconciliation: ReconciliationResponse | null;
 }
 
@@ -68,6 +66,10 @@ export async function readOccurrenceSnapshot(
   try {
     const stored = await getDashboardSnapshot<OccurrenceDashboardSnapshot>(occurrenceId);
     if (!stored || stored.payload.tourId !== tourId) return null;
+    // Snapshots saved before the revamped contract have no summary: treat the dashboard as not saved.
+    if (!stored.payload.dashboard?.summary) {
+      return { snapshot: { ...stored.payload, dashboard: null }, fetchedAt: stored.fetchedAt };
+    }
     return { snapshot: stored.payload, fetchedAt: stored.fetchedAt };
   } catch (error) {
     logger.warn(TAG, 'Reading dashboard snapshot failed', error);
@@ -95,9 +97,7 @@ async function writeSnapshotPart(
     const existing = await readOccurrenceSnapshot(tourId, occurrenceId);
     const base: OccurrenceDashboardSnapshot = existing?.snapshot ?? {
       tourId,
-      event: null,
       dashboard: null,
-      progress: null,
       reconciliation: null,
     };
     await saveDashboardSnapshot(occurrenceId, { ...base, ...part, tourId });
@@ -106,12 +106,31 @@ async function writeSnapshotPart(
   }
 }
 
-export function saveOccurrenceSnapshotEvent(
+async function mergeProgressIntoSnapshot(
   tourId: string,
   occurrenceId: string,
-  event: EventDefinition,
+  progress: OccurrenceProgressResponse,
 ): Promise<void> {
-  return saveSnapshotPart(tourId, occurrenceId, { event });
+  const task = snapshotWriteChain.then(async () => {
+    try {
+      const existing = await readOccurrenceSnapshot(tourId, occurrenceId);
+      const dashboard = existing?.snapshot.dashboard;
+      if (!dashboard) return;
+      await saveDashboardSnapshot(occurrenceId, {
+        ...existing.snapshot,
+        dashboard: {
+          ...dashboard,
+          records: progress.records,
+          cancelled: progress.cancelled,
+          summary: progress.summary,
+        },
+      });
+    } catch (error) {
+      logger.warn(TAG, 'Merging progress into snapshot failed', error);
+    }
+  });
+  snapshotWriteChain = task;
+  return task;
 }
 
 export async function fetchOccurrenceDashboard(
@@ -141,7 +160,7 @@ export async function fetchOccurrenceProgress(
   );
   if (outcome.kind === 'error') return outcome;
   if (!outcome.data.notModified) {
-    await saveSnapshotPart(tourId, occurrenceId, { progress: outcome.data.data });
+    await mergeProgressIntoSnapshot(tourId, occurrenceId, outcome.data.data);
   }
   return { kind: 'success', data: { progress: outcome.data.data, notModified: outcome.data.notModified } };
 }

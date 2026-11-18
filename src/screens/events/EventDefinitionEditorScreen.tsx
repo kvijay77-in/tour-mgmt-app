@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
@@ -270,37 +271,51 @@ interface RuleSelectorFieldProps {
 }
 
 function RuleSelectorField({ label, value, rules, disabled, error, onChange }: RuleSelectorFieldProps) {
+  const [open, setOpen] = useState(false);
   const options = rules.filter((rule) => rule.enabled);
   const selected = value.trim();
+  const choices = [{ ruleId: '', text: 'None' }, ...options.map((rule) => ({ ruleId: rule.ruleId, text: rule.ruleId }))];
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <View style={styles.chips}>
-        <TouchableOpacity
-          accessibilityRole="radio"
-          accessibilityState={{ selected: selected.length === 0, disabled }}
-          disabled={disabled}
-          onPress={() => onChange('')}
-          style={[styles.chip, selected.length === 0 && styles.chipSelected]}
-        >
-          <Text style={[styles.chipText, selected.length === 0 && styles.chipTextSelected]}>None</Text>
+      <TouchableOpacity
+        accessibilityLabel={`${label}: ${selected || 'None'}`}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={() => setOpen(true)}
+        style={[styles.dropdown, disabled && styles.dropdownDisabled, error ? styles.inputError : null]}
+      >
+        <Text style={styles.dropdownText}>{selected || 'None'}</Text>
+        <MaterialIcons name="arrow-drop-down" size={22} color={COLORS.textSecondary} />
+      </TouchableOpacity>
+      <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity accessibilityLabel="Close" style={styles.dropdownBackdrop} activeOpacity={1} onPress={() => setOpen(false)}>
+          <View style={styles.dropdownSheet}>
+            <Text style={styles.sectionLabel}>{label}</Text>
+            <ScrollView>
+              {choices.map((choice) => {
+                const isSelected = selected === choice.ruleId;
+                return (
+                  <TouchableOpacity
+                    key={choice.ruleId || 'none'}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() => {
+                      onChange(choice.ruleId);
+                      setOpen(false);
+                    }}
+                    style={styles.dropdownOption}
+                  >
+                    <Text style={[styles.dropdownText, isSelected && styles.chipTextSelectedAccent]}>{choice.text}</Text>
+                    {isSelected ? <MaterialIcons name="check" size={18} color={COLORS.primary} /> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
         </TouchableOpacity>
-        {options.map((rule) => {
-          const isSelected = selected === rule.ruleId;
-          return (
-            <TouchableOpacity
-              key={rule.ruleId}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: isSelected, disabled }}
-              disabled={disabled}
-              onPress={() => onChange(rule.ruleId)}
-              style={[styles.chip, isSelected && styles.chipSelected]}
-            >
-              <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{rule.ruleId}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      </Modal>
       {options.length === 0 ? <Text style={styles.hint}>No enabled notification rules available.</Text> : null}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
@@ -317,6 +332,15 @@ interface ActivityFieldsProps {
   disabled: boolean;
   onChange: (patch: Partial<ActivityDraft>) => void;
 }
+
+const SELF_SERVICE_OPTIONS = [
+  { value: undefined, label: 'Follow event' },
+  { value: true, label: 'Allowed' },
+  { value: false, label: 'Not allowed' },
+];
+// Approximate glyph width at 13px plus horizontal padding.
+const SELF_SERVICE_SEGMENT_WIDTH =
+  Math.max(...SELF_SERVICE_OPTIONS.map((option) => option.label.length)) * 7.5 + 24;
 
 function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, wide, disabled, onChange }: ActivityFieldsProps) {
   const key = draft.activityId;
@@ -345,21 +369,17 @@ function ActivityFields({ draft, earlier, errors, typeOptions, inheritedCodes, w
       </View>
       <View style={styles.field}>
         <Text style={styles.label}>Self-service</Text>
-        <View style={styles.segmented}>
-          {[
-            { value: undefined, label: 'Follow event' },
-            { value: true, label: 'Allowed' },
-            { value: false, label: 'Not allowed' },
-          ].map((option) => (
+        <View style={[styles.segmented, styles.segmentedCompact]}>
+          {SELF_SERVICE_OPTIONS.map((option) => (
             <TouchableOpacity
               key={option.label}
               accessibilityRole="radio"
               accessibilityState={{ selected: draft.selfServiceAllowed === option.value, disabled }}
               disabled={disabled}
               onPress={() => onChange({ selfServiceAllowed: option.value })}
-              style={[styles.segment, draft.selfServiceAllowed === option.value && styles.segmentSelected]}
+              style={[styles.segment, styles.segmentFixed, draft.selfServiceAllowed === option.value && styles.segmentSelected]}
             >
-              <Text style={[styles.segmentText, draft.selfServiceAllowed === option.value && styles.segmentTextSelected]}>
+              <Text numberOfLines={1} style={[styles.segmentText, draft.selfServiceAllowed === option.value && styles.segmentTextSelected]}>
                 {option.label}
               </Text>
             </TouchableOpacity>
@@ -973,6 +993,25 @@ const styles = StyleSheet.create({
   spacer: { height: 8 },
   segmented: { backgroundColor: COLORS.gray[200], borderRadius: 6, flexDirection: 'row', padding: 3 },
   segment: { alignItems: 'center', borderRadius: 4, flex: 1, justifyContent: 'center', minHeight: 38 },
+  segmentedCompact: { alignSelf: 'flex-start', flexGrow: 0, flexShrink: 0, width: SELF_SERVICE_SEGMENT_WIDTH * SELF_SERVICE_OPTIONS.length + 6 },
+  segmentFixed: { flexBasis: SELF_SERVICE_SEGMENT_WIDTH, flexGrow: 0, flexShrink: 0, minHeight: 32, width: SELF_SERVICE_SEGMENT_WIDTH },
+  dropdown: {
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderColor: COLORS.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  dropdownDisabled: { backgroundColor: COLORS.gray[100], opacity: 0.6 },
+  dropdownText: { color: COLORS.textPrimary, fontSize: 14 },
+  dropdownBackdrop: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.4)', flex: 1, justifyContent: 'center', padding: 24 },
+  dropdownSheet: { backgroundColor: COLORS.surface, borderRadius: 8, maxHeight: '70%', maxWidth: 420, padding: 16, width: '100%' },
+  dropdownOption: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', minHeight: 44 },
+  chipTextSelectedAccent: { color: COLORS.primary, fontWeight: '700' },
   segmentSelected: { backgroundColor: COLORS.surface },
   segmentText: { color: COLORS.textSecondary, fontSize: 13 },
   segmentTextSelected: { color: COLORS.primary, fontWeight: '700' },
