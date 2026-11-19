@@ -61,8 +61,6 @@ aws iam create-open-id-connect-provider --url https://token.actions.githubuserco
 
 **Done when** you have the provider ARN, `arn:aws:iam::<dev-account-id>:oidc-provider/token.actions.githubusercontent.com`.
 
-**Note:** OIDC Provider could already exist if the backend `tour-data-api` repo has set it up. In that case, reuse the existing provider ARN - can't have 2 providers for the same URL.
-
 ### 4. Web hosting stack
 
 **Who:** dev account admin.
@@ -89,9 +87,7 @@ The stack `tour-mgmt-web-<env>` is defined in [`infra/web.yaml`](../../infra/web
    make web-infra ENV=dev AWS_PROFILE=<dev-admin>
    ```
 
-   **Note:** If WebPulisherRole is not present, then check and use that was created by `tour-data-api` backend stack.
-
-3. The command prints the stack outputs. Record `SiteUrl` for [step 5](#5-cors-handoff) and `PublisherRoleArn` for `WEB_DEV_ROLE_ARN`.
+3. The command prints the stack outputs. Record `SiteUrl` for [step 5](#5-cors-handoff) and `PublisherRoleArn` for `WEB_DEV_ROLE_ARN`. This stack owns the publisher role; tour-data-api does not provide one. The value is a role ARN (`arn:aws:iam::<id>:role/...`), not the provider ARN from step 3. If the output is missing, the OIDC keys were empty: set them and deploy again.
 
 **Done when** this prints the role ARN:
 
@@ -356,7 +352,7 @@ _Out of scope for now. GitHub Free private repositories do not support branch pr
 | "Run this workflow on develop (dev) or main (prod)" | You started it on another branch or a tag |
 | "Not configured for dev/prod: ..." | Set the listed secret, variable or `eas.json` value ([GitHub settings](#8-github-settings)) |
 | **AWS** | |
-| "Could not assume role" / "Not authorized to perform sts:AssumeRoleWithWebIdentity" | Wrong role ARN, or the role does not trust this branch. Make sure no `environment:` key was added to the job |
+| "Could not assume role" / "Not authorized to perform sts:AssumeRoleWithWebIdentity" | Wrong role ARN, or the role does not trust this branch. Its trust `sub` must be exactly `repo:kvijay77-in/tour-mgmt-app:ref:refs/heads/<branch>` (check with `aws iam get-role`). Make sure no `environment:` key was added to the job |
 | "Missing or empty SSM parameters" | The backend has not published that value; contact the backend team. Locally, also check that `AWS_PROFILE` points at the right account and `CONFIG_AWS_REGION` at the right region |
 | Local publish: *AccessDenied* on `ssm:GetParametersByPath` | Your profile needs read access to `/tour-data-api/<env>/mgmt` ([step 1](#1-tools-and-access)) |
 | *Wrong AWS account* (local) | The profile does not match `WEB_AWS_ACCOUNT_ID` |
