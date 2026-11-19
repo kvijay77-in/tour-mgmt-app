@@ -9,7 +9,7 @@ run-name: Deploy ${{ inputs.target }} from ${{ github.ref_name }}
 #
 # Backend values (EXPO_PUBLIC_*) come from tour-data-api's SSM handover on every run. Jobs that assume
 # AWS roles must not use `environment:`; it changes the OIDC subject and AWS rejects the role.
-# Setup: docs/guides/deployment-workflow.md
+# Setup: docs/guides/deployment.md
 
 on:
   workflow_dispatch:
@@ -109,7 +109,7 @@ jobs:
           if (( ${#missing[@]} )); then
             mapfile -t missing < <(printf '%s\n' "${missing[@]}" | sort -u)
             echo "::error::Not configured for $env: ${missing[*]}"
-            [[ "$env" == prod ]] && echo "::error::Production infrastructure may not be set up yet; see docs/guides/deployment-workflow.md"
+            [[ "$env" == prod ]] && echo "::error::Production infrastructure may not be set up yet; see docs/guides/deployment.md"
             exit 1
           fi
 

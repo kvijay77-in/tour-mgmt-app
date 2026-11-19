@@ -1,6 +1,6 @@
 # Project structure
 
-_Last updated: 2026-11-18_
+_Last updated: 2026-11-19_
 
 This is a navigational overview of the current repository, not an inventory of every file.
 
@@ -41,11 +41,11 @@ src/
 tools/                  backend-config.mjs (EAS/web backend values), setup-link generator, web.sh (web infra deploy and publish)
 infra/                  SAM hosting template (infra/web.yaml)
 Makefile                web-infra / web-publish targets
-.github/workflows/      deploy.yml (manual mobile and web build/deploy; see deployment-workflow.md)
+.github/workflows/      deploy.yml (manual mobile and web build/deploy; see deployment.md)
 .env.web.example        Web deployment config template
 docs/                   Requirements, design, guides, user guide, misc
 ```
 
-See [architecture](../design/architecture.md) for responsibilities and the [web deployment design](../design/web-deployment.md) for hosting. `samconfig.toml` supplies SAM deploy defaults for `infra/web.yaml`.
+See [architecture](../design/architecture.md) for responsibilities and the [deployment design](../design/deployment.md) for hosting. `samconfig.toml` supplies SAM deploy defaults for `infra/web.yaml`.
 
 Pure helper tests live under `src/utils/__tests__/` and `src/constants/__tests__/`.

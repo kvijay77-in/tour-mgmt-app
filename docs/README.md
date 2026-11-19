@@ -1,14 +1,14 @@
 # Documentation
 
-_Last updated: 2026-10-04_
+_Last updated: 2026-11-19_
 
 Start with the [non-technical user guide](user-guide/README.md) if you are using the app. Developers should read the [requirements index](requirements/README.md), [architecture](design/architecture.md) and [development guide](guides/development.md).
 
 | Area | Contents |
 | --- | --- |
 | [Requirements](requirements/README.md) | One functional requirement topic per file |
-| [Design](design/README.md) | Implemented app architecture and feature design, including [Test and Production variants](design/app-variants-and-environments.md) and [web deployment](design/web-deployment.md) |
-| [Guides](guides/README.md) | Development, configuration, structure, EAS release, the [variant build guide](guides/eas-build-and-release.md) and [web deployment](guides/web-deployment.md) |
+| [Design](design/README.md) | Implemented app architecture and feature design, including [Test and Production variants](design/app-variants-and-environments.md) and [deployment](design/deployment.md) |
+| [Guides](guides/README.md) | Development, configuration, structure, EAS release, the [variant build guide](guides/eas-build-and-release.md) and [deployment](guides/deployment.md) |
 | [User guide](user-guide/README.md) | Role-based day-to-day instructions |
 | [Misc](misc/README.md) | Historical and working notes; not current requirements |
 

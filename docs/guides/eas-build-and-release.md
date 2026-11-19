@@ -1,8 +1,8 @@
 # EAS build and release guide
 
-_Last updated: 2026-11-18_
+_Last updated: 2026-11-19_
 
-Use this guide to configure, build, submit and verify the Test and Production versions of tour-mgmt-app. The apps have separate store records and identifiers; the Test build is Dev-only. See the [app variants design](../design/app-variants-and-environments.md) for rationale and compliance decisions. Store builds normally run from the [deployment workflow](deployment-workflow.md): `develop` builds Test (profile `test`, EAS environment `preview`) and `main` builds Production (profile `production`, EAS environment `production`).
+Use this guide to configure, build, submit and verify the Test and Production versions of tour-mgmt-app. The apps have separate store records and identifiers; the Test build is Dev-only. See the [app variants design](../design/app-variants-and-environments.md) for rationale and compliance decisions. Store builds normally run from the deployment workflow; its prerequisites, settings and steps are in the [deployment guide](deployment.md). `develop` builds Test (profile `test`, EAS environment `preview`) and `main` builds Production (profile `production`, EAS environment `production`).
 
 ## 1. Prerequisites
 
@@ -82,17 +82,12 @@ npx eas-cli@latest env:set --name GOOGLE_SERVICES_JSON --value ./google-services
 
 The Test app uses the EAS environment `preview` and Production uses `production`. The EAS free plan has no custom environment names, so the Test environment cannot be renamed to `test`. `EXPO_PUBLIC_*` variables are bundled into the app; treat them as public configuration, never as secrets.
 
-The backend values are not set by hand any more. Before every build, the [deployment workflow](deployment-workflow.md#eas-environment-sync) reads them from the tour-data-api SSM handover. It then updates the environment, writing only values that changed.
+The workflow syncs the backend `EXPO_PUBLIC_*` values, including the reviewer variables in `production`, from the tour-data-api SSM handover before every build; see [EAS environment sync](deployment.md#eas-environment-sync) for the full variable table. Set only these by hand:
 
-| Variable | `preview` (Test) | `production` | Managed by |
-| --- | --- | --- | --- |
-| `EXPO_PUBLIC_AWS_REGION`, `_AWS_USER_POOL_ID`, `_AWS_USER_POOL_WEB_CLIENT_ID`, `_TOUR_DATA_API_BASE_URL` | Dev | Prod | Workflow (SSM) |
-| `EXPO_PUBLIC_AWS_IDENTITY_POOL_ID` | Dev, if published | Prod, if published | Workflow (SSM); removed while the backend has none |
-| `EXPO_PUBLIC_REVIEW_AWS_REGION`, `_USER_POOL_ID`, `_USER_POOL_WEB_CLIENT_ID`, `_TOUR_DATA_API_BASE_URL` | Not set | Dev | Workflow (SSM) |
-| `EXPO_PUBLIC_REVIEW_AWS_IDENTITY_POOL_ID` | Not set | Dev, if published | Workflow (SSM) |
-| `EXPO_PUBLIC_REVIEW_USERNAME` | Not set | Reviewer login | Workflow (GitHub variable `REVIEW_USERNAME`) |
-| `EXPO_PUBLIC_SETUP_HMAC_KEY` | As needed | As needed | By hand; the workflow does not touch it |
-| `GOOGLE_SERVICES_JSON` (file, secret) | Test Firebase file | Production Firebase file | By hand (section 4) |
+| Variable | `preview` (Test) | `production` |
+| --- | --- | --- |
+| `GOOGLE_SERVICES_JSON` (file, secret) | Test Firebase file | Production Firebase file (section 4) |
+| `EXPO_PUBLIC_SETUP_HMAC_KEY` | As needed | As needed |
 
 Each variable must belong to one environment only. A variable linked to both `preview` and `production` takes the same value in both, and writing it changes both. The workflow splits such variables automatically; when you add a variable by hand, select a single environment.
 
@@ -119,22 +114,7 @@ Confirm the EAS `preview` and `production` variables are populated before starti
 
 ## 7. Build and submit
 
-Run the [deployment workflow](deployment-workflow.md) with `target=mobile` (or `all`):
-
-- on `develop` for the Test app (TestFlight and the Play internal track, rolled out to internal testers);
-- on `main` for Production (TestFlight and the Play alpha track as a draft).
-
-The workflow runs lint, typecheck and tests, syncs the EAS environment, then starts `eas build --auto-submit --no-wait`. It does not wait for the build; follow the build and submission in the EAS dashboard.
-
-For a brand-new Android listing, run the first build with `platform=android` and `submit` off, then upload the AAB manually in Play Console. Once the listing is initialized and Play App Signing is active, later runs can submit. Review build logs and generated metadata before each release; EAS Submit does not replace human review of the target app and release track.
-
-Building from a terminal is still possible for emergencies. It does not sync the EAS environment, so first check it with the [dry run](deployment-workflow.md#eas-environment-sync):
-
-```sh
-npm run lint && npm run typecheck && npm test
-npx eas-cli@latest build -p all --profile test --auto-submit
-npx eas-cli@latest build -p all --profile production --auto-submit
-```
+Run the deployment workflow on `develop` for the Test app or on `main` for Production. The [deployment guide](deployment.md) covers the prerequisites, [first run](deployment.md#first-dev-run) (including the manual first Android upload), [inputs](deployment.md#running-a-deployment), [store tracks](deployment.md#store-submission) and [terminal builds for emergencies](deployment.md#local-and-emergency-publishing). Review build logs and generated metadata before each release; EAS Submit does not replace human review of the target app and release track.
 
 ### Emergency iOS ad hoc
 

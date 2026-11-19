@@ -22,7 +22,9 @@ IN_CI="${GITHUB_ACTIONS:-false}"
 # Allow-listed keys only; the env file is parsed, never sourced.
 INFRA_KEYS=(WEB_AWS_ACCOUNT_ID WEB_AWS_REGION WEB_STACK_NAME WEB_OWNER WEB_CSP WEB_CSP_MODE WEB_GITHUB_OIDC_PROVIDER_ARN WEB_GITHUB_OIDC_SUBJECT)
 BUILD_KEYS=(APP_VARIANT EXPO_PUBLIC_ENVIRONMENT EXPO_PUBLIC_LOG_LEVEL EXPO_PUBLIC_AWS_REGION EXPO_PUBLIC_AWS_USER_POOL_ID EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID EXPO_PUBLIC_AWS_IDENTITY_POOL_ID EXPO_PUBLIC_TOUR_DATA_API_BASE_URL EXPO_PUBLIC_USE_MOCK_DATA EXPO_PUBLIC_QR_DEV_FORMAT)
-ALLOWED=("${INFRA_KEYS[@]}" "${BUILD_KEYS[@]}")
+# Backend values: CI passes them in the environment; local publishes read them from SSM (never from the file).
+BACKEND_KEYS=(EXPO_PUBLIC_AWS_REGION EXPO_PUBLIC_AWS_USER_POOL_ID EXPO_PUBLIC_AWS_USER_POOL_WEB_CLIENT_ID EXPO_PUBLIC_AWS_IDENTITY_POOL_ID EXPO_PUBLIC_TOUR_DATA_API_BASE_URL)
+ALLOWED=("${INFRA_KEYS[@]}" "${BUILD_KEYS[@]}" CONFIG_AWS_REGION)
 
 declare -A CFG
 ENV_FILE=".env.web.${ENV_NAME}.local"
@@ -80,6 +82,23 @@ elif [[ "$ENV_NAME" == "prod" ]]; then
   [[ -z "$(git status --porcelain)" ]] || { echo "Prod publish requires a clean worktree" >&2; exit 1; }
   git fetch origin main
   git merge-base --is-ancestor HEAD origin/main || { echo "HEAD must be an ancestor of origin/main" >&2; exit 1; }
+fi
+
+if [[ "$IN_CI" != "true" ]]; then
+  # Local: read the backend values from the tour-data-api SSM handover, as the workflow does.
+  for k in "${BACKEND_KEYS[@]}"; do
+    if [[ -n "${CFG[$k]:-}" ]]; then echo "Ignoring $k from $ENV_FILE; backend values come from SSM" >&2; fi
+    unset "CFG[$k]"
+  done
+  SSM_PATH="/tour-data-api/${ENV_NAME}/mgmt"
+  PARAMS="$(aws ssm get-parameters-by-path --path "$SSM_PATH" --region "$(cfg CONFIG_AWS_REGION ap-south-1)" \
+    --query 'Parameters[].[Name,Value]' --output json)"
+  PARAMS_VAR=DEV_PARAMS; [[ "$ENV_NAME" == "prod" ]] && PARAMS_VAR=PROD_PARAMS
+  BACKEND_ENV="$(env "$PARAMS_VAR=$PARAMS" node tools/backend-config.mjs web-env --env "$ENV_NAME")"
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^(EXPO_PUBLIC_[A-Z0-9_]+)=(.*)$ ]]; then CFG[${BASH_REMATCH[1]}]="${BASH_REMATCH[2]}"; fi
+  done <<<"$BACKEND_ENV"
+  echo "Backend values read from $SSM_PATH"
 fi
 
 out() { aws cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue | [0]" --output text; }

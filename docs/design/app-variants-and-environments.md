@@ -1,6 +1,6 @@
 # App variants and environments
 
-_Last updated: 2026-11-18_
+_Last updated: 2026-11-19_
 
 This design defines two independently installable store apps built from the same code. `APP_VARIANT` is selected at build time; it does not add an in-app environment switch. The Test app always uses the Dev EAS environment, while the Production app uses Production except for the existing, narrowly scoped store-reviewer route.
 
@@ -28,7 +28,7 @@ Create a fresh App Store Connect and Google Play record for each identifier (fou
 | D9 | Use TestFlight external testing and Google Play testing tracks for Test distribution. iOS ad hoc distribution is an emergency-only fallback. |
 | D10 | Store builds only; defer OTA updates. Do not configure an EAS Update release workflow for these variants. |
 | D11 | Existing development-client and unit-testing workflows remain unchanged. Local mock data remains available for development only. |
-| D12 | Do not commit populated `.env` files or backend values. Build-time values are configured in the EAS `preview` (Test) and `production` environments; backend values are synced there from the tour-data-api SSM handover by the [deployment workflow](../guides/deployment-workflow.md). |
+| D12 | Do not commit populated `.env` files or backend values. Build-time values are configured in the EAS `preview` (Test) and `production` environments; backend values are synced there from the tour-data-api SSM handover by the [deployment workflow](../guides/deployment.md). |
 | D13 | Register a separate Firebase Android app and FCM configuration for each package. A compatible APNs authentication key may be shared between the iOS apps. |
 | D14 | The existing rider “Delete my account” behavior deletes the Cognito account only; it does not imply deletion of API-owned records. |
 
