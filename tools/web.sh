@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Web hosting infra deploy and publish. Usage: tools/web.sh infra|publish --env dev|prod [--dry-run]
+# Web hosting infra deploy and publish. Usage: tools/web.sh infra|publish --env dev|prod [--dry-run] [--skip-checks]
 set -euo pipefail
 
 CMD="${1:-}"; shift || true
-ENV_NAME=""; DRY_RUN=false
+ENV_NAME=""; DRY_RUN=false; SKIP_CHECKS=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) ENV_NAME="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --skip-checks) SKIP_CHECKS=true; shift ;;
     *) echo "Unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[[ "$CMD" == "infra" || "$CMD" == "publish" ]] || { echo "Usage: $0 infra|publish --env dev|prod [--dry-run]" >&2; exit 2; }
+[[ "$CMD" == "infra" || "$CMD" == "publish" ]] || { echo "Usage: $0 infra|publish --env dev|prod [--dry-run] [--skip-checks]" >&2; exit 2; }
 [[ "$ENV_NAME" == "dev" || "$ENV_NAME" == "prod" ]] || { echo "--env must be dev or prod" >&2; exit 2; }
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,8 +72,11 @@ fi
 
 # ---- publish ----
 SHA="$(git rev-parse HEAD)"
-if [[ "$ENV_NAME" == "prod" ]]; then
-  [[ "$IN_CI" != "true" ]] || { echo "Prod publish from CI is not allowed" >&2; exit 1; }
+if [[ "$IN_CI" == "true" ]]; then
+  # CI: each environment publishes only from its own branch (develop -> dev, main -> prod).
+  REQUIRED_REF=refs/heads/develop; [[ "$ENV_NAME" == "prod" ]] && REQUIRED_REF=refs/heads/main
+  [[ "${GITHUB_REF:-}" == "$REQUIRED_REF" ]] || { echo "CI publish to $ENV_NAME requires $REQUIRED_REF (got ${GITHUB_REF:-none})" >&2; exit 1; }
+elif [[ "$ENV_NAME" == "prod" ]]; then
   [[ -z "$(git status --porcelain)" ]] || { echo "Prod publish requires a clean worktree" >&2; exit 1; }
   git fetch origin main
   git merge-base --is-ancestor HEAD origin/main || { echo "HEAD must be an ancestor of origin/main" >&2; exit 1; }
@@ -85,9 +89,13 @@ for v in "$BUCKET" "$DIST_ID" "$SITE_URL"; do
 done
 
 npm ci
-npm run lint
-npm run typecheck
-npm test
+if $SKIP_CHECKS; then
+  echo "Skipping lint, typecheck and tests (--skip-checks)"
+else
+  npm run lint
+  npm run typecheck
+  npm test
+fi
 
 OUT_DIR="dist/web-${ENV_NAME}"
 rm -rf "$OUT_DIR"

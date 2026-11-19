@@ -1,6 +1,6 @@
 # App variants, distribution and organization setup
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-11-18_
 
 The store offers two separately installed variants from the same codebase. Production uses bundle/package ID `com.tourmgmt.app` and scheme `tour-mgmt-app`; Test uses `com.tourmgmt.app.dev` and `tour-mgmt-app-dev`. EAS selects the variant at build time. Test builds use Dev credentials only; Production defaults to Prod and retains the configured store-reviewer routing. See [app variants and environments](app-variants-and-environments.md) and the [EAS build and release guide](../guides/eas-build-and-release.md).
 
@@ -19,4 +19,4 @@ flowchart TD
   Change --> Home
 ```
 
-`tools/setup-link-generator.html` is a publisher-side setup tool; `tools/push-eas-env.sh` helps configure EAS build environments. Keep signing material and organizer-specific settings out of public documentation. Consult [configuration](../guides/configuration.md), [release](../guides/release.md) and the detailed [EAS build guide](../guides/eas-build-and-release.md). The backend [deployment guide](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/guides/deployment.md) owns infrastructure instructions.
+`tools/setup-link-generator.html` is a publisher-side setup tool; `tools/backend-config.mjs` syncs the backend values into the EAS build environments from the [deployment workflow](../guides/deployment-workflow.md). Keep signing material and organizer-specific settings out of public documentation. Consult [configuration](../guides/configuration.md), [release](../guides/release.md) and the detailed [EAS build guide](../guides/eas-build-and-release.md). The backend [deployment guide](https://github.com/kvijay77-in/tour-data-api/blob/main/docs/guides/deployment.md) owns infrastructure instructions.
