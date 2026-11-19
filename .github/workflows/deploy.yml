@@ -1,0 +1,315 @@
+name: Deploy
+run-name: Deploy ${{ inputs.target }} from ${{ github.ref_name }}
+
+# Manual build and deployment of the mobile apps (EAS Build + store submit) and the web app (S3 + CloudFront).
+# The branch chosen in "Run workflow" decides the environment:
+#   develop -> dev:  EAS profile `test` (com.tourmgmt.app.dev), EAS environment `preview`, web stack dev
+#   main    -> prod: EAS profile `production` (com.tourmgmt.app), EAS environment `production`, web stack prod
+# Any other branch or tag fails before AWS or EAS is called.
+#
+# Backend values (EXPO_PUBLIC_*) come from tour-data-api's SSM handover on every run. Jobs that assume
+# AWS roles must not use `environment:`; it changes the OIDC subject and AWS rejects the role.
+# Setup: docs/guides/deployment.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: What to build and deploy
+        type: choice
+        options: [all, mobile, web]
+        default: all
+      platform:
+        description: Mobile platform(s)
+        type: choice
+        options: [all, android, ios]
+        default: all
+      submit:
+        description: Submit mobile builds to the stores when they finish (--auto-submit)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONFIG_AWS_REGION: ${{ vars.CONFIG_AWS_REGION || 'ap-south-1' }}
+
+jobs:
+  resolve:
+    name: Resolve environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      env: ${{ steps.map.outputs.env }}
+      eas_env: ${{ steps.map.outputs.eas_env }}
+      eas_profile: ${{ steps.map.outputs.eas_profile }}
+      mobile: ${{ steps.map.outputs.mobile }}
+      web: ${{ steps.map.outputs.web }}
+      read_dev: ${{ steps.map.outputs.read_dev }}
+      read_prod: ${{ steps.map.outputs.read_prod }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: map
+        env:
+          REF: ${{ github.ref }}
+          TARGET: ${{ inputs.target }}
+          PLATFORM: ${{ inputs.platform }}
+          SUBMIT: ${{ inputs.submit }}
+          HAS_EXPO_TOKEN: ${{ secrets.EXPO_TOKEN != '' }}
+          CONFIG_ROLE_DEV: ${{ vars.AWS_CONFIG_READ_ROLE_ARN_DEV }}
+          CONFIG_ROLE_PROD: ${{ vars.AWS_CONFIG_READ_ROLE_ARN_PROD }}
+          REVIEW_USERNAME: ${{ vars.REVIEW_USERNAME }}
+          WEB_DEV_ROLE_ARN: ${{ vars.WEB_DEV_ROLE_ARN }}
+          WEB_DEV_AWS_ACCOUNT_ID: ${{ vars.WEB_DEV_AWS_ACCOUNT_ID }}
+          WEB_PROD_ROLE_ARN: ${{ vars.WEB_PROD_ROLE_ARN }}
+          WEB_PROD_AWS_ACCOUNT_ID: ${{ vars.WEB_PROD_AWS_ACCOUNT_ID }}
+        run: |
+          case "$REF" in
+            refs/heads/develop) env=dev;  eas_env=preview;    eas_profile=test ;;
+            refs/heads/main)    env=prod; eas_env=production; eas_profile=production ;;
+            *) echo "::error::Run this workflow on develop (dev) or main (prod), not $REF"; exit 1 ;;
+          esac
+          mobile=false; web=false
+          [[ "$TARGET" == all || "$TARGET" == mobile ]] && mobile=true
+          [[ "$TARGET" == all || "$TARGET" == web ]] && web=true
+
+          # Fail fast when a setting is unset or still a <placeholder>.
+          missing=()
+          need() { [[ -n "$2" && "$2" != \<* ]] || missing+=("$1"); }
+          if $mobile; then
+            [[ "$HAS_EXPO_TOKEN" == true ]] || missing+=("secret EXPO_TOKEN")
+            need "variable AWS_CONFIG_READ_ROLE_ARN_DEV" "$CONFIG_ROLE_DEV"
+            if [[ "$env" == prod ]]; then
+              need "variable AWS_CONFIG_READ_ROLE_ARN_PROD" "$CONFIG_ROLE_PROD"
+              need "variable REVIEW_USERNAME" "$REVIEW_USERNAME"
+              if [[ "$SUBMIT" == true && "$PLATFORM" != android ]]; then
+                need "eas.json submit.production.ios.ascAppId" "$(jq -r '.submit.production.ios.ascAppId // empty' eas.json)"
+              fi
+            fi
+          fi
+          if $web; then
+            if [[ "$env" == dev ]]; then
+              need "variable AWS_CONFIG_READ_ROLE_ARN_DEV" "$CONFIG_ROLE_DEV"
+              need "variable WEB_DEV_ROLE_ARN" "$WEB_DEV_ROLE_ARN"
+              need "variable WEB_DEV_AWS_ACCOUNT_ID" "$WEB_DEV_AWS_ACCOUNT_ID"
+            else
+              need "variable AWS_CONFIG_READ_ROLE_ARN_PROD" "$CONFIG_ROLE_PROD"
+              need "variable WEB_PROD_ROLE_ARN" "$WEB_PROD_ROLE_ARN"
+              need "variable WEB_PROD_AWS_ACCOUNT_ID" "$WEB_PROD_AWS_ACCOUNT_ID"
+            fi
+          fi
+          if (( ${#missing[@]} )); then
+            mapfile -t missing < <(printf '%s\n' "${missing[@]}" | sort -u)
+            echo "::error::Not configured for $env: ${missing[*]}"
+            [[ "$env" == prod ]] && echo "::error::Production infrastructure may not be set up yet; see docs/guides/deployment.md"
+            exit 1
+          fi
+
+          # Production mobile builds also need dev values (store-reviewer routing).
+          read_dev=false; read_prod=false
+          [[ "$env" == dev ]] && read_dev=true
+          $mobile && read_dev=true
+          [[ "$env" == prod ]] && read_prod=true
+
+          {
+            echo "env=$env"; echo "eas_env=$eas_env"; echo "eas_profile=$eas_profile"
+            echo "mobile=$mobile"; echo "web=$web"; echo "read_dev=$read_dev"; echo "read_prod=$read_prod"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy plan"
+            echo "| Branch | Environment | Mobile | Web |"
+            echo "|---|---|---|---|"
+            m="no"; $mobile && m="profile \`$eas_profile\`, EAS env \`$eas_env\`, platform \`$PLATFORM\`, submit \`$SUBMIT\`"
+            w="no"; $web && w="stack \`$env\`"
+            echo "| \`${REF#refs/heads/}\` | $env | $m | $w |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: Lint, typecheck, test
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  read-dev:
+    name: Read dev backend config
+    needs: resolve
+    if: needs.resolve.outputs.read_dev == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      params: ${{ steps.read.outputs.params }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_CONFIG_READ_ROLE_ARN_DEV }}
+          aws-region: ${{ env.CONFIG_AWS_REGION }}
+          retry-max-attempts: 3
+      - id: read
+        run: |
+          params=$(aws ssm get-parameters-by-path --path /tour-data-api/dev/mgmt \
+            --query 'Parameters[].[Name,Value]' --output json | jq -c .)
+          echo "Read $(jq length <<<"$params") parameter(s) from /tour-data-api/dev/mgmt"
+          echo "params=$params" >> "$GITHUB_OUTPUT"
+
+  read-prod:
+    name: Read prod backend config
+    needs: resolve
+    if: needs.resolve.outputs.read_prod == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      params: ${{ steps.read.outputs.params }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_CONFIG_READ_ROLE_ARN_PROD }}
+          aws-region: ${{ env.CONFIG_AWS_REGION }}
+          retry-max-attempts: 3
+      - id: read
+        run: |
+          params=$(aws ssm get-parameters-by-path --path /tour-data-api/prod/mgmt \
+            --query 'Parameters[].[Name,Value]' --output json | jq -c .)
+          echo "Read $(jq length <<<"$params") parameter(s) from /tour-data-api/prod/mgmt"
+          echo "params=$params" >> "$GITHUB_OUTPUT"
+
+  mobile:
+    name: Mobile (EAS sync + build)
+    needs: [resolve, verify, read-dev, read-prod]
+    if: >-
+      !cancelled()
+      && needs.resolve.outputs.mobile == 'true'
+      && needs.verify.result == 'success'
+      && needs.read-dev.result == 'success'
+      && (needs.resolve.outputs.env == 'dev' || needs.read-prod.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EAS_CLI: eas
+      EAS_ENV: ${{ needs.resolve.outputs.eas_env }}
+      EAS_PROFILE: ${{ needs.resolve.outputs.eas_profile }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install latest eas-cli
+        run: npm install --global eas-cli@latest && eas --version && eas whoami
+
+      - name: Sync EAS environment from backend config
+        env:
+          DEV_PARAMS: ${{ needs.read-dev.outputs.params }}
+          PROD_PARAMS: ${{ needs.read-prod.outputs.params }}
+          REVIEW_USERNAME: ${{ vars.REVIEW_USERNAME }}
+        run: node tools/backend-config.mjs sync-eas --environment "$EAS_ENV"
+
+      - name: Start EAS build
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          SUBMIT: ${{ inputs.submit }}
+          MESSAGE: "GitHub run ${{ github.run_number }} (${{ github.ref_name }} ${{ github.sha }})"
+        run: |
+          args=(build --profile "$EAS_PROFILE" --platform "$PLATFORM" --non-interactive --no-wait
+                --freeze-credentials --json --message "${MESSAGE:0:120}")
+          [[ "$SUBMIT" == true ]] && args+=(--auto-submit)
+          eas "${args[@]}" > builds.json
+          owner=$(jq -r .expo.owner app.json); slug=$(jq -r .expo.slug app.json)
+          {
+            echo "### EAS builds queued (profile \`$EAS_PROFILE\`, submit \`$SUBMIT\`)"
+            echo "| Platform | Build |"
+            echo "|---|---|"
+            jq -r --arg o "$owner" --arg s "$slug" \
+              '.[] | "| \(.platform) | https://expo.dev/accounts/\($o)/projects/\($s)/builds/\(.id) |"' builds.json
+            echo
+            echo "The run does not wait for the builds. Watch progress and store submissions in the EAS dashboard."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  web:
+    name: Web (build + publish)
+    needs: [resolve, verify, read-dev, read-prod]
+    if: >-
+      !cancelled()
+      && needs.resolve.outputs.web == 'true'
+      && needs.verify.result == 'success'
+      && ((needs.resolve.outputs.env == 'dev' && needs.read-dev.result == 'success')
+          || (needs.resolve.outputs.env == 'prod' && needs.read-prod.result == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      WEB_ENV: ${{ needs.resolve.outputs.env }}
+      WEB_AWS_REGION: ${{ vars.WEB_AWS_REGION || 'ap-south-1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - id: target
+        env:
+          DEV_ROLE: ${{ vars.WEB_DEV_ROLE_ARN }}
+          DEV_ACCOUNT: ${{ vars.WEB_DEV_AWS_ACCOUNT_ID }}
+          DEV_STACK: ${{ vars.WEB_DEV_STACK_NAME }}
+          PROD_ROLE: ${{ vars.WEB_PROD_ROLE_ARN }}
+          PROD_ACCOUNT: ${{ vars.WEB_PROD_AWS_ACCOUNT_ID }}
+          PROD_STACK: ${{ vars.WEB_PROD_STACK_NAME }}
+        run: |
+          case "$WEB_ENV" in
+            dev)  role=$DEV_ROLE;  account=$DEV_ACCOUNT;  stack=$DEV_STACK ;;
+            prod) role=$PROD_ROLE; account=$PROD_ACCOUNT; stack=$PROD_STACK ;;
+            *) echo "::error::Unknown web environment $WEB_ENV"; exit 1 ;;
+          esac
+          [[ -n "$role" && -n "$account" ]] || { echo "::error::Web role or account not configured for $WEB_ENV"; exit 1; }
+          { echo "role=$role"; echo "account=$account"; } >> "$GITHUB_OUTPUT"
+          { echo "WEB_AWS_ACCOUNT_ID=$account"; [[ -n "$stack" ]] && echo "WEB_STACK_NAME=$stack"; true; } >> "$GITHUB_ENV"
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.target.outputs.role }}
+          aws-region: ${{ env.WEB_AWS_REGION }}
+          allowed-account-ids: ${{ steps.target.outputs.account }}
+          retry-max-attempts: 3
+
+      - name: Backend config for the web build
+        env:
+          DEV_PARAMS: ${{ needs.read-dev.outputs.params }}
+          PROD_PARAMS: ${{ needs.read-prod.outputs.params }}
+        run: node tools/backend-config.mjs web-env --env "$WEB_ENV" >> "$GITHUB_ENV"
+
+      # Lint, typecheck and tests already ran in the verify job.
+      - run: bash tools/web.sh publish --env "$WEB_ENV" --skip-checks
