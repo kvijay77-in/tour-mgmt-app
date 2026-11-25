@@ -8,3 +8,6 @@ Expo/React Native app for cycling-tour organizers, pit-stop crews, hotel staff a
 - Sibling repositories: [tour-data-api](https://github.com/kvijay77-in/tour-data-api) (API, permissions and infrastructure), [tour-rider-app](https://github.com/kvijay77-in/tour-rider-app) (rider experience), [cycling-tour-platform](https://github.com/kvijay77-in/cycling-tour-platform) (platform website and glossary).
 
 For local setup, see the [development guide](docs/guides/development.md). For app builds and distribution, see the [release guide](docs/guides/release.md).
+
+## License
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). Free for learning and non-commercial use. For commercial use, contact [kvijay77.in@gmail.com].
