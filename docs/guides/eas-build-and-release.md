@@ -69,13 +69,15 @@ Run `npx eas-cli@latest credentials` and select each platform/profile/app as pro
 - Configure an Android upload keystore and enable Play App Signing. Back up the upload keystore and recovery information securely outside the repository.
 - Invite a Google service account in Play Console with the release permissions needed by EAS Submit.
 - Create a separate Firebase Android app for each package and enable FCM. Download a matching `google-services.json` for each app.
-- Upload each Firebase file as an EAS **file** environment variable named `GOOGLE_SERVICES_JSON`: Test file in `preview`, Production file in `production`. Set the variable visibility to secret. The app config uses the supplied file only when the variable exists. The repository ignores `google-services*.json`.
+- Upload each Firebase file as an EAS **file** environment variable named `GOOGLE_SERVICES_JSON`: Test file in `preview`, Production file in `production`. Set the variable visibility to sensitive: the file's contents are compiled into the app binary, so `secret` adds no protection and makes EAS warn about hidden values in the app config. The app config uses the supplied file only when the variable exists. The repository ignores `google-services*.json`.
 - Configure Firebase Cloud Messaging v1 credentials for Expo Push Service using the matching project. Do not mix the Test and Production Firebase projects.
 
-`google-services.json` files should be uploaded as EAS **file** environment variables and kept secret.
+`google-services.json` files must be uploaded as EAS **file** environment variables (`--type file`). Without `--type file`, EAS stores the path text instead of the file, and the build fails in Prebuild with `"google-services.json" is missing`. Run the command from the folder that holds the matching Firebase file.
+
+The file is not a secret: its API key and IDs are readable in any built APK. Protect the project by restricting the API key to the Android package and signing SHA-1 in Google Cloud Console, and keep the FCM service-account key out of the app.
 
 ```sh
-npx eas-cli@latest env:set --name GOOGLE_SERVICES_JSON --value ./google-services.json **--environment preview** --visibility secret
+npx eas-cli@latest env:set --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json --environment preview --visibility sensitive --scope project
 ```
 
 ## 5. Configure EAS environments
@@ -86,7 +88,7 @@ The workflow syncs the backend `EXPO_PUBLIC_*` values, including the reviewer va
 
 | Variable | `preview` (Test) | `production` |
 | --- | --- | --- |
-| `GOOGLE_SERVICES_JSON` (file, secret) | Test Firebase file | Production Firebase file (section 4) |
+| `GOOGLE_SERVICES_JSON` (file, sensitive) | Test Firebase file | Production Firebase file (section 4) |
 | `EXPO_PUBLIC_SETUP_HMAC_KEY` | As needed | As needed |
 
 Each variable must belong to one environment only. A variable linked to both `preview` and `production` takes the same value in both, and writing it changes both. The workflow splits such variables automatically; when you add a variable by hand, select a single environment.
@@ -170,5 +172,5 @@ Supply working reviewer credentials and clear sign-in instructions in App Review
 | EAS Submit targets the wrong listing/track | Verify `ascAppId` or Android `track` under the chosen submit profile and the build's bundle ID/package before submitting. |
 | First Android auto-submit fails | Upload the first AAB manually in Play Console and enable Play App Signing before using EAS Submit for later releases. |
 | Store build number conflict | Run `npx eas-cli@latest build:version:set` and confirm the remote version for the correct app/platform. |
-| `googleServicesFile` points to a missing local path | Check that the selected EAS environment contains `GOOGLE_SERVICES_JSON` as a file variable. The property is intentionally omitted if the variable is absent. |
+| `googleServicesFile` points to a missing local path (`"google-services.json" is missing` in Prebuild) | Run `npx eas-cli@latest env:list --environment <env> --format long` and check that `GOOGLE_SERVICES_JSON` has `type file`. A `string` variable holds only the path text; delete it and recreate it with `--type file`. The property is intentionally omitted if the variable is absent. |
 | TestFlight build expires | TestFlight builds expire after 90 days; build and distribute a replacement. |

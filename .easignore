@@ -22,6 +22,11 @@ ios/
 *.jks
 *.keystore
 
+# Firebase config comes from the EAS file variable GOOGLE_SERVICES_JSON.
+# Excluding the local copy makes local builds fail the same way CI does
+# if that variable is missing or has the wrong type.
+google-services*.json
+
 # -- Project-specific exclusions --
 
 # Backend snapshot — reference only, not needed to build the mobile app.

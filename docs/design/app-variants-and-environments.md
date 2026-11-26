@@ -81,7 +81,7 @@ Configure app-specific values in the EAS environment; public `EXPO_PUBLIC_*` val
 | `EXPO_PUBLIC_TOUR_DATA_API_BASE_URL` | Dev | Prod |
 | `EXPO_PUBLIC_REVIEW_USERNAME` | Not set | Reviewer email |
 | `EXPO_PUBLIC_REVIEW_AWS_REGION`, `EXPO_PUBLIC_REVIEW_AWS_USER_POOL_ID`, `EXPO_PUBLIC_REVIEW_AWS_USER_POOL_WEB_CLIENT_ID`, `EXPO_PUBLIC_REVIEW_AWS_IDENTITY_POOL_ID`, `EXPO_PUBLIC_REVIEW_TOUR_DATA_API_BASE_URL` | Not set | Dev |
-| `GOOGLE_SERVICES_JSON` (file, secret) | Test Firebase `google-services.json` | Production Firebase `google-services.json` |
+| `GOOGLE_SERVICES_JSON` (file, sensitive) | Test Firebase `google-services.json` | Production Firebase `google-services.json` |
 
 Never define reviewer routing in `preview`: the Test app has no Production backend path. Keep service-account keys and Firebase files out of source control.
 
